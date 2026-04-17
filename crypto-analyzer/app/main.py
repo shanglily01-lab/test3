@@ -129,11 +129,23 @@ async def lifespan(app: FastAPI):
     try:
         from app.collectors.price_collector import MultiExchangeCollector
         from app.collectors.mock_price_collector import MockPriceCollector
-        from app.collectors.news_collector import NewsAggregator
-        from app.analyzers.technical_indicators import TechnicalIndicators
-        from app.analyzers.sentiment_analyzer import SentimentAnalyzer
-        from app.analyzers.signal_generator import SignalGenerator
-        # 启用缓存版Dashboard，提升性能
+        # 以下 analyzers/news 已在 AWS 清理中移除，失败不影响其他初始化
+        try:
+            from app.collectors.news_collector import NewsAggregator  # type: ignore
+        except ImportError:
+            NewsAggregator = None  # type: ignore
+        try:
+            from app.analyzers.technical_indicators import TechnicalIndicators  # type: ignore
+        except ImportError:
+            TechnicalIndicators = None  # type: ignore
+        try:
+            from app.analyzers.sentiment_analyzer import SentimentAnalyzer  # type: ignore
+        except ImportError:
+            SentimentAnalyzer = None  # type: ignore
+        try:
+            from app.analyzers.signal_generator import SignalGenerator  # type: ignore
+        except ImportError:
+            SignalGenerator = None  # type: ignore
         from app.api.enhanced_dashboard_cached import EnhancedDashboardCached as EnhancedDashboard
 
         logger.info("🔄 开始初始化分析模块...")
@@ -1735,7 +1747,9 @@ async def _generate_trading_signal(symbol: str, timeframe: str = '1h'):
         symbol: 交易对（已格式化为BTC/USDT格式）
         timeframe: 时间周期
     """
-    # 1. 获取价格
+    if technical_analyzer is None or signal_generator is None:
+        raise RuntimeError("technical/signal analyzer unavailable (cleaned for AWS deploy)")
+
     price_data = await price_collector.fetch_best_price(symbol)
     if not price_data:
         raise ValueError(f"无法获取{symbol}价格")

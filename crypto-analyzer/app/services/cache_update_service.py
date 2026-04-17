@@ -11,10 +11,24 @@ import pandas as pd
 from sqlalchemy import text
 
 from app.database.db_service import DatabaseService
-from app.database.hyperliquid_db import HyperliquidDB
-from app.analyzers.technical_indicators import TechnicalIndicators
-from app.analyzers.enhanced_investment_analyzer import EnhancedInvestmentAnalyzer
-from app.services.hyperliquid_token_mapper import get_token_mapper
+# Hyperliquid 及 analyzers 已在 AWS 清理中移除，相关缓存方法会退化为空实现
+try:
+    from app.database.hyperliquid_db import HyperliquidDB  # type: ignore
+except ImportError:
+    HyperliquidDB = None  # type: ignore
+try:
+    from app.analyzers.technical_indicators import TechnicalIndicators  # type: ignore
+except ImportError:
+    TechnicalIndicators = None  # type: ignore
+try:
+    from app.analyzers.enhanced_investment_analyzer import EnhancedInvestmentAnalyzer  # type: ignore
+except ImportError:
+    EnhancedInvestmentAnalyzer = None  # type: ignore
+try:
+    from app.services.hyperliquid_token_mapper import get_token_mapper  # type: ignore
+except ImportError:
+    def get_token_mapper():  # type: ignore
+        return None
 
 
 class CacheUpdateService:
@@ -29,8 +43,12 @@ class CacheUpdateService:
         """
         self.config = config
         self.db_service = DatabaseService(config.get('database', {}))
-        self.technical_analyzer = TechnicalIndicators(config.get('indicators', {}))
-        self.investment_analyzer = EnhancedInvestmentAnalyzer(config)
+        self.technical_analyzer = (
+            TechnicalIndicators(config.get('indicators', {})) if TechnicalIndicators else None
+        )
+        self.investment_analyzer = (
+            EnhancedInvestmentAnalyzer(config) if EnhancedInvestmentAnalyzer else None
+        )
         self.token_mapper = get_token_mapper()
 
         # 复用单个 PriceCollector，避免每次调用都重新初始化 Binance 客户端
@@ -201,7 +219,8 @@ class CacheUpdateService:
 
     async def update_technical_indicators_cache(self, symbols: List[str]):
         """更新技术指标缓存 - 支持多个时间周期（5m, 15m, 1h等）"""
-        # logger.info("📈 更新技术指标缓存...")  # 减少日志输出
+        if TechnicalIndicators is None:
+            return {'status': 'disabled', 'reason': 'TechnicalIndicators module removed in AWS cleanup'}
         
         # 定义要更新的时间周期
         timeframes = ['5m', '15m', '1h', '4h', '1d']
@@ -333,7 +352,8 @@ class CacheUpdateService:
 
     async def update_hyperliquid_aggregation(self, symbols: List[str]):
         """更新Hyperliquid聚合数据"""
-        # logger.info("🧠 更新Hyperliquid聚合缓存...")  # 减少日志输出
+        if HyperliquidDB is None:
+            return {'status': 'disabled', 'reason': 'HyperliquidDB removed in AWS cleanup'}
 
         try:
             with HyperliquidDB() as db:

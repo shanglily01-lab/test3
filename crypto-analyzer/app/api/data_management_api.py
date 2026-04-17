@@ -1295,7 +1295,10 @@ async def import_corporate_treasury_data(
                 raise HTTPException(status_code=400, detail="无法解析文本格式，请检查文件格式是否正确。确保文件格式为：排名数字、公司名、国旗+股票代码+持仓量（用制表符分隔）")
             
             # 导入持仓数据（与 bitcointreasuries.net 自动同步共用同一写入逻辑）
-            from app.services.corporate_treasury_holdings import upsert_corporate_holdings_batch
+            try:
+                from app.services.corporate_treasury_holdings import upsert_corporate_holdings_batch
+            except ImportError:
+                raise HTTPException(status_code=410, detail="corporate treasury feature removed in AWS cleanup")
 
             batch = upsert_corporate_holdings_batch(
                 cursor, companies, purchase_date, asset_type, "manual"

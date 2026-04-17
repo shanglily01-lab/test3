@@ -35,10 +35,12 @@ from typing import List, Dict
 
 from app.collectors.price_collector import MultiExchangeCollector
 from app.collectors.binance_futures_collector import BinanceFuturesCollector
-from app.collectors.news_collector import NewsAggregator
-from app.collectors.enhanced_news_collector import EnhancedNewsAggregator
-from app.collectors.smart_money_collector import SmartMoneyCollector
-from app.collectors.hyperliquid_collector import HyperliquidCollector
+# News / smart_money / hyperliquid 采集器已在 AWS 部署清理中移除
+# 保留 stub 变量以兼容下方条件判断（self.xxx_collector is None 时自动跳过）
+NewsAggregator = None  # type: ignore
+EnhancedNewsAggregator = None  # type: ignore
+SmartMoneyCollector = None  # type: ignore
+HyperliquidCollector = None  # type: ignore
 from app.database.db_service import DatabaseService
 # 合约监控服务已移至 main.py，不再在此导入
 from app.trading.auto_futures_trader import AutoFuturesTrader
@@ -76,16 +78,8 @@ class UnifiedDataScheduler:
         logger.info("初始化缓存更新服务...")
         self.cache_service = CacheUpdateService(self.config)
 
-        # 初始化 Binance 公告监控
-        try:
-            from app.services.binance_news_monitor import BinanceNewsMonitor
-            from app.services.trade_notifier import init_trade_notifier
-            _notifier = init_trade_notifier(self.config)
-            self.binance_news_monitor = BinanceNewsMonitor(db_config, notifier=_notifier)
-            logger.info("初始化 Binance 公告监控器 OK")
-        except Exception as e:
-            self.binance_news_monitor = None
-            logger.warning("Binance 公告监控器初始化失败: %s", e)
+        # Binance 公告监控器已在 AWS 部署清理中移除
+        self.binance_news_monitor = None
 
         # 任务统计
         self.task_stats = {
@@ -136,28 +130,12 @@ class UnifiedDataScheduler:
             self.futures_collector = None
             logger.info("  ⊗ 合约数据采集器 (未启用)")
 
-        # 2. 新闻采集器 (基础 + 增强)
-        self.news_aggregator = NewsAggregator(self.config)
-        self.enhanced_news_aggregator = EnhancedNewsAggregator(self.config)
-        logger.info("  ✓ 新闻采集器 (RSS, CryptoPanic, SEC, Twitter, CoinGecko)")
-
-        # 3. 聪明钱采集器 (Ethereum/BSC)
-        smart_money_config = self.config.get('smart_money', {})
-        if smart_money_config.get('enabled', False):
-            self.smart_money_collector = SmartMoneyCollector(self.config)
-            logger.info("  ✓ 聪明钱采集器 (Ethereum/BSC)")
-        else:
-            self.smart_money_collector = None
-            logger.info("  ⊗ 聪明钱采集器 (未启用)")
-
-        # 4. Hyperliquid 采集器
-        hyperliquid_config = self.config.get('hyperliquid', {})
-        if hyperliquid_config.get('enabled', False):
-            self.hyperliquid_collector = HyperliquidCollector(hyperliquid_config)
-            logger.info("  ✓ Hyperliquid 采集器")
-        else:
-            self.hyperliquid_collector = None
-            logger.info("  ⊗ Hyperliquid 采集器 (未启用)")
+        # 2/3/4. 新闻 / 聪明钱 / Hyperliquid 采集器已在 AWS 部署清理中移除
+        self.news_aggregator = None
+        self.enhanced_news_aggregator = None
+        self.smart_money_collector = None
+        self.hyperliquid_collector = None
+        logger.info("  ⊗ 新闻/聪明钱/Hyperliquid 采集器 (已清理)")
 
         # 5. 合约监控服务（已移至 main.py，由 FastAPI 生命周期管理，此处不再初始化）
         self.futures_monitor = None

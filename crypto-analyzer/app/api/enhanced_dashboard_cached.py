@@ -443,8 +443,11 @@ class EnhancedDashboardCached:
                   'recent_trades': [], 'top_coins': []}
 
         def _query():
-            from app.services.hyperliquid_token_mapper import get_token_mapper
-            token_mapper = get_token_mapper()
+            try:
+                from app.services.hyperliquid_token_mapper import get_token_mapper
+                token_mapper = get_token_mapper()
+            except ImportError:
+                return _empty
             session = self.db_service.get_session()
             try:
                 summary_row = session.execute(text(
