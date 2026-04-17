@@ -124,15 +124,40 @@ class PositionSLTPMonitor:
                 f"[SL/TP Monitor] 触发平仓 pid={pid} {symbol} {side} "
                 f"reason={reason} price={price:.6f} SL={sl} TP={tp}"
             )
+            # 进冷却：无论成功失败，都在 cooldown 内不再尝试这个 pid，
+            # 避免同一 pid 在 commit 与下一轮扫描之间被反复触发刷日志。
+            self._cooldown[pid] = now + self._cooldown_seconds
             try:
-                self.engine.close_position(
+                result = self.engine.close_position(
                     position_id=pid,
                     reason=reason,
                     close_price=Decimal(str(trigger_price)),
                 )
             except Exception as e:
-                logger.error(f"[SL/TP Monitor] close_position 失败 pid={pid}: {e}")
-                self._cooldown[pid] = now + self._cooldown_seconds
+                logger.exception(f"[SL/TP Monitor] close_position 抛异常 pid={pid}: {e}")
+                continue
+
+            if not isinstance(result, dict):
+                logger.error(f"[SL/TP Monitor] close_position 返回非 dict pid={pid}: {result!r}")
+                continue
+
+            if result.get("success"):
+                if result.get("already_closed"):
+                    logger.info(f"[SL/TP Monitor] pid={pid} 已在别处平仓，跳过")
+                else:
+                    logger.info(
+                        f"[SL/TP Monitor] ✅ 平仓成功 pid={pid} {symbol} {side} "
+                        f"realized_pnl={result.get('realized_pnl')} "
+                        f"pnl_pct={result.get('pnl_pct')} "
+                        f"exit_price={result.get('exit_price')}"
+                    )
+            else:
+                # 失败放长冷却，防止疯狂刷屏
+                self._cooldown[pid] = now + max(self._cooldown_seconds, 60.0)
+                logger.error(
+                    f"[SL/TP Monitor] ❌ 平仓失败 pid={pid} {symbol} {side} "
+                    f"err={result.get('error')} msg={result.get('message')} reason={result.get('reason')}"
+                )
 
     def _fetch_open_positions(self) -> List[Dict[str, Any]]:
         sql = (
