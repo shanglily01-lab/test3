@@ -256,9 +256,25 @@ async def lifespan(app: FastAPI):
         # 合约限价单自动执行器已移除（archived）
         futures_limit_order_executor = None
 
-        # 合约止盈止损监控服务已停用（平仓逻辑已统一到SmartExitOptimizer）
-        # 所有止盈止损、超时平仓逻辑现在由 smart_trader_service.py 中的 SmartExitOptimizer 统一处理
+        # 合约止盈止损监控服务（轻量版）：
+        # 原先依赖 smart_trader_service.py/smart_exit_optimizer.py，已在清理阶段删除；
+        # 现由 app/services/position_sl_tp_monitor.py 轻量扫描价格并触发平仓。
+        # 只监控 source='dimension_trader:*' 的仓位，不干扰其他部署。
         futures_monitor_service = None
+        try:
+            from app.services.position_sl_tp_monitor import init_sl_tp_monitor
+            from app.api.futures_api import engine as _futures_engine
+            sl_tp_monitor = init_sl_tp_monitor(
+                _futures_engine,
+                interval_seconds=3.0,
+                source_filter="dimension_trader:%",
+            )
+            sl_tp_monitor.start()
+            logger.info("✅ 持仓止盈止损监控服务已启动 (每3秒扫描, 仅 dimension_trader 仓位)")
+        except Exception as e:
+            logger.error(f"❌ 持仓止盈止损监控服务启动失败: {e}")
+            import traceback
+            traceback.print_exc()
 
         # 初始化实盘订单监控服务（限价单成交后自动设置止损止盈）
         try:
@@ -698,13 +714,21 @@ async def lifespan(app: FastAPI):
     #     except Exception as e:
     #         logger.warning(f"⚠️  停止合约限价单自动执行服务失败: {e}")
     
-    # 停止合约止盈止损监控服务
+    # 停止合约止盈止损监控服务（老版 futures_monitor_service 已移除）
     if futures_monitor_service:
         try:
             futures_monitor_service.stop_monitor()
             logger.info("✅ 合约止盈止损监控服务已停止")
         except Exception as e:
             logger.warning(f"⚠️  停止合约止盈止损监控服务失败: {e}")
+    try:
+        from app.services.position_sl_tp_monitor import get_sl_tp_monitor
+        _m = get_sl_tp_monitor()
+        if _m:
+            _m.stop()
+            logger.info("✅ 持仓止盈止损监控服务已停止")
+    except Exception as e:
+        logger.warning(f"⚠️  停止持仓止盈止损监控服务失败: {e}")
 
     # 停止实盘订单监控服务
     if live_order_monitor:
