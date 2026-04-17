@@ -1,0 +1,24 @@
+# 仓库根目录 .gitignore（crypto-analyzer/ 子项目有自己的）
+
+# 大型数据库备份（手动上传到 EC2，不走 git）
+*.sql
+*.sql.gz
+*.dump
+
+# 环境变量
+.env
+.env.local
+
+# 编辑器 / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

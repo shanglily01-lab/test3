@@ -1,0 +1,21 @@
+[Unit]
+Description=Crypto Analyzer FastAPI (uvicorn on :9021)
+After=network-online.target mysqld.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crypto
+Group=crypto
+WorkingDirectory=/opt/crypto/crypto-analyzer
+EnvironmentFile=/opt/crypto/crypto-analyzer/.env
+ExecStart=/opt/crypto/crypto-analyzer/.venv/bin/python -m uvicorn app.main:app \
+          --host 0.0.0.0 --port 9021 --no-access-log
+Restart=always
+RestartSec=10
+StandardOutput=append:/opt/crypto/crypto-analyzer/logs/api.log
+StandardError=append:/opt/crypto/crypto-analyzer/logs/api.log
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

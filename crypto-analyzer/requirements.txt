@@ -1,8 +1,8 @@
 # ==================== Web Framework ====================
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+fastapi>=0.110,<1          # 最新 2.x pydantic 需要较新 fastapi
+uvicorn[standard]>=0.27,<1
+pydantic>=2.9,<3           # 与 pydantic_core 2.30+ 匹配，AWS Linux 上统一升级
+pydantic-settings>=2.2,<3
 jinja2==3.1.2            # Template engine for web UI
 aiofiles==23.2.1         # Async file operations
 

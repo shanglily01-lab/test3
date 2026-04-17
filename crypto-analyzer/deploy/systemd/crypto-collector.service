@@ -1,0 +1,19 @@
+[Unit]
+Description=Crypto Analyzer Fast K-line Collector
+After=network-online.target mysqld.service crypto-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crypto
+Group=crypto
+WorkingDirectory=/opt/crypto/crypto-analyzer
+EnvironmentFile=/opt/crypto/crypto-analyzer/.env
+ExecStart=/opt/crypto/crypto-analyzer/.venv/bin/python fast_collector_service.py
+Restart=always
+RestartSec=15
+StandardOutput=append:/opt/crypto/crypto-analyzer/logs/collector.log
+StandardError=append:/opt/crypto/crypto-analyzer/logs/collector.log
+
+[Install]
+WantedBy=multi-user.target

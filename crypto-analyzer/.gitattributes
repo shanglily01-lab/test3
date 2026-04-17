@@ -1,0 +1,15 @@
+# 所有 shell 脚本强制 LF，Windows checkout 也不转换
+# 否则在 AWS Linux 上会报 bash: '\r': command not found
+*.sh           text eol=lf
+*.bash         text eol=lf
+deploy/systemd/*.service  text eol=lf
+
+# Python / 配置也统一 LF，避免 pre-commit 差异
+*.py           text eol=lf
+*.yaml         text eol=lf
+*.yml          text eol=lf
+*.json         text eol=lf
+
+# Windows 专用
+*.bat          text eol=crlf
+*.ps1          text eol=crlf
