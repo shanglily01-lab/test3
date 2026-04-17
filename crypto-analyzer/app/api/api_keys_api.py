@@ -16,6 +16,22 @@ router = APIRouter(prefix="/api/api-keys", tags=["API密钥管理"])
 _USER_ID = 1
 
 
+_db_config_cache: Optional[dict] = None
+
+
+def get_db_config() -> dict:
+    global _db_config_cache
+    if _db_config_cache is None:
+        try:
+            from app.utils.config_loader import load_config
+            cfg = load_config()
+            _db_config_cache = cfg.get('database', {}).get('mysql', {})
+        except Exception as e:
+            logger.error(f"加载数据库配置失败: {e}")
+            _db_config_cache = {}
+    return _db_config_cache
+
+
 # ==================== 请求模型 ====================
 
 class SaveAPIKeyRequest(BaseModel):
@@ -193,7 +209,6 @@ async def verify_api_key(
 
         if row['exchange'] == 'binance':
             from app.trading.binance_futures_engine import BinanceFuturesEngine
-            from app.api.live_trading_api import get_db_config
             temp_engine = BinanceFuturesEngine(
                 get_db_config(),
                 api_key=api_key_plain,
@@ -228,7 +243,6 @@ async def verify_api_key_raw(request: VerifyRawRequest):
     try:
         if request.exchange == 'binance':
             from app.trading.binance_futures_engine import BinanceFuturesEngine
-            from app.api.live_trading_api import get_db_config
             temp_engine = BinanceFuturesEngine(
                 get_db_config(),
                 api_key=request.api_key,
@@ -289,7 +303,6 @@ async def get_api_key_balance(api_key_id: int):
 
         if row['exchange'] == 'binance':
             from app.trading.binance_futures_engine import BinanceFuturesEngine
-            from app.api.live_trading_api import get_db_config
             temp_engine = BinanceFuturesEngine(
                 get_db_config(),
                 api_key=api_key_plain,
