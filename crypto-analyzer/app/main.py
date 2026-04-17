@@ -216,6 +216,18 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️  价格缓存服务初始化失败: {e}")
             price_cache_service = None
 
+        # 启动币安 WebSocket 实时价格服务（Web UI 与 Dashboard 的实时价格来源）
+        try:
+            from app.services.binance_ws_price import init_ws_price_service
+            ws_symbols = config.get('symbols', []) or ['BTC/USDT', 'ETH/USDT']
+            logger.info(f"🔄 启动 Binance WS 实时价格服务，订阅 {len(ws_symbols)} 个交易对...")
+            await init_ws_price_service(ws_symbols, market_type='futures')
+            logger.info(f"✅ Binance WS 实时价格服务已启动 ({len(ws_symbols)} 交易对)")
+        except Exception as e:
+            logger.error(f"❌ Binance WS 实时价格服务启动失败: {e}")
+            import traceback
+            traceback.print_exc()
+
         # 待成交订单自动执行器已停用（现货交易，系统使用合约交易）
         # 当前系统使用 smart_trader_service.py 进行合约自动交易，不需要现货限价单服务
         pending_order_executor = None
