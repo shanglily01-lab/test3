@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-04-14 06:18 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12638,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SUSHI/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.19,
+          "high": 0.192
+        },
+        "stop_loss": 0.188,
+        "target1": 0.198,
+        "target2": 0.2,
+        "win_rate_pct": 70,
+        "risk_reward": 3.0,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $0.192 after a retest of the $0.19 support",
+        "invalidation": "1h close below $0.188",
+        "confluence_signals": [
+          "EXTREME short crowd (10th percentile L/S Ratio) - contrarian bullish",
+          "Price falling with LOW volume - weak selling pressure",
+          "Fear & Greed Index at Extreme Fear (12) - contrarian buy signal",
+          "Price at strong support ($0.19) and consolidating",
+          "Funding velocity accelerating negative with low perp premium - potential capitulation bounce"
+        ],
+        "win_rate_basis": "Extreme short crowd (10th pct L/S ratio), price falling on low volume, Extreme Fear index, and price at strong support combine for high probability contrarian long. Funding velocity accelerating negative suggests a potential capitulation bounce."
+      },
+      {
+        "symbol": "SYRUP/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.22,
+          "high": 0.223
+        },
+        "stop_loss": 0.218,
+        "target1": 0.235,
+        "target2": 0.24,
+        "win_rate_pct": 65,
+        "risk_reward": 4.5,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $0.223 after a retest of the $0.22 support",
+        "invalidation": "1h close below $0.218",
+        "confluence_signals": [
+          "Price falling with LOW volume - weak selling pressure",
+          "Hyperliquid Smart Money Net Inflow & High L/S Ratio (9.0) - bullish positioning by smart money",
+          "Fear & Greed Index at Extreme Fear (12) - contrarian buy signal",
+          "Price at strong support ($0.22)"
+        ],
+        "win_rate_basis": "Price falling on low volume, Hyperliquid Smart Money net inflow and high L/S ratio, Extreme Fear index, and price at strong support ($0.22) suggest a contrarian long, despite bearish MACD expansion. The weak selling volume and smart money support provide conviction for a bounce."
+      },
+      {
+        "symbol": "THE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Conflicting sentiment signals (Extreme bearish funding rate vs. Extreme long L/S ratio)",
+          "Price rising with LOW volume - weak buying conviction"
+        ],
+        "win_rate_basis": "The extreme bearish funding rate (potential short squeeze fuel) directly contradicts the extreme long crowd (contrarian bearish L/S ratio), leading to unclear direction and high risk. Low volume on price rise further reduces conviction."
+      },
+      {
+        "symbol": "THETA/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.178,
+          "high": 0.18
+        },
+        "stop_loss": 0.182,
+        "target1": 0.172,
+        "target2": 0.17,
+        "win_rate_pct": 65,
+        "risk_reward": 3.0,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below $0.178 after testing $0.18 resistance or clear rejection from $0.18",
+        "invalidation": "1h close above $0.182",
+        "confluence_signals": [
+          "Price rising with LOW volume - weak buying pressure, potential exhaustion",
+          "MACD 1h bearish EXPANDING - bearish momentum building",
+          "Perp Premium at 98th percentile - extreme long demand, contrarian bearish signal",
+          "Price near 7d high and strong resistance ($0.18)"
+        ],
+        "win_rate_basis": "Price rising on low volume, bearish expanding MACD, extreme perp premium (98th percentile), and price near 7d high/resistance ($0.18) combine for a high probability contrarian short due to potential long overheating and exhaustion."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The prevailing 'Extreme Fear' market sentiment (F&G Index=12) combined with low volume across all assets suggests a market ripe for contrarian bounces, particularly in assets like SUSHI with an extreme short crowd, while high perp premiums (THETA) indicate potential long overheating.",
+    "highest_conviction_trade": "SUSHI/USDT"
+  }
+}

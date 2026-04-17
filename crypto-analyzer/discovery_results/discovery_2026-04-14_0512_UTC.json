@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-04-14 05:12 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18228,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SYRUP/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals across momentum (bearish MACD/EMAs vs 1d channel up), volume (weak selling but price falling), and open interest/funding rate dynamics make a clear directional bias difficult."
+      },
+      {
+        "symbol": "TAO/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 249.65,
+          "high": 250.5
+        },
+        "stop_loss": 248.0,
+        "target1": 257.5,
+        "target2": 267.5,
+        "win_rate_pct": 60,
+        "risk_reward": 6.25,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds $249.65 support, with a 1h candle close above $250.00, confirming a bounce from the low range.",
+        "invalidation": "Price closes below $248.00 on a 1h timeframe.",
+        "confluence_signals": [
+          "7d range 0th percentile (extremely oversold)",
+          "Price falling with LOW volume (weak selling pressure, bullish divergence)",
+          "MACD 1h bearish but contracting (fading bearish momentum)",
+          "RSI 4h 33.03 (near oversold levels)",
+          "Fear & Greed Index: Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Five aligned contrarian bullish signals suggest a significant bounce potential from extreme oversold conditions, despite the prevailing downtrend. The weak selling volume further supports a reversal."
+      }
+    ]
+  }
+}

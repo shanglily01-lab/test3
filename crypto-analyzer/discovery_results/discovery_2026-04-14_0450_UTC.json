@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-04-14 04:50 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17498,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ACT/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Inconsistent and likely malformed KEY_PRICE_LEVELS (Resistance, Support, 24h High/Low, 7d High/Low, ATR_24h_expected_range all show $0.01 despite current price $0.0133), making precise trade planning impossible. Also, conflicting MACD signal (bearish expanding) against other bullish sentiment indicators.",
+        "confluence_signals": [],
+        "win_rate_basis": "N/A"
+      }
+    ]
+  }
+}

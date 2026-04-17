@@ -79,7 +79,7 @@ class HyperliquidScheduler:
 
         task_name = f'hyperliquid_{priority}'
         try:
-            logger.info(f"[{datetime.utcnow().strftime('%H:%M:%S')}] 开始监控 Hyperliquid 聪明钱包 (优先级: {priority})...")
+            logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] 开始监控 Hyperliquid 聪明钱包 (优先级: {priority})...")
 
             from app.database.hyperliquid_db import HyperliquidDB
 
@@ -123,7 +123,7 @@ class HyperliquidScheduler:
 
                         # 保存持仓快照
                         positions = result.get('positions', [])
-                        snapshot_time = datetime.utcnow()
+                        snapshot_time = datetime.now()
                         for pos in positions:
                             position_data = {
                                 'coin': pos['coin'],
@@ -175,7 +175,7 @@ class HyperliquidScheduler:
 
             # 更新统计
             self.task_stats[task_name]['count'] += 1
-            self.task_stats[task_name]['last_run'] = datetime.utcnow()
+            self.task_stats[task_name]['last_run'] = datetime.now()
 
         except Exception as e:
             logger.error(f"Hyperliquid 钱包监控任务失败: {e}")

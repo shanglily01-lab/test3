@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-04-13 03:28 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 6693,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SKR/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "The provided key price levels (resistance, support, 24h/7d high/low, EMAs) are all listed as $0.02, which is inconsistent with the current price of $0.0164. This fundamental data inconsistency makes it impossible to define precise entry, stop, and target levels with confidence. Furthermore, momentum signals (1h MACD bullish vs 1d channel down) and positioning sentiment (high L/S ratio vs short covering) present contradictory interpretations, leading to an unclear trade setup."
+      },
+      {
+        "symbol": "XVG/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.0046,
+          "high": 0.0047
+        },
+        "stop_loss": 0.0043,
+        "target1": 0.01,
+        "target2": 0.012,
+        "win_rate_pct": 68,
+        "risk_reward": 13.25,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price consolidates or pulls back into the entry zone, then shows a 1h candle close above $0.0047.",
+        "invalidation": "1h candle close below $0.0043, indicating a breakdown of recent support and bullish structure.",
+        "confluence_signals": [
+          "1d channel up (strong trend)",
+          "1h MACD bullish and expanding",
+          "1h price above all 3 EMAs (bullish alignment)",
+          "Bullish funding rate (longs paying shorts)",
+          "Extreme short crowd (0th percentile L/S ratio, strong contrarian bullish signal)"
+        ],
+        "win_rate_basis": "The strong bullish trend (1d channel up, 1h EMAs/MACD) combined with a highly contrarian 'extreme short crowd' (0th percentile L/S ratio) provides a robust bullish setup for a potential short squeeze. This is partially offset by 1h RSI being overbought and price rising on low volume (weak buying divergence), which suggests waiting for a slight pullback or consolidation before entry. These factors combine for an estimated 68% win rate."
+      }
+    ],
+    "market_regime": "selective_trending",
+    "cross_asset_insight": "SKR and XVG exhibit low correlation (0.28), indicating independent price action and sentiment. Trading decisions for each symbol should be based on their intrinsic market data without strong cross-asset influence from each other.",
+    "highest_conviction_trade": "XVG/USDT"
+  }
+}

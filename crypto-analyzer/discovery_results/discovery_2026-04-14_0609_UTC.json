@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-04-14 06:09 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12346,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "NEIRO/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Direction is SKIP due to significant data inconsistencies (price levels, EMAs reported as $0.00) and contradictory funding signals (extreme bearish positioning vs. accelerating negative funding velocity). This makes a precise and reliable trade plan impossible."
+      },
+      {
+        "symbol": "NIL/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Direction is SKIP due to contradictory signals. The 0th percentile funding rate suggests extreme short positioning and potential for a short squeeze (bullish), while the 87th percentile Long/Short ratio indicates an extreme long crowd (contrarian bearish). This fundamental contradiction makes a clear directional bias unreliable."
+      },
+      {
+        "symbol": "NXPC/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.278,
+          "high": 0.281
+        },
+        "stop_loss": 0.268,
+        "target1": 0.29,
+        "target2": 0.3,
+        "win_rate_pct": 68,
+        "risk_reward": 1.34,
+        "confidence": 7,
+        "time_window": "enter within 8h, hold 12-24h",
+        "entry_trigger": "Price action showing a bounce or stabilization within the entry zone ($0.278 - $0.281), ideally after a 1h close above $0.28.",
+        "invalidation": "1h close below $0.268, or a significant shift in market sentiment from 'Extreme Fear'.",
+        "confluence_signals": [
+          "FEAR_AND_GREED_INDEX: Extreme Fear (12) -> Contrarian buy signal",
+          "FUNDING_RATE: 0.0038% (3rd percentile) -> EXTREME bearish positioning, short squeeze fuel",
+          "PRICE_ACTION: Current price near $0.28 support and EMA convergence",
+          "MOMENTUM: RSI_4h neutral (room for upside)",
+          "STRUCTURE (1d): Channel up"
+        ],
+        "win_rate_basis": "Multiple strong contrarian bullish signals are aligned. The overall market is in 'Extreme Fear', which often precedes bounces. NXPC's funding rate is in the 3rd percentile, indicating extreme short positioning ripe for a short squeeze. Price is near key support levels and EMAs, providing a good risk entry. These 5 aligned signals support a 68% win rate."
+      },
+      {
+        "symbol": "OG/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Direction is SKIP due to conflicting signals. While the overall trend (24h/7d returns, EMA alignment, OI growth) is bullish, the 4h RSI is overbought, and there's a clear price-volume divergence at resistance ($2.71). This suggests a potential short-term pullback, but a counter-trend short carries higher risk, and a long would require a confirmed retest of support which isn't guaranteed."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear' (F&G index 12), indicating a potential contrarian buy signal. This aligns with assets like NXPC/USDT showing extreme bearish positioning in funding rates, suggesting a potential short squeeze across selected assets.",
+    "highest_conviction_trade": "NXPC/USDT"
+  }
+}

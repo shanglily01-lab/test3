@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-04-13 03:19 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 14625,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "JUP/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.16,
+          "high": 0.161
+        },
+        "stop_loss": 0.158,
+        "target1": 0.168,
+        "target2": 0.17,
+        "win_rate_pct": 65,
+        "risk_reward": 3.0,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above $0.161 after a retest of $0.16 support",
+        "invalidation": "Price closes below $0.158 on 1h timeframe",
+        "confluence_signals": [
+          "Extreme short crowd (contrarian bullish)",
+          "Price falling with LOW volume (weak selling, bullish divergence)",
+          "Price at strong support ($0.16 and EMAs)"
+        ],
+        "win_rate_basis": "Extreme short crowd and weak selling volume provide strong contrarian bullish signals. Price holding key support levels further strengthens the bounce potential."
+      }
+    ]
+  }
+}

@@ -110,6 +110,7 @@
 <a href="/coin_futures_trading" data-path="/coin_futures_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">currency_bitcoin</span><span>币本位合约</span></a>
 <a href="/live_trading" data-path="/live_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">precision_manufacturing</span><span>Live Trading</span></a>
 <a href="/futures_review" data-path="/futures_review" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">history_edu</span><span>复盘分析</span></a>
+<a href="/monthly_plan" data-path="/monthly_plan" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">target</span><span>月度计划</span></a>
 <a href="/technical-signals" data-path="/technical-signals" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">sensors</span><span>信号分析</span></a>
 <a href="/market_regime" data-path="/market_regime" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">pulse_alert</span><span>行情识别</span></a>
 <a class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm" data-path="/top50" href="/top50"><span class="material-symbols-outlined text-lg">workspace_premium</span><span>TOP 50</span></a>
@@ -260,7 +261,8 @@
     <select id="history-limit" onchange="loadHistory(1)" class="bg-surface-container-highest border border-outline-variant/20 rounded-lg px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:border-primary/50">
       <option value="30">每页 30 条</option>
       <option value="50">每页 50 条</option>
-      <option value="100">每页 100 条</option>
+      <option value="100" selected>每页 100 条</option>
+      <option value="200">每页 200 条</option>
     </select>
     <button id="history-refresh-btn" onclick="loadHistory()" class="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-lg text-xs font-bold transition-colors">刷新</button>
   </div>
@@ -334,20 +336,20 @@ function fmtUsdt(n) {
 function fmtTime(t) {
     if (!t) return '--';
     try {
-        var ts = (typeof t === 'string' && !t.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(t)) ? t + 'Z' : t;
-        var d = new Date(ts);
+        // DB is UTC+8, strings have no timezone suffix — parse as local time directly
+        var s = typeof t === 'string' ? t.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '') : t;
+        var d = new Date(s);
         if (isNaN(d.getTime())) return '--';
-        var u = new Date(d.getTime() + 8 * 3600000);
         var pad = function(x) { return String(x).padStart(2, '0'); };
-        return (u.getUTCMonth()+1) + '-' + pad(u.getUTCDate()) + ' ' + pad(u.getUTCHours()) + ':' + pad(u.getUTCMinutes());
+        return (d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
     } catch(e) { return '--'; }
 }
 function fmtDuration(openT, closeT) {
     if (!openT || !closeT) return '--';
     try {
         var toMs = function(t) {
-            var ts = (typeof t === 'string' && !t.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(t)) ? t + 'Z' : t;
-            return new Date(ts).getTime();
+            var s = typeof t === 'string' ? t.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '') : t;
+            return new Date(s).getTime();
         };
         var ms = toMs(closeT) - toMs(openT);
         if (isNaN(ms) || ms < 0) return '--';
@@ -457,6 +459,15 @@ async function loadPositions() {
         var signalDisplay = signalType.length > 20 ? signalType.substring(0, 20) + '...' : signalType;
         var sl = pos.stop_loss_price ? fmtPrice(pos.stop_loss_price) : '--';
         var tp = pos.take_profit_price ? fmtPrice(pos.take_profit_price) : '--';
+        var plannedClose = null;
+        if (pos.planned_close_time) {
+            plannedClose = fmtTime(pos.planned_close_time);
+        } else if ((pos.created_at || pos.open_time) && pos.max_hold_minutes) {
+            var _ot = (pos.created_at || pos.open_time).replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '');
+            var _cd = new Date(new Date(_ot).getTime() + pos.max_hold_minutes * 60 * 1000);
+            var _p = function(x){ return String(x).padStart(2,'0'); };
+            plannedClose = (_cd.getMonth()+1) + '-' + _p(_cd.getDate()) + ' ' + _p(_cd.getHours()) + ':' + _p(_cd.getMinutes());
+        }
 
         return '<tr class="' + rowBg + ' transition-colors">' +
             '<td class="px-6 py-4">' +
@@ -465,6 +476,7 @@ async function loadPositions() {
                     '<div>' +
                         '<p class="font-bold font-headline">' + sym + '</p>' +
                         '<p class="text-[10px] text-on-surface-variant monospace">' + lvg + 'x | ' + openTime + '</p>' +
+                        (plannedClose ? '<p class="text-[10px] text-[#49f4c8]/60 monospace">计划平仓 ' + plannedClose + '</p>' : '') +
                     '</div>' +
                 '</div>' +
             '</td>' +
@@ -545,7 +557,7 @@ async function closeAllPositions() {
 
 var _historyAllTrades = [];
 var _historyPage = 1;
-var _historyPageSize = 30;
+var _historyPageSize = 100;
 var _historyTotalCount = 0;
 
 function applyHistoryFilter(resetPage) {
@@ -712,7 +724,8 @@ function loadStats(posResult, trades) {
             .filter(function(t) {
                 var ct = t.close_time || t.created_at;
                 if (!ct) return false;
-                var ts = new Date((typeof ct === 'string' && !ct.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ct)) ? ct + 'Z' : ct).getTime();
+                var s = typeof ct === 'string' ? ct.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '') : ct;
+                var ts = new Date(s).getTime();
                 return ts >= cutoff;
             })
             .reduce(function(s, t) { return s + (parseFloat(t.realized_pnl) || 0); }, 0);

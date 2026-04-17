@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-04-14 06:02 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 13074,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "GPS/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting sentiment signals (Funding Rate indicating potential short squeeze vs. L/S ratio showing extreme long crowd) and ambiguous key price levels (Support/Resistance at $0.01 while current price is $0.0085) make a clear directional bias impossible."
+      },
+      {
+        "symbol": "GTC/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Strong contradictions in sentiment (Funding Velocity indicating squeeze building vs. OI showing squeeze exhaustion and L/S ratio showing extreme long crowd) combined with weak buying volume and imprecise key price levels ($0.08 for both S/R while current is $0.0803) prevent a high-conviction trade setup."
+      },
+      {
+        "symbol": "HBAR/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.0865,
+          "high": 0.0875
+        },
+        "stop_loss": 0.091,
+        "target1": 0.083,
+        "target2": 0.08,
+        "win_rate_pct": 68,
+        "risk_reward": 1.375,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below $0.086 or rejection from $0.087 area",
+        "invalidation": "1h close above $0.089",
+        "confluence_signals": [
+          "Price near 7d/30d lows (3rd/2nd percentile)",
+          "1d channel=down",
+          "EMA_1h bearish alignment (price below 0/3 EMAs)",
+          "Price-volume divergence (price rising with LOW volume)",
+          "Funding Velocity accelerating negative (longs paying more, flush building)",
+          "Hyperliquid Smart Money L/S ratio 0.162 (more shorts than longs)"
+        ],
+        "win_rate_basis": "Six strong bearish signals (price structure, EMA alignment, volume divergence, funding velocity, smart money positioning) indicate a high probability for further downside. While MACD is bullish contracting and OI is rising with price (bullish), these are outweighed by the dominant bearish technicals and sentiment indicators. Extreme Fear F&G is a general contrarian long signal, but specific asset weakness for HBAR overrides it."
+      },
+      {
+        "symbol": "HEMI/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Significant conflicts in sentiment indicators (Funding Rate showing extreme bearish positioning / short squeeze potential vs. L/S ratio showing extreme long crowd / contrarian bearish). Additionally, key price levels (Support/Resistance at $0.01) are too far from the current price ($0.0071) to construct a viable, precise trade plan."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Fear and Greed Index is at 12 (Extreme Fear), often preceding bounces. However, many individual assets show weak buying volume and conflicting sentiment, suggesting caution for broad contrarian long plays and favoring asset-specific analysis.",
+    "highest_conviction_trade": "HBAR/USDT"
+  }
+}

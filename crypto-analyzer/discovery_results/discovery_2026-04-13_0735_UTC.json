@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-04-13 07:35 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12582,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "MIRA/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Ambiguous support/resistance levels ($0.08 listed as both support and resistance while price is $0.0783). Additionally, the extreme long-short ratio and accelerating negative funding velocity suggest a potential long flush, conflicting with market-wide extreme fear and MIRA's own OI capitulation signal. The risk/reward is not clear enough for a high-conviction trade."
+      },
+      {
+        "symbol": "LQTY/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.27,
+          "high": 0.275
+        },
+        "stop_loss": 0.269,
+        "target1": 0.28,
+        "target2": 0.29,
+        "win_rate_pct": 70,
+        "risk_reward": 3.57,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone, showing signs of rejection from $0.27 support (e.g., 1h candle close above $0.27).",
+        "invalidation": "Price closes below $0.269 on 1h timeframe.",
+        "confluence_signals": [
+          "Price-volume divergence (price falling with low volume = weak selling)",
+          "OI falling with price (capitulation signal)",
+          "MACD 1h bullish expanding",
+          "Funding Velocity accelerating positive (short squeeze building)",
+          "1d price channel is 'up'",
+          "Market Fear & Greed Index: Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Multiple strong bullish signals are aligned: weak selling pressure, capitulation, bullish MACD, accelerating positive funding velocity indicating a potential short squeeze, and favorable overall market sentiment from Extreme Fear. These six aligned signals contribute to a high win rate estimate of 70%."
+      },
+      {
+        "symbol": "THE/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.09,
+          "high": 0.095
+        },
+        "stop_loss": 0.089,
+        "target1": 0.1,
+        "target2": 0.105,
+        "win_rate_pct": 75,
+        "risk_reward": 2.85,
+        "confidence": 9,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone, confirming $0.09 as support (e.g., 1h candle close above $0.09).",
+        "invalidation": "Price closes below $0.089 on 1h timeframe.",
+        "confluence_signals": [
+          "Price-volume divergence (price falling with low volume = weak selling)",
+          "OI falling with price (capitulation signal)",
+          "Funding Rate: EXTREME bearish positioning (potential short squeeze fuel)",
+          "Long/Short Ratio: EXTREME short crowd (contrarian bullish)",
+          "RSI 4h oversold (<30)",
+          "Market Fear & Greed Index: Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "A powerful combination of extreme contrarian bullish signals: extreme bearish positioning in funding rates and L/S ratio, 4h RSI oversold, weak selling volume, capitulation signal from OI, and overall market Extreme Fear. These six highly aligned and extreme signals provide a strong basis for a 75% win rate estimate."
+      },
+      {
+        "symbol": "OPN/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.15,
+          "high": 0.152
+        },
+        "stop_loss": 0.149,
+        "target1": 0.16,
+        "target2": 0.17,
+        "win_rate_pct": 65,
+        "risk_reward": 7.0,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds $0.15 support (e.g., 1h candle close above $0.15) and RSI 1h begins to turn up from oversold.",
+        "invalidation": "Price closes below $0.149 on 1h timeframe.",
+        "confluence_signals": [
+          "RSI 1h oversold (<30)",
+          "Market Fear & Greed Index: Extreme Fear (contrarian buy signal)",
+          "Price at 0th percentile of 7d/30d range (extreme low, potential bounce)",
+          "Price currently at strong support ($0.15)"
+        ],
+        "win_rate_basis": "Multiple bullish signals converge: 1h RSI oversold, price at a multi-period low and strong support, combined with the overall market's Extreme Fear sentiment. These four aligned signals support a 65% win rate estimate."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear' (F&G Index=12), coupled with several assets showing signs of capitulation (OI falling with price) and oversold conditions, suggesting a potential broad market bounce despite individual bearish momentum.",
+    "highest_conviction_trade": "THE/USDT"
+  }
+}

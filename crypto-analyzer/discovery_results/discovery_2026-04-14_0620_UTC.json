@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-04-14 06:20 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12702,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "TRX/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.3205,
+          "high": 0.3215
+        },
+        "stop_loss": 0.318,
+        "target1": 0.324,
+        "target2": 0.327,
+        "win_rate_pct": 72,
+        "risk_reward": 2.0,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $0.3210 after a brief consolidation or dip to $0.3205",
+        "invalidation": "1h close below $0.3180",
+        "confluence_signals": [
+          "Bullish momentum (MACD expanding, EMA alignment)",
+          "Weak selling (price falling with LOW volume divergence)",
+          "Extreme short crowd (L/S ratio 4th percentile)",
+          "Accelerating positive funding velocity (short squeeze building)",
+          "Increasing positive funding rate"
+        ],
+        "win_rate_basis": "Multiple strong bullish signals from momentum, volume, and sentiment indicators including MACD expansion, EMA alignment, price-volume divergence, extreme short crowd, and accelerating funding velocity. These align to suggest a high probability of upward movement despite tight price levels."
+      },
+      {
+        "symbol": "USUAL/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "MACD 1h bearish expanding",
+          "Funding velocity decelerating positive",
+          "Extremely rounded and ambiguous price levels"
+        ],
+        "win_rate_basis": "Conflicting momentum signals (1h MACD bearish expanding vs 1d channel up), decelerating funding velocity, and extremely ambiguous price levels make it difficult to define a precise, high-conviction trade. While OI is rising with price (bullish), other short-term signals contradict."
+      },
+      {
+        "symbol": "VANRY/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Price rising with LOW volume (weak buying divergence)",
+          "MACD 1h bullish contracting (fading momentum)",
+          "Extremely rounded and ambiguous price levels"
+        ],
+        "win_rate_basis": "Strong conflicting signals. While Open Interest and Funding Velocity suggest bullish continuation and a squeeze, the price rising on low volume (weak buying) and contracting MACD indicate a lack of conviction in the current upward move. The extremely rounded price levels also make precise entry/exit difficult."
+      },
+      {
+        "symbol": "VET/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 4,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "1d channel down (bearish macro trend)",
+          "Price rising with LOW volume (weak buying divergence)",
+          "MACD 1h bullish contracting (fading momentum)",
+          "Extremely rounded and ambiguous price levels"
+        ],
+        "win_rate_basis": "Despite extreme short positioning and accelerating funding velocity, the 1-day price channel is down, and the current price rise is accompanied by low volume (weak buying divergence). This indicates a lack of conviction for a sustained reversal. The momentum is also mixed/contracting. Extremely rounded price levels further complicate precise trade execution."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Extreme Fear index (12) suggests contrarian buying opportunities. While TRX shows strong bullish sentiment and momentum, USUAL, VANRY, and VET exhibit conflicting signals, primarily weak buying volume against bullish sentiment, making them less clear for high-conviction trades.",
+    "highest_conviction_trade": "TRX/USDT"
+  }
+}

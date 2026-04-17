@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-04-14 21:54 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 15472,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 74870.0,
+          "high": 74900.0
+        },
+        "stop_loss": 76009.0,
+        "target1": 72541.0,
+        "target2": 71660.0,
+        "win_rate_pct": 72,
+        "risk_reward": 2.8,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h bearish engulfing candle or failure to break $74,900 resistance",
+        "invalidation": "1h candle close above $76,009",
+        "confluence_signals": [
+          "Strong Bearish Smart Money Flow",
+          "4h RSI Overbought (74.12)",
+          "1h MACD Bearish Expanding",
+          "Price-Volume Divergence"
+        ],
+        "win_rate_basis": "Alignment of professional trader distribution (Smart Money), overbought oscillators on the 4h timeframe, and a clear bearish expansion on the 1h MACD histogram while at the 93rd percentile of the 7d range."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 2395.0,
+          "high": 2416.0
+        },
+        "stop_loss": 2425.0,
+        "target1": 2300.0,
+        "target2": 2254.0,
+        "win_rate_pct": 72,
+        "risk_reward": 5.8,
+        "confidence": 9,
+        "time_window": "enter within 6h, hold 12-24h",
+        "entry_trigger": "1h close below EMA20 (2334.68) after retesting resistance",
+        "invalidation": "4h candle close above $2,416.40",
+        "confluence_signals": [
+          "Strong Bearish Smart Money Flow",
+          "4h RSI Overbought (72.71)",
+          "Negative Funding Velocity Acceleration",
+          "EMA200 Mean Reversion Target"
+        ],
+        "win_rate_basis": "Significant smart money net outflow (-$6.4M) combined with overbought RSI and accelerating negative funding velocity, suggesting a long flush is imminent."
+      },
+      {
+        "symbol": "BNB",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 608.0,
+          "high": 615.0
+        },
+        "stop_loss": 595.0,
+        "target1": 625.74,
+        "target2": 632.0,
+        "win_rate_pct": 60,
+        "risk_reward": 1.4,
+        "confidence": 6,
+        "time_window": "enter within 2h, hold 8-12h",
+        "entry_trigger": "Price rebound from EMA20 (615.54) with rising taker buy ratio",
+        "invalidation": "1h candle close below $590.23",
+        "confluence_signals": [
+          "Extreme Short Crowd (12th Pct L/S Ratio)",
+          "Negative Cross-Exchange Spread (Binance Discount)",
+          "EMA Alignment Bullish",
+          "Fear and Greed Index Contrarian Signal"
+        ],
+        "win_rate_basis": "The extreme short positioning of retail accounts creates a squeeze opportunity, further supported by Binance trading at a -0.08% discount which typically triggers arbitrage buy pressure."
+      },
+      {
+        "symbol": "SOL",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 84.92,
+          "high": 86.23
+        },
+        "stop_loss": 87.64,
+        "target1": 81.61,
+        "target2": 81.48,
+        "win_rate_pct": 62,
+        "risk_reward": 2.4,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h MACD histogram remains negative while price retests EMA20",
+        "invalidation": "1h RSI crosses above 50 with rising volume",
+        "confluence_signals": [
+          "Open Interest Rising on Price Drop",
+          "Bearish 1h EMA Alignment",
+          "Accelerating Negative Funding Velocity",
+          "Price-Volume Divergence"
+        ],
+        "win_rate_basis": "Rising OI during price declines indicates new short conviction. This trend, coupled with the price being below all major 1h EMAs, favors a continuation toward the 7d low."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The ETH/BTC ratio is rising (Risk-On) while the market-wide Fear & Greed Index is at 12 (Extreme Fear). This massive divergence suggests a local technical correction (led by Smart Money distribution) will likely be met by a violent contrarian bounce once retail shorts are squeezed.",
+    "highest_conviction_trade": "ETH"
+  }
+}

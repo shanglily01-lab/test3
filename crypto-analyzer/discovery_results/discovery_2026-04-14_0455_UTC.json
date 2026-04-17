@@ -1,0 +1,163 @@
+{
+  "timestamp": "2026-04-14 04:55 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17443,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "COMP/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 20.7,
+          "high": 20.9
+        },
+        "stop_loss": 19.6,
+        "target1": 22.78,
+        "target2": 23.5,
+        "win_rate_pct": 70,
+        "risk_reward": 2.55,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price dips into entry zone, ideally with 1h candle close above EMA20 (20.77)",
+        "invalidation": "Price closes 1h below 19.60 or funding velocity turns significantly negative for shorts",
+        "confluence_signals": [
+          "Strong bullish momentum (MACD expanding, EMA alignment)",
+          "Extreme short crowd positioning (L/S ratio 6th percentile, contrarian bullish)",
+          "Funding Velocity accelerating positive (shorts paying more, squeeze building)",
+          "Extreme Fear Index (contrarian buy signal)",
+          "Price above key EMAs (20/50/200)"
+        ],
+        "win_rate_basis": "Four strong bullish signals (momentum, extreme short crowd, funding velocity, market sentiment) suggest a high probability short squeeze. The 1h RSI overbought is noted but often occurs during strong upward moves. This confluence supports a 70% win rate."
+      },
+      {
+        "symbol": "COS/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Extreme long crowd (93rd percentile, contrarian bearish)",
+          "Extreme bullish funding rate (93rd percentile, long squeeze risk)",
+          "Funding velocity accelerating negative (longs paying more, flush building)",
+          "Price falling with LOW volume (bullish divergence)",
+          "Volatility compressed"
+        ],
+        "win_rate_basis": "Conflicting signals between extreme bearish sentiment indicators (funding, L/S ratio, funding velocity) and a bullish price-volume divergence. Additionally, key price levels provided in the data are unusable, making a precise trade plan impossible."
+      },
+      {
+        "symbol": "COW/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.215,
+          "high": 0.22
+        },
+        "stop_loss": 0.207,
+        "target1": 0.23,
+        "target2": 0.235,
+        "win_rate_pct": 60,
+        "risk_reward": 2.5,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price dips into entry zone, ideally with 1h candle close above EMA20 (0.22)",
+        "invalidation": "Price closes 1h below 0.207",
+        "confluence_signals": [
+          "Bullish EMA alignment and 1d channel up",
+          "Extreme short crowd (L/S ratio 10th percentile, contrarian bullish)",
+          "Rising OI with rising price (healthy trend continuation)",
+          "Extreme Fear Index (contrarian buy signal)",
+          "Price rising with LOW volume (bearish divergence, counter-signal)",
+          "Taker-buy volume indicates aggressive sellers (counter-signal)"
+        ],
+        "win_rate_basis": "Multiple bullish signals (momentum, extreme short crowd, healthy OI buildup, market sentiment) are present, suggesting potential upside. However, the bearish price-volume divergence and aggressive sellers introduce caution, lowering the estimated win rate to 60%."
+      },
+      {
+        "symbol": "CRV/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Extreme short crowd (L/S ratio 4th percentile, contrarian bullish)",
+          "Rising OI with rising price (healthy trend continuation)",
+          "Price falling with LOW volume (bullish divergence)",
+          "Perp premium (bullish, mark above index)",
+          "Hyperliquid Smart Money extremely short with net outflow (strong bearish signal)"
+        ],
+        "win_rate_basis": "Strongly conflicting signals. While retail sentiment and some price action indicators suggest a bullish contrarian play, the Hyperliquid Smart Money is overwhelmingly bearish. This leading indicator's strong bearish bias creates too much uncertainty for a high-conviction trade, making it a skip."
+      },
+      {
+        "symbol": "CVX/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.74,
+          "high": 1.78
+        },
+        "stop_loss": 1.69,
+        "target1": 1.85,
+        "target2": 1.9,
+        "win_rate_pct": 65,
+        "risk_reward": 3.2,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price dips into entry zone, ideally with 1h candle close above EMA20 (1.78)",
+        "invalidation": "Price closes 1h below 1.69",
+        "confluence_signals": [
+          "Bullish momentum (1d channel up, price above EMAs)",
+          "Healthy OI buildup (rising OI with rising price)",
+          "Price falling with LOW volume (bullish divergence)",
+          "Extreme Fear Index (contrarian buy signal)",
+          "Balanced L/S ratio and moderate funding rate (no immediate squeeze/flush risk)"
+        ],
+        "win_rate_basis": "Multiple bullish signals (momentum, healthy OI, price-volume divergence, market sentiment) are present with no strong opposing signals. While sentiment indicators are not extreme, the overall picture supports a trend continuation with a 65% win rate."
+      },
+      {
+        "symbol": "CYBER/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Bullish momentum (1d channel up, price above EMAs)",
+          "Price rising with LOW volume (bearish divergence)",
+          "Taker-buy volume indicates aggressive sellers (bearish signal)",
+          "Decelerating negative funding velocity (flush momentum fading, potentially bullish)",
+          "Extreme Fear Index (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Conflicting signals between bullish momentum/market sentiment and a strong bearish price-volume divergence coupled with aggressive sellers. This lack of clear direction makes it a skip for high-conviction trading."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear', often preceding bounces for contrarian long plays. COW, CRV, CVX, CYBER show high correlation, implying group movement. However, CRV's extremely bearish Hyperliquid Smart Money signal diverges from retail sentiment, warranting caution for its correlated peers.",
+    "highest_conviction_trade": "COMP/USDT"
+  }
+}

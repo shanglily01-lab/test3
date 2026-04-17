@@ -324,7 +324,7 @@ def _check_status_active(latest_time, threshold_seconds):
             latest_time = latest_time.replace(tzinfo=None)
         
         # 计算时间差（秒）
-        now = datetime.utcnow()
+        now = datetime.now()
         time_diff = (now - latest_time).total_seconds()
         
         # 判断状态
@@ -356,7 +356,7 @@ async def get_data_statistics():
     # Python层缓存（30秒），避免同一时间多次请求打到数据库
     with _statistics_cache_lock:
         if _statistics_cache is not None and _statistics_cache_time is not None:
-            cache_age = (datetime.utcnow() - _statistics_cache_time).total_seconds()
+            cache_age = (datetime.now() - _statistics_cache_time).total_seconds()
             if cache_age < 30:
                 logger.debug(f"使用内存缓存数据统计 (缓存年龄: {cache_age:.0f}秒)")
                 return _statistics_cache
@@ -550,7 +550,7 @@ async def get_data_statistics():
 
         with _statistics_cache_lock:
             _statistics_cache = result
-            _statistics_cache_time = datetime.utcnow()
+            _statistics_cache_time = datetime.now()
             logger.debug("数据统计已写入内存缓存")
 
         return result
@@ -797,7 +797,7 @@ async def get_collection_status():
     # 30秒内命中缓存直接返回（防并发）
     with _collection_status_cache_lock:
         if _collection_status_cache is not None and _collection_status_cache_time is not None:
-            cache_age = (datetime.utcnow() - _collection_status_cache_time).total_seconds()
+            cache_age = (datetime.now() - _collection_status_cache_time).total_seconds()
             if cache_age < COLLECTION_STATUS_CACHE_TTL:
                 return _collection_status_cache
 
@@ -894,7 +894,7 @@ async def get_collection_status():
         etf_status = 'inactive'
         if r.get('total_count', 0) > 0:
             if r.get('latest_time'):
-                time_diff = (datetime.utcnow() - r['latest_time']).total_seconds()
+                time_diff = (datetime.now() - r['latest_time']).total_seconds()
                 etf_status = 'active' if time_diff < 2592000 else 'warning'
             else:
                 etf_status = 'active'
@@ -915,7 +915,7 @@ async def get_collection_status():
         treasury_status = 'inactive'
         if r.get('total_count', 0) > 0:
             if r.get('latest_time'):
-                time_diff = (datetime.utcnow() - r['latest_time']).total_seconds()
+                time_diff = (datetime.now() - r['latest_time']).total_seconds()
                 treasury_status = 'active' if time_diff < 2592000 else 'warning'
             else:
                 treasury_status = 'active'
@@ -971,7 +971,7 @@ async def get_collection_status():
 
         with _collection_status_cache_lock:
             _collection_status_cache = result
-            _collection_status_cache_time = datetime.utcnow()
+            _collection_status_cache_time = datetime.now()
 
         return result
 
@@ -1282,7 +1282,7 @@ async def import_corporate_treasury_data(
                 except:
                     raise HTTPException(status_code=400, detail="数据日期格式错误 (应为 YYYY-MM-DD)")
             else:
-                purchase_date = datetime.utcnow().date()
+                purchase_date = datetime.now().date()
             
             # 解析文本格式
             companies = parse_bitcoin_treasuries_format(text_content)
@@ -1333,7 +1333,7 @@ async def import_corporate_treasury_data(
                 except:
                     raise HTTPException(status_code=400, detail="数据日期格式错误 (应为 YYYY-MM-DD)")
             else:
-                financing_date = datetime.utcnow().date()
+                financing_date = datetime.now().date()
             
             # 读取CSV内容
             text_content_bom = content.decode('utf-8-sig')  # 处理BOM
@@ -1827,7 +1827,7 @@ async def _execute_collection_task(task_id: str, request_data: Dict):
                         for idx, row_tuple in enumerate(df.iterrows()):
                             try:
                                 _, row = row_tuple
-                                created_at = datetime.utcnow()
+                                created_at = datetime.now()
                                 cursor.execute("""
                                     INSERT INTO price_data
                                     (symbol, exchange, timestamp, price, open_price, high_price, low_price, close_price, volume, quote_volume, bid_price, ask_price, change_24h, created_at)
@@ -1985,7 +1985,7 @@ async def _execute_collection_task(task_id: str, request_data: Dict):
                                             '1h': 60, '4h': 240, '1d': 1440
                                         }.get(timeframe, 60)
                                         close_time_ms = open_time_ms + (timeframe_minutes * 60 * 1000) - 1
-                                        created_at = datetime.utcnow()
+                                        created_at = datetime.now()
                                         
                                         cursor.execute("""
                                             INSERT INTO kline_data
@@ -2119,7 +2119,7 @@ async def _execute_collection_task(task_id: str, request_data: Dict):
                                                     '1h': 60, '4h': 240, '1d': 1440
                                                 }.get(timeframe, 60)
                                                 close_time_ms = open_time_ms + (timeframe_minutes * 60 * 1000) - 1
-                                                created_at = datetime.utcnow()
+                                                created_at = datetime.now()
                                                 
                                                 cursor.execute("""
                                                     INSERT INTO kline_data
@@ -2252,7 +2252,7 @@ async def _execute_collection_task(task_id: str, request_data: Dict):
                                                     '1h': 60, '4h': 240, '1d': 1440
                                                 }.get(timeframe, 60)
                                                 close_time_ms = open_time_ms + (timeframe_minutes * 60 * 1000) - 1
-                                                created_at = datetime.utcnow()
+                                                created_at = datetime.now()
                                                 
                                                 cursor.execute("""
                                                     INSERT INTO kline_data
@@ -2561,7 +2561,7 @@ async def collect_historical_data_sync(request: Dict):
                         for _, row in df.iterrows():
                             try:
                                 # 获取当前时间作为created_at
-                                created_at = datetime.utcnow()
+                                created_at = datetime.now()
                                 
                                 # 从K线数据转换为价格数据格式
                                 cursor.execute("""
@@ -2694,7 +2694,7 @@ async def collect_historical_data_sync(request: Dict):
                                         close_time_ms = open_time_ms + (timeframe_minutes * 60 * 1000) - 1
                                         
                                         # 获取当前时间作为created_at
-                                        created_at = datetime.utcnow()
+                                        created_at = datetime.now()
                                         
                                         cursor.execute("""
                                             INSERT INTO kline_data
@@ -2800,7 +2800,7 @@ async def collect_historical_data_sync(request: Dict):
                                             close_time_ms = open_time_ms + (timeframe_minutes * 60 * 1000) - 1
                                             
                                             # 获取当前时间作为created_at
-                                            created_at = datetime.utcnow()
+                                            created_at = datetime.now()
                                             
                                             # 保存合约K线数据
                                             cursor.execute("""

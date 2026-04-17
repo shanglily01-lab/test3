@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-04-14 01:55 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 16329,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ALGO/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.108,
+          "high": 0.11
+        },
+        "stop_loss": 0.1,
+        "target1": 0.115,
+        "target2": 0.12,
+        "win_rate_pct": 65,
+        "risk_reward": 1.5,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $0.108 after a dip towards $0.10 support",
+        "invalidation": "Price closes below $0.10 on 1h chart",
+        "confluence_signals": [
+          "EXTREME short crowd (L/S ratio 0th percentile) - contrarian bullish",
+          "OI RISING + price rising (healthy trend continuation)",
+          "MACD_1h bullish and EXPANDING",
+          "Overall market FEAR_AND_GREED_INDEX in 'Extreme Fear' (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Four strong bullish signals (L/S, OI, MACD, F&G) indicate a high probability of a bounce or continuation, balanced by short-term overbought RSI and 1d channel down, placing it in the 62-70% range."
+      },
+      {
+        "symbol": "ALT/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Data for ALT/USDT is contradictory and unclear regarding current price relative to key price levels and EMAs. Current price $0.0069 conflicts with all listed resistance/support/EMA levels being $0.01 and 'price_above=3/3 EMAs'."
+      },
+      {
+        "symbol": "APE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Strong conflicting signals from extreme funding rate (crowded longs, bearish) versus extreme short crowd L/S ratio (contrarian bullish). Limited ATR upside further reduces attractiveness for a clear directional trade."
+      },
+      {
+        "symbol": "AR/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.71,
+          "high": 1.73
+        },
+        "stop_loss": 1.65,
+        "target1": 1.84,
+        "target2": 1.89,
+        "win_rate_pct": 62,
+        "risk_reward": 1.375,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests EMA20 ($1.73) or $1.71 support and shows bullish reversal on 1h chart",
+        "invalidation": "Price closes below $1.65 on 1h chart",
+        "confluence_signals": [
+          "OI RISING + price rising (healthy trend continuation)",
+          "EMA_1h bullish alignment (price above all EMAs)",
+          "1d channel is UP",
+          "Taker buy aggressive (55.4% 1h)"
+        ],
+        "win_rate_basis": "Four strong bullish trend signals (OI, EMA, 1d channel, Taker Buy) suggest continuation, but 1h RSI is overbought and MACD is contracting, indicating a potential short-term pullback before continuation. This places the win rate in the 62-70% range."
+      }
+    ]
+  }
+}

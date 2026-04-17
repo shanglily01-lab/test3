@@ -1,0 +1,934 @@
+[
+  {
+    "round": 1,
+    "name": "ShadowLaggardShort",
+    "mode": "mtf_btc",
+    "hypothesis": "当BTC 4h破位下跌时，如果山寨币1h表现出虚假的抗跌（梯度为正），但其“成交量贡献率”（gradient/vol）远低于BTC，说明这种抗跌只是缺乏流动性的滞后，补跌概率极大。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 12 or len(cs4h) < 12:\n        return None\n\n    # BTC 4h 明确走弱\n    btc_grad = gradient(cs4h, 8)\n    if btc_grad > -0.005: return None\n\n    # 山寨币1h 虽然梯度为正(抗跌)\n    alt_grad = gradient(cs1h, 2)\n    if alt_grad < 0.001: return None\n\n    # 核心逻辑：山寨币的买压flux正在以比价格更快的速度衰减 (二阶导)\n    f_short = flux(cs1h, 2)\n    f_mid = flux(cs1h, 5)\n    f_long = flux(cs1h, 10)\n\n    if f_short < f_mid < f_long and f_short < 0.48:\n        return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 26,
+      "wr": 0.6923076923076923,
+      "ev": 0.377353269814816
+    },
+    "stage2": {
+      "n": 78,
+      "wr": 0.6538461538461539,
+      "ev": 0.3574063109493081
+    },
+    "stage3": {
+      "n": 643,
+      "wr": 0.6236391912908242,
+      "ev": 0.3428174823079098
+    },
+    "stage4_test": {
+      "n": 319,
+      "wr": 0.6112852664576802,
+      "ev": 0.17972683338559975,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "DOT/USDT",
+        1.0,
+        6
+      ],
+      [
+        "APT/USDT",
+        1.0,
+        3
+      ],
+      [
+        "LDO/USDT",
+        1.0,
+        4
+      ],
+      [
+        "HBAR/USDT",
+        1.0,
+        7
+      ],
+      [
+        "ALGO/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ETHFI/USDT",
+        1.0,
+        6
+      ],
+      [
+        "CFX/USDT",
+        0.9167,
+        12
+      ],
+      [
+        "DRIFT/USDT",
+        0.875,
+        8
+      ],
+      [
+        "TON/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ONT/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "XTZ/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ENS/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "HYPE/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ENA/USDT",
+        0.8,
+        5
+      ],
+      [
+        "SUI/USDT",
+        0.8,
+        5
+      ],
+      [
+        "CRV/USDT",
+        0.8,
+        5
+      ],
+      [
+        "PYTH/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ROSE/USDT",
+        0.8,
+        5
+      ],
+      [
+        "DYDX/USDT",
+        0.8,
+        5
+      ],
+      [
+        "THETA/USDT",
+        0.8,
+        10
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "SUI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "NEAR/USDT",
+        1.0,
+        6
+      ],
+      [
+        "BCH/USDT",
+        1.0,
+        6
+      ],
+      [
+        "HBAR/USDT",
+        1.0,
+        4
+      ],
+      [
+        "STRK/USDT",
+        1.0,
+        9
+      ],
+      [
+        "XTZ/USDT",
+        1.0,
+        3
+      ],
+      [
+        "1000LUNC/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ENS/USDT",
+        1.0,
+        6
+      ],
+      [
+        "AXL/USDT",
+        1.0,
+        4
+      ],
+      [
+        "XVG/USDT",
+        0.9091,
+        11
+      ],
+      [
+        "XLM/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ETC/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "AVAX/USDT",
+        0.8,
+        5
+      ],
+      [
+        "RENDER/USDT",
+        0.8,
+        5
+      ],
+      [
+        "SAND/USDT",
+        0.8,
+        5
+      ],
+      [
+        "W/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "1000BONK/USDT",
+        0.75,
+        4
+      ],
+      [
+        "SEI/USDT",
+        0.75,
+        4
+      ],
+      [
+        "LPT/USDT",
+        0.75,
+        4
+      ],
+      [
+        "STG/USDT",
+        0.7143,
+        7
+      ]
+    ],
+    "ts": "2026-04-14T18:14:38.490223"
+  },
+  {
+    "round": 1,
+    "name": "NonLinearExhaustion",
+    "mode": "mtf_self",
+    "hypothesis": "利用非线性组合识别衰竭：定义‘购买力转换率’为(gradient/flux)。若该比例在短时间内出现负向偏离，而振幅(amplitude)在扩大，意味着市场进入了‘无效波动’阶段。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 15 or len(cs4h) < 10:\n        return None\n\n    # 1h 购买力转换效率\n    def get_conversion(cs, n):\n        f = flux(cs, n)\n        # 使用0.4作为买盘活跃基准，避免分母过小\n        return gradient(cs, n) / (f - 0.4 if f > 0.4 else 0.05)\n\n    conv_2 = get_conversion(cs1h, 2)\n    conv_8 = get_conversion(cs1h, 8)\n\n    # 4h下跌，1h反弹。如果短期转换率转负，或者跌破中期效率的20%\n    if gradient(cs4h, 8) < -0.006 and gradient(cs1h, 3) > 0.001:\n        # 此时振幅在放大(波动增加)，但转换效率急剧下降\n        if conv_2 < conv_8 * 0.2 and amplitude(cs1h, 2) > amplitude(cs1h, 8):\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 49,
+      "wr": 0.5918367346938775,
+      "ev": 0.16702072437786566
+    },
+    "stage2": {
+      "n": 48,
+      "wr": 0.6041666666666666,
+      "ev": 0.0062915379885211415
+    },
+    "stage3": {
+      "n": 511,
+      "wr": 0.6164383561643836,
+      "ev": 0.3578418411560504
+    },
+    "stage4_test": {
+      "n": 267,
+      "wr": 0.6329588014981273,
+      "ev": 0.14553289719181758,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "ZEC/USDT",
+        1.0,
+        6
+      ],
+      [
+        "NEAR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "XLM/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ETC/USDT",
+        1.0,
+        4
+      ],
+      [
+        "JTO/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ICP/USDT",
+        1.0,
+        7
+      ],
+      [
+        "SAND/USDT",
+        1.0,
+        3
+      ],
+      [
+        "DUSK/USDT",
+        0.875,
+        8
+      ],
+      [
+        "APT/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "LDO/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "DRIFT/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "BOME/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "CTSI/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "FIL/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ZRO/USDT",
+        0.8,
+        5
+      ],
+      [
+        "SUPER/USDT",
+        0.8,
+        5
+      ],
+      [
+        "AXL/USDT",
+        0.8,
+        5
+      ],
+      [
+        "IOTA/USDT",
+        0.8,
+        5
+      ],
+      [
+        "LINK/USDT",
+        0.75,
+        4
+      ],
+      [
+        "BCH/USDT",
+        0.75,
+        4
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "ENA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SUI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "WIF/USDT",
+        1.0,
+        4
+      ],
+      [
+        "GALA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ONT/USDT",
+        1.0,
+        5
+      ],
+      [
+        "TIA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ICP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PENDLE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "VET/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AXL/USDT",
+        1.0,
+        3
+      ],
+      [
+        "BLUR/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "TAO/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "ETH/USDT",
+        0.75,
+        4
+      ],
+      [
+        "XRP/USDT",
+        0.75,
+        8
+      ],
+      [
+        "RENDER/USDT",
+        0.75,
+        4
+      ],
+      [
+        "THETA/USDT",
+        0.75,
+        4
+      ],
+      [
+        "BNB/USDT",
+        0.7143,
+        7
+      ],
+      [
+        "ZEC/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "DOGE/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "WLD/USDT",
+        0.6667,
+        3
+      ]
+    ],
+    "ts": "2026-04-14T18:14:39.651930"
+  },
+  {
+    "round": 3,
+    "name": "ConvexityTrapShort",
+    "mode": "mtf_self",
+    "hypothesis": "价格凸性衰减的增强版：观察“买压转换加速度”。如果1h价格还在涨，但“单位买压产生的梯度”在二阶导数上出现断崖式下跌，说明多头正在用透支的方式维持价格，崩塌在即。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 15 or len(cs4h) < 10:\n        return None\n\n    # 4h 宏观偏弱\n    if gradient(cs4h, 8) > -0.003: return None\n\n    # 转换率函数：梯度 / (买压偏离度)\n    def get_trans_rate(cs, n):\n        f = flux(cs, n)\n        return gradient(cs, n) / (f - 0.4 + 1e-9) # 0.4为买压基础摩擦值\n\n    rate_now = get_trans_rate(cs1h, 2)\n    rate_prev = get_trans_rate(cs1h, 5)\n\n    # 逻辑：价格在反弹，但买压转换效率不到之前的30%，呈现极强的凸性衰减\n    if gradient(cs1h, 2) > 0.001 and rate_now < rate_prev * 0.3:\n        if flux(cs1h, 2) < 0.53: # 即使买压看起来尚可，但效率已死\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 76,
+      "wr": 0.5789473684210527,
+      "ev": 0.07454326561865611
+    },
+    "stage2": {
+      "n": 68,
+      "wr": 0.75,
+      "ev": 0.6514665522935283
+    },
+    "stage3": {
+      "n": 579,
+      "wr": 0.6666666666666666,
+      "ev": 0.534695348185552
+    },
+    "stage4_test": {
+      "n": 347,
+      "wr": 0.6138328530259366,
+      "ev": 0.18811865509323544,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "ZEC/USDT",
+        1.0,
+        5
+      ],
+      [
+        "DOT/USDT",
+        1.0,
+        4
+      ],
+      [
+        "NEAR/USDT",
+        1.0,
+        5
+      ],
+      [
+        "BCH/USDT",
+        1.0,
+        3
+      ],
+      [
+        "OP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "JTO/USDT",
+        1.0,
+        6
+      ],
+      [
+        "XMR/USDT",
+        1.0,
+        5
+      ],
+      [
+        "BOME/USDT",
+        1.0,
+        3
+      ],
+      [
+        "EDU/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ENS/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AXL/USDT",
+        0.9091,
+        11
+      ],
+      [
+        "W/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "WLD/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "APT/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "SNX/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "FLOW/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "ONT/USDT",
+        0.8,
+        5
+      ],
+      [
+        "XTZ/USDT",
+        0.8,
+        5
+      ],
+      [
+        "1000LUNC/USDT",
+        0.8,
+        5
+      ],
+      [
+        "IMX/USDT",
+        0.8,
+        5
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "1000PEPE/USDT",
+        1.0,
+        4
+      ],
+      [
+        "LTC/USDT",
+        1.0,
+        3
+      ],
+      [
+        "TON/USDT",
+        1.0,
+        3
+      ],
+      [
+        "NEIRO/USDT",
+        1.0,
+        4
+      ],
+      [
+        "JTO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AXS/USDT",
+        1.0,
+        3
+      ],
+      [
+        "CHZ/USDT",
+        1.0,
+        5
+      ],
+      [
+        "JUP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "COMP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        4
+      ],
+      [
+        "AXL/USDT",
+        1.0,
+        6
+      ],
+      [
+        "THETA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "IOTA/USDT",
+        1.0,
+        5
+      ],
+      [
+        "W/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "ADA/USDT",
+        0.75,
+        4
+      ],
+      [
+        "DOT/USDT",
+        0.75,
+        4
+      ],
+      [
+        "TRX/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ICP/USDT",
+        0.75,
+        4
+      ],
+      [
+        "STRK/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ARKM/USDT",
+        0.75,
+        4
+      ]
+    ],
+    "ts": "2026-04-14T18:15:30.850276"
+  },
+  {
+    "round": 5,
+    "name": "InertialDragShort",
+    "mode": "mtf_self",
+    "hypothesis": "利用‘K线实体压缩’与‘二阶梯度加速度’的非线性组合。当4h宏观下跌时，如果1h价格反弹速度（梯度）尚存但实体占比急剧收缩至0.2以下，说明价格上涨已完全依赖于空头平仓的惯性，而非主动买盘的推进。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 10 or len(cs4h) < 8:\n        return None\n\n    # 1. 宏观弱势\n    if gradient(cs4h, 8) > -0.006: return None\n\n    # 2. 实体占比计算 (Body / Range)\n    def get_body_ratio(cs, n):\n        ratios = []\n        for i in range(1, n + 1):\n            r = cs[-i][\"high\"] - cs[-i][\"low\"]\n            b = abs(cs[-i][\"close\"] - cs[-i][\"open\"])\n            ratios.append(b / r if r > 0 else 0.5)\n        return sum(ratios) / n\n\n    br_short = get_body_ratio(cs1h, 2)\n    # 3. 逻辑：价格在涨但实体极小(虚涨) + 梯度开始减速\n    if gradient(cs1h, 2) > 0 and br_short < 0.22:\n        if gradient(cs1h, 2) < gradient(cs1h, 5) * 0.4:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 50,
+      "wr": 0.76,
+      "ev": 0.41191641288530173
+    },
+    "stage2": {
+      "n": 26,
+      "wr": 0.6538461538461539,
+      "ev": 0.24854217833077352
+    },
+    "stage3": {
+      "n": 313,
+      "wr": 0.6198083067092651,
+      "ev": 0.34759689322837145
+    },
+    "stage4_test": {
+      "n": 263,
+      "wr": 0.6197718631178707,
+      "ev": 0.1789463163435521,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "TAO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AAVE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "BCH/USDT",
+        1.0,
+        3
+      ],
+      [
+        "JTO/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ZRO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SAND/USDT",
+        1.0,
+        6
+      ],
+      [
+        "EDU/USDT",
+        1.0,
+        4
+      ],
+      [
+        "FLOW/USDT",
+        1.0,
+        3
+      ],
+      [
+        "IOTA/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ETH/USDT",
+        0.8333,
+        12
+      ],
+      [
+        "AR/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "SOL/USDT",
+        0.8,
+        10
+      ],
+      [
+        "DOT/USDT",
+        0.75,
+        4
+      ],
+      [
+        "LDO/USDT",
+        0.75,
+        4
+      ],
+      [
+        "RENDER/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ETC/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ORDI/USDT",
+        0.75,
+        4
+      ],
+      [
+        "TRU/USDT",
+        0.75,
+        4
+      ],
+      [
+        "W/USDT",
+        0.75,
+        4
+      ],
+      [
+        "WLD/USDT",
+        0.6667,
+        3
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "ZEC/USDT",
+        1.0,
+        4
+      ],
+      [
+        "1000PEPE/USDT",
+        1.0,
+        6
+      ],
+      [
+        "SUI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "DOT/USDT",
+        1.0,
+        4
+      ],
+      [
+        "XMR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "TIA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ICP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "BOME/USDT",
+        1.0,
+        3
+      ],
+      [
+        "1000FLOKI/USDT",
+        1.0,
+        4
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        5
+      ],
+      [
+        "BNB/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "HBAR/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "NEIRO/USDT",
+        0.8,
+        5
+      ],
+      [
+        "TAO/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "RENDER/USDT",
+        0.75,
+        8
+      ],
+      [
+        "LPT/USDT",
+        0.75,
+        4
+      ],
+      [
+        "XVG/USDT",
+        0.75,
+        4
+      ],
+      [
+        "XLM/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "BLUR/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "W/USDT",
+        0.6667,
+        12
+      ]
+    ],
+    "ts": "2026-04-14T18:16:24.513032"
+  }
+]

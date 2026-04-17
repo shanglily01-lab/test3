@@ -1,0 +1,100 @@
+{
+  "timestamp": "2026-04-13 03:01 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 11302,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 70428.0,
+          "high": 70566.5
+        },
+        "stop_loss": 70350.0,
+        "target1": 71232.37,
+        "target2": 71668.88,
+        "win_rate_pct": 65,
+        "risk_reward": 4.88,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone with a 1h candle closing within or above the zone after dipping, confirming support.",
+        "invalidation": "1h close below 70350.00",
+        "confluence_signals": [
+          "4h RSI oversold (<30)",
+          "Price-volume divergence (price falling with LOW volume - weak selling)",
+          "OI deleveraging/capitulation (OI falling with price falling)",
+          "Price approaching strong support zone"
+        ],
+        "win_rate_basis": "Strong confluence of technical oversold conditions, weak selling pressure, and capitulation signals suggests a high probability for a short-term bounce from support. The extreme long/short ratio is a contrarian bearish signal for sustained upside, but aligns with a short squeeze potential on a bounce."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: strong contrarian bearish signal from extreme long/short ratio vs. bullish signals from price-volume divergence and OI deleveraging. 4h RSI is neutral, not oversold, weakening a bounce argument compared to BTC/SOL. Waiting for clearer direction from BTC, which leads ETH."
+      },
+      {
+        "symbol": "BNB",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 590.0,
+          "high": 592.0
+        },
+        "stop_loss": 588.0,
+        "target1": 610.75,
+        "target2": 612.65,
+        "win_rate_pct": 68,
+        "risk_reward": 6.58,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone with a 1h candle closing within or above the zone after dipping, confirming support.",
+        "invalidation": "1h close below 588.00",
+        "confluence_signals": [
+          "Extreme bearish funding rate (0th percentile, potential short squeeze fuel)",
+          "Price-volume divergence (price falling with LOW volume - weak selling)",
+          "Price near 7d/30d range lows"
+        ],
+        "win_rate_basis": "Strong confluence of extreme bearish positioning in funding rate (short squeeze fuel), weak selling pressure, and price near historical lows, suggesting a high probability for a bounce or reversal. Long/short ratio is balanced, not posing a contrarian risk."
+      },
+      {
+        "symbol": "SOL",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 81.23,
+          "high": 81.36
+        },
+        "stop_loss": 81.15,
+        "target1": 82.22,
+        "target2": 82.84,
+        "win_rate_pct": 58,
+        "risk_reward": 6.13,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone with a 1h candle closing within or above the zone after dipping, confirming support.",
+        "invalidation": "1h close below 81.15",
+        "confluence_signals": [
+          "4h RSI oversold (<30)",
+          "Price-volume divergence (price falling with LOW volume - weak selling)",
+          "Price at strong support zone"
+        ],
+        "win_rate_basis": "Confluence of technical oversold conditions and weak selling pressure, indicating a potential bounce. However, the extreme long/short ratio (contrarian bearish) and positive funding rate introduce significant risk, reducing the overall win rate estimate."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "BTC's 2-3 hour lead on altcoins is crucial. While BTC and SOL show signs of a short-term bounce due to oversold conditions and deleveraging, their extreme long/short ratios pose a significant contrarian risk, suggesting any rally might be unsustainable without a broader market sentiment shift. BNB stands out with strong short-squeeze potential."
+  }
+}

@@ -1,0 +1,235 @@
+[
+  {
+    "round": 2,
+    "name": "GhostPumpShort",
+    "mode": "mtf_btc",
+    "hypothesis": "在BTC 4h宏观下跌时，山寨币1h价格虽在上涨，但其买压flux处于极低水平(<0.45)，这种‘无量空涨’通常由盘面极轻或空头平仓引发，而非真实资金入场，极易崩塌。",
+    "code": "def sig(cs1h, cs4h_btc=None):\n    if not cs1h or not cs4h_btc or len(cs1h) < 10 or len(cs4h_btc) < 5:\n        return None\n    \n    # 逻辑：BTC大势已去 + 山寨价格梯度为正 + 山寨买压flux极低（背离严重）\n    if gradient(cs4h_btc, 4) < -0.006 and gradient(cs1h, 3) > 0.002:\n        if flux(cs1h, 2) < 0.45:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 11,
+      "wr": 0.6363636363636364,
+      "ev": 0.36786183006157464
+    },
+    "stage2": {
+      "n": 43,
+      "wr": 0.6744186046511628,
+      "ev": 0.32434444260206013
+    },
+    "stage3": {
+      "n": 532,
+      "wr": 0.6409774436090225,
+      "ev": 0.333563319295255
+    },
+    "stage4_test": {
+      "n": 243,
+      "wr": 0.4773662551440329,
+      "ev": -0.09184835609227714,
+      "verdict": "FAIL"
+    },
+    "top_symbols_train": [
+      [
+        "AAVE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PENGU/USDT",
+        1.0,
+        3
+      ],
+      [
+        "NEIRO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PENDLE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "COMP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ENS/USDT",
+        1.0,
+        8
+      ],
+      [
+        "DRIFT/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "RENDER/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "ORDI/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "SNX/USDT",
+        0.8333,
+        12
+      ],
+      [
+        "JUP/USDT",
+        0.8125,
+        16
+      ],
+      [
+        "APT/USDT",
+        0.8,
+        5
+      ],
+      [
+        "CAKE/USDT",
+        0.8,
+        5
+      ],
+      [
+        "TIA/USDT",
+        0.8,
+        5
+      ],
+      [
+        "SEI/USDT",
+        0.8,
+        5
+      ],
+      [
+        "STRK/USDT",
+        0.8,
+        5
+      ],
+      [
+        "W/USDT",
+        0.8,
+        10
+      ],
+      [
+        "1000LUNC/USDT",
+        0.7857,
+        14
+      ],
+      [
+        "CFX/USDT",
+        0.7857,
+        14
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "DOGE/USDT",
+        1.0,
+        4
+      ],
+      [
+        "BNB/USDT",
+        1.0,
+        4
+      ],
+      [
+        "TON/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SEI/USDT",
+        1.0,
+        4
+      ],
+      [
+        "STRK/USDT",
+        1.0,
+        4
+      ],
+      [
+        "1000LUNC/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SAND/USDT",
+        0.75,
+        4
+      ],
+      [
+        "XVG/USDT",
+        0.75,
+        4
+      ],
+      [
+        "APT/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "JTO/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ICP/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ARKM/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ID/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "STX/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "POL/USDT",
+        0.5714,
+        7
+      ],
+      [
+        "1000BONK/USDT",
+        0.5,
+        6
+      ],
+      [
+        "HBAR/USDT",
+        0.5,
+        4
+      ],
+      [
+        "XLM/USDT",
+        0.5,
+        4
+      ],
+      [
+        "AXS/USDT",
+        0.5,
+        4
+      ],
+      [
+        "CHZ/USDT",
+        0.5,
+        4
+      ]
+    ],
+    "ts": "2026-04-14T17:54:53.198054"
+  }
+]

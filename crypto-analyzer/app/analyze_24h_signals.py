@@ -36,7 +36,7 @@ print("=" * 100)
 print()
 
 # 计算24小时前的时间（UTC）
-now_utc = datetime.utcnow()
+now_utc = datetime.now()
 time_24h_ago = now_utc - timedelta(hours=24)
 
 print(f"分析时间范围: {time_24h_ago.strftime('%Y-%m-%d %H:%M:%S')} UTC ~ {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")

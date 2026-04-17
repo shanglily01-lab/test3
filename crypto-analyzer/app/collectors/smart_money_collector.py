@@ -439,7 +439,7 @@ class SmartMoneyCollector:
             logger.info(f"API返回 {len(erc20_transfers)} 笔ERC20转账")
 
             # 过滤最近N小时的交易
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = datetime.now() - timedelta(hours=hours)
             recent_transactions = []
 
             logger.info(f"时间过滤: 只保留 {cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} 之后的交易")
@@ -570,7 +570,7 @@ class SmartMoneyCollector:
                 'transaction_count': len(token_txs),
                 'signal_start_time': min(tx['timestamp'] for tx in token_txs),
                 'signal_end_time': max(tx['timestamp'] for tx in token_txs),
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(),
                 'related_tx_hashes': ','.join(tx['tx_hash'] for tx in token_txs[:10]),  # 最多10个
                 'top_addresses': ','.join(list(addresses)[:5]),  # 前5个地址
                 'is_active': True,

@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-04-14 02:01 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18259,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "DYM/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.0168,
+          "high": 0.0171
+        },
+        "stop_loss": 0.016,
+        "target1": 0.02,
+        "target2": 0.021,
+        "win_rate_pct": 70,
+        "risk_reward": 3.5,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters entry zone and 1h RSI confirms bounce (e.g., moves above 30)",
+        "invalidation": "1h close below $0.0160",
+        "confluence_signals": [
+          "4h RSI oversold (23.56)",
+          "Price falling with LOW volume (weak selling) - bullish divergence",
+          "Funding Velocity accelerating positive (shorts paying more, squeeze building)",
+          "Fear & Greed Index at Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Four strong bullish signals (oversold RSI, weak selling, positive funding velocity, and extreme market fear) align for a contrarian bounce play, contributing to a high estimated win rate."
+      },
+      {
+        "symbol": "EDEN/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Highly conflicting signals: 'EXTREME bearish positioning - potential short squeeze fuel' (bullish) from funding rate clashes with 'EXTREME long crowd - contrarian bearish' from L/S ratio and 'price rising with LOW volume (weak buying)' (bearish divergence). This creates too much uncertainty for a clear directional trade."
+      },
+      {
+        "symbol": "EIGEN/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: 'EXTREME short crowd - contrarian bullish' is negated by '1h RSI overbought', 'Funding Velocity accelerating negative' (bearish), and 'Perp premium EXTREME discount' (bearish). These contradictions make a clear directional trade difficult."
+      },
+      {
+        "symbol": "ELSA/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Significant contradictions: 'EXTREME bearish positioning - potential short squeeze fuel' (bullish) from funding rate is countered by '1h RSI overbought', 'EXTREME long crowd - contrarian bearish' from L/S ratio, and 'price rising with LOW volume (weak buying)' (bearish divergence). Ambiguous outlook."
+      }
+    ]
+  }
+}

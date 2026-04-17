@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-04-14 05:57 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12722,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "CKB/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.00149,
+          "high": 0.00151
+        },
+        "stop_loss": 0.00146,
+        "target1": 0.00154,
+        "target2": 0.00158,
+        "win_rate_pct": 72,
+        "risk_reward": 1.5,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price stabilizes around entry zone after any further minor dip, ideally with increasing volume.",
+        "invalidation": "1h close below 0.00146",
+        "confluence_signals": [
+          "Price-volume divergence (weak selling)",
+          "OI falling + price falling (capitulation signal)",
+          "Funding Velocity accelerating positive (short squeeze building)",
+          "Extreme Fear Index (contrarian buy signal)",
+          "EMA 1h bullish alignment",
+          "Perp premium at 8th percentile (potential positive reversion)"
+        ]
+      }
+    ]
+  }
+}

@@ -103,6 +103,7 @@
 <a href="/coin_futures_trading" data-path="/coin_futures_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">currency_bitcoin</span><span>币本位合约</span></a>
 <a href="/live_trading" data-path="/live_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">precision_manufacturing</span><span>Live Trading</span></a>
 <a href="/futures_review" data-path="/futures_review" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">history_edu</span><span>复盘分析</span></a>
+<a href="/monthly_plan" data-path="/monthly_plan" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">target</span><span>月度计划</span></a>
 <a href="/technical-signals" data-path="/technical-signals" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">sensors</span><span>信号分析</span></a>
 <a href="/market_regime" data-path="/market_regime" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">pulse_alert</span><span>行情识别</span></a>
 <a class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm" data-path="/top50" href="/top50"><span class="material-symbols-outlined text-lg">workspace_premium</span><span>TOP 50</span></a>
@@ -330,21 +331,21 @@ function fmtPnl(n) {
 function fmtTime(t) {
     if (!t) return '--';
     try {
-        var ts = (typeof t === 'string' && !t.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(t)) ? t + 'Z' : t;
-        var d = new Date(ts);
+        // DB stores local time (UTC+8), parse directly without UTC conversion
+        var s = typeof t === 'string' ? t.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '') : t;
+        var d = new Date(s);
         if (isNaN(d.getTime())) return '--';
-        var u = new Date(d.getTime() + 8 * 3600000);
         var pad = function(x) { return String(x).padStart(2, '0'); };
-        return (u.getUTCMonth()+1) + '-' + pad(u.getUTCDate()) + ' ' + pad(u.getUTCHours()) + ':' + pad(u.getUTCMinutes());
+        return (d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
     } catch(e) { return '--'; }
 }
 
-/** 与 fmtTime 一致解析 API 返回的本地时间字符串，用于计算持仓时长 */
+/** 解析 DB 返回的本地时间字符串为毫秒时间戳，用于计算持仓时长 */
 function parseDbTimeMs(t) {
     if (!t) return NaN;
     try {
-        var ts = (typeof t === 'string' && !t.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(t)) ? t + 'Z' : t;
-        var d = new Date(ts);
+        var s = typeof t === 'string' ? t.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '') : t;
+        var d = new Date(s);
         return isNaN(d.getTime()) ? NaN : d.getTime();
     } catch (e) { return NaN; }
 }
@@ -649,7 +650,7 @@ function loadStats(posResult, trades) {
             .filter(function(t) {
                 var ct = t.close_time || t.trade_time;
                 if (!ct) return false;
-                var ts = new Date((typeof ct === 'string' && !ct.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ct)) ? ct + 'Z' : ct).getTime();
+                var ts = parseDbTimeMs(ct);
                 return ts >= cutoff;
             })
             .reduce(function(s, t) { return s + (parseFloat(t.realized_pnl) || 0); }, 0);

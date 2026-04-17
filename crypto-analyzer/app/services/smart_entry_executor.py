@@ -57,18 +57,62 @@ class SmartEntryExecutor:
         self.sample_interval_seconds = 5  # 每5秒采样一次
         self.percentile_threshold = 90  # 90分位数阈值
 
-    def _get_margin_amount(self, symbol: str) -> float:
-        """根据交易对评级等级获取保证金金额"""
+    def _get_margin_amount(self, symbol: str, score: float = 75) -> float:
+        """动态仓位计算：固定金额(fixed_margin_usdt)优先，否则基于余额百分比"""
         rating_level = self.opt_config.get_symbol_rating_level(symbol)
+        if rating_level >= 3:
+            return 0.0
 
-        if rating_level == 0:
-            return 400.0  # 白名单&默认
-        elif rating_level == 1:
-            return 100.0  # 黑名单1级
-        elif rating_level == 2:
-            return 50.0  # 黑名单2级
+        try:
+            conn = pymysql.connect(**self.db_config)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT setting_key, setting_value FROM system_settings "
+                "WHERE setting_key IN ('position_size_pct', 'fixed_margin_usdt')"
+            )
+            settings = {r[0]: r[1] for r in cur.fetchall()}
+            cur.execute(
+                "SELECT current_balance, frozen_balance FROM futures_trading_accounts WHERE id=%s",
+                (self.account_id,)
+            )
+            acc = cur.fetchone()
+            cur.close()
+            conn.close()
+            available = float(acc[0]) - float(acc[1] or 0) if acc else 10000.0
+        except Exception as e:
+            logger.warning(f"[SIZING] 读取余额/配置失败，使用兜底值: {e}")
+            settings = {}
+            available = 10000.0
+
+        # 优先使用固定金额
+        fixed_margin = float(settings.get('fixed_margin_usdt', 0))
+        if fixed_margin > 0:
+            size = fixed_margin
         else:
-            return 0.0  # 黑名单3级
+            base_pct = float(settings.get('position_size_pct', 0.03))
+            # score 倍率：65->1.0x，120->1.5x（线性插值，上限1.5）
+            score_mult = 1.0 + min(0.5, max(0.0, (score - 65) / 110))
+            size = available * base_pct * score_mult
+            max_size = available * 0.06
+            size = min(max_size, size)
+
+        # 绝对下限
+        min_size = 300.0
+        size = max(min_size, size)
+
+        # 评级折减
+        if rating_level == 1:
+            size *= 0.50
+        elif rating_level == 2:
+            size *= 0.25
+
+        size = max(min_size, size)
+
+        logger.debug(
+            f"[SIZING] {symbol} score={score:.0f} available={available:.0f} "
+            f"fixed={fixed_margin:.0f} size={size:.0f} level={rating_level}"
+        )
+        return round(size, 2)
 
     def _calculate_stop_take_prices(self, symbol: str, direction: str, current_price: float, signal_components: dict) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
         """计算止盈止损价格和百分比"""
@@ -116,37 +160,12 @@ class SmartEntryExecutor:
         return base_stop_loss_pct
 
     async def _get_current_price(self, symbol: str) -> Optional[float]:
-        """获取当前价格（优先WebSocket，回退到数据库）"""
-        # 优先从WebSocket获取
+        """获取当前价格 - 仅使用WebSocket实时价，无可用价格时返回None拒绝开仓"""
         if self.price_service:
             price = self.price_service.get_price(symbol)
             if price and price > 0:
                 return float(price)
-
-        # 回退到数据库（kline_data 5m，限30分钟内有效）
-        try:
-            conn = pymysql.connect(**self.db_config, charset='utf8mb4')
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT close_price, open_time FROM kline_data
-                WHERE symbol = %s AND timeframe = '5m'
-                ORDER BY open_time DESC
-                LIMIT 1
-            """, (symbol,))
-            result = cursor.fetchone()
-            conn.close()
-            if result:
-                close_price, open_time = result
-                # 数据必须在30分钟内，否则视为过期
-                import time
-                age_ms = int(time.time() * 1000) - int(open_time)
-                if age_ms <= 30 * 60 * 1000:
-                    return float(close_price)
-                else:
-                    logger.warning(f"[PRICE] {symbol} kline_data 数据过期({age_ms//60000}分钟前)，跳过")
-        except Exception as e:
-            logger.error(f"[PRICE] 从数据库获取价格失败: {e}")
-
+        logger.warning(f"[PRICE] {symbol} WebSocket价格不可用，拒绝返回价格")
         return None
 
     async def execute_entry(self, signal: Dict) -> Dict:
@@ -179,8 +198,9 @@ class SmartEntryExecutor:
         if isinstance(signal_time, str):
             signal_time = datetime.fromisoformat(signal_time)
 
-        # 获取保证金金额
-        margin = self._get_margin_amount(symbol)
+        # 获取保证金金额（动态：基于余额 + 信号评分）
+        _entry_score = float(signal.get('trade_params', {}).get('entry_score', 75))
+        margin = self._get_margin_amount(symbol, score=_entry_score)
 
         if margin == 0:
             rating_level = self.opt_config.get_symbol_rating_level(symbol)
@@ -302,7 +322,7 @@ class SmartEntryExecutor:
                 self._calculate_stop_take_prices(symbol, direction, entry_price, signal_components)
 
             # 计算仓位
-            leverage = signal.get('leverage', 5)
+            leverage = signal.get('leverage', 10)
             quantity = margin * leverage / entry_price
             notional_value = quantity * entry_price
 
@@ -317,7 +337,7 @@ class SmartEntryExecutor:
             _mh_val = self.opt_config._read_system_setting('max_hold_hours') if self.opt_config else None
             _mh_hours = max(3, min(8, int(_mh_val or 3)))
             max_hold_minutes = _mh_hours * 60
-            timeout_at = datetime.utcnow() + timedelta(minutes=max_hold_minutes)
+            timeout_at = datetime.now() + timedelta(minutes=max_hold_minutes)
             planned_close_time = datetime.now() + timedelta(minutes=max_hold_minutes)
 
             # 准备数据

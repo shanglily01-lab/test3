@@ -105,7 +105,7 @@ class SignalGenerator:
 
         return {
             'symbol': symbol,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now().isoformat(),
             'action': action,
             'confidence': round(confidence, 2),
             'score': {

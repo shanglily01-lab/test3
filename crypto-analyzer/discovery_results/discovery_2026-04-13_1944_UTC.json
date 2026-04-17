@@ -1,0 +1,111 @@
+{
+  "timestamp": "2026-04-13 19:44 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 15284,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 71382.1,
+          "high": 71635.4
+        },
+        "stop_loss": 70400.0,
+        "target1": 73128.0,
+        "target2": 73773.4,
+        "win_rate_pct": 65,
+        "risk_reward": 2.06,
+        "confidence": 7,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($71,635.40) after retesting support",
+        "invalidation": "1h close below $70,566.50",
+        "confluence_signals": [
+          "EMA bullish alignment (price above all EMAs)",
+          "MACD 1h bullish and EXPANDING",
+          "Open Interest rising with price (trend continuation)",
+          "Fear & Greed Index at Extreme Fear (contrarian buy)",
+          "Negative funding rate (shorts paying longs) with rising OI (potential squeeze)"
+        ],
+        "win_rate_basis": "Strong bullish momentum (EMA, MACD, OI) combined with contrarian signals from Fear & Greed and negative funding rate suggest upside. Overbought 1h RSI and Hyperliquid Smart Money bearishness are noted but outweighed by structural bullishness and contrarian sentiment."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 2205.52,
+          "high": 2212.22
+        },
+        "stop_loss": 2170.0,
+        "target1": 2257.55,
+        "target2": 2329.99,
+        "win_rate_pct": 60,
+        "risk_reward": 3.15,
+        "confidence": 6,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($2,211.49) after retesting support",
+        "invalidation": "1h close below $2,174.48",
+        "confluence_signals": [
+          "Price above all EMAs",
+          "MACD 1h bullish and EXPANDING",
+          "Fear & Greed Index at Extreme Fear (contrarian buy)",
+          "Strong correlation with BTC's bullish structure"
+        ],
+        "win_rate_basis": "Bullish momentum and price action, aligned with BTC's overall trend and contrarian Fear & Greed. However, overbought 1h RSI, accelerating negative funding velocity, and Hyperliquid Smart Money bearishness reduce conviction slightly."
+      },
+      {
+        "symbol": "BNB",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 597.78,
+          "high": 602.04
+        },
+        "stop_loss": 590.0,
+        "target1": 610.75,
+        "target2": 614.57,
+        "win_rate_pct": 70,
+        "risk_reward": 1.45,
+        "confidence": 8,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($600.85) after retesting support",
+        "invalidation": "1h close below $591.18",
+        "confluence_signals": [
+          "Price above all EMAs",
+          "MACD 1h bullish and EXPANDING",
+          "EXTREME bearish funding rate (0th percentile) indicating short squeeze fuel",
+          "Binance trading at a discount, suggesting arbitrage buying pressure",
+          "Fear & Greed Index at Extreme Fear (contrarian buy)"
+        ],
+        "win_rate_basis": "A confluence of strong contrarian bullish signals (extreme funding, Binance discount, F&G index) combined with positive momentum indicators (EMA, MACD) provides high conviction despite short-term underperformance and overbought 1h RSI."
+      },
+      {
+        "symbol": "SOL",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 81.61,
+          "high": 83.0
+        },
+        "stop_loss": 81.0,
+        "target1": 85.66,
+        "target2": 86.23,
+        "win_rate_pct": 58,
+        "risk_reward": 3.02,
+        "confidence": 6,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($82.70) after retesting support",
+        "invalidation": "1h close below $81.36",
+        "confluence_signals": [
+          "Price above all EMAs",
+          "MACD 1h bullish and EXPANDING",
+          "Funding Velocity accelerating positive (shorts paying more, squeeze building)",
+          "Fear & Greed Index at Extreme Fear (contrarian buy)",
+          "Strong correlation with BTC's bullish structure"
+        ],
+        "win_rate_basis": "Bullish momentum (MACD, funding velocity) and overall market sentiment (F&G, BTC correlation) support a long. However, conflicting EMA 1h alignment and neutral Hyperliquid Smart Money signals introduce some uncertainty, leading to a moderate win rate."
+      }
+    ],
+    "market_regime": "trending_up",
+    "cross_asset_insight": "The market is in an upward trend, with BTC leading highly correlated altcoins. Extreme Fear sentiment suggests contrarian buy opportunities, particularly for assets like BNB exhibiting strong short-squeeze potential.",
+    "highest_conviction_trade": "BNB"
+  }
+}

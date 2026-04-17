@@ -90,7 +90,7 @@ class HyperliquidTokenMapper:
         if self.last_update is None:
             return True
 
-        if datetime.utcnow() - self.last_update > self.cache_duration:
+        if datetime.now() - self.last_update > self.cache_duration:
             return True
 
         return False
@@ -150,7 +150,7 @@ class HyperliquidTokenMapper:
             # 更新映射
             self.token_map = new_token_map
             self.reverse_map = new_reverse_map
-            self.last_update = datetime.utcnow()
+            self.last_update = datetime.now()
 
             logger.info(f"成功更新 {len(self.token_map)} 个代币映射")
 

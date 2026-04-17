@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-04-14 01:53 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 15583,
+  "results": {
+    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"BTC\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 71259.00,\n        \"high\": 71382.10\n      },\n      \"stop_loss\": 70000.00,\n      \"target1\": 75500.00,\n      \"target2\": 77000.00,\n      \"win_rate_pct\": 68,\n      \"risk_reward\": 3.73,\n      \"confidence\": 7,\n      \"time_window\": \"enter within 4-8h, hold 12-24h\",\n      \"entry_trigger\": \"Price enters entry zone and 1h candle closes bullishly or shows reversal pattern.\",\n      \"invalidation\": \"1h close below 70000.00, or strong bearish momentum before entry.\",\n      \"confluence_signals\": [\n        \"FEAR_AND_GREED_INDEX: Extreme Fear (Contrarian Buy)\",\n        \"LONG_SHORT_RATIO: Extreme short crowd (Contrarian Bullish)\",\n        \"OPEN_INTEREST: Rising with price (Healthy trend continuation)\",\n        \"EMA Alignment: Bullish (Price above all EMAs)\"\n      ],\n      \"",
+    "parse_error": "JSON extraction failed"
+  }
+}

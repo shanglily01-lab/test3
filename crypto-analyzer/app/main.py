@@ -928,9 +928,16 @@ except Exception as e:
 try:
     from app.api.signal_blacklist_api import router as signal_blacklist_router
     app.include_router(signal_blacklist_router)
-    logger.info("✅ 信号黑名单API路由已注册（/api/signal_blacklist）")
+    logger.info("OK signal_blacklist API registered (/api/signal_blacklist)")
 except Exception as e:
-    logger.warning(f"⚠️  信号黑名单API路由注册失败: {e}")
+    logger.warning(f"signal_blacklist API registration failed: {e}")
+
+try:
+    from app.api.signal_config_api import router as signal_config_router
+    app.include_router(signal_config_router)
+    logger.info("OK signal_config API registered (/api/signal_config)")
+except Exception as e:
+    logger.warning(f"signal_config API registration failed: {e}")
 
 try:
     from app.api.binance_news_api import router as binance_news_router
@@ -1468,6 +1475,126 @@ async def futures_review_page():
         raise HTTPException(status_code=404, detail="Futures review page not found")
 
 
+@app.get("/monthly_plan")
+async def monthly_plan_page():
+    """月度盈利计划页面"""
+    path = project_root / "templates" / "monthly_plan.html"
+    if path.exists():
+        return FileResponse(str(path))
+    raise HTTPException(status_code=404, detail="Monthly plan page not found")
+
+
+@app.get("/api/monthly_plan/data")
+async def monthly_plan_data():
+    """月度计划数据接口：每日目标 vs 实际盈亏"""
+    import math, pymysql, os
+    from datetime import date, timedelta
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", 3306)),
+            user=os.getenv("DB_USER", "root"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "binance-data"),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+        cur = conn.cursor()
+
+        # 计划参数 — 目标: 100K → 200K (+100%) in 19天 (2026-04-12 ~ 2026-05-01)
+        start_date = date(2026, 4, 12)
+        end_date   = date(2026, 5, 1)
+        total_days = (end_date - start_date).days  # 19
+
+        cur.execute("SELECT current_balance, frozen_balance FROM futures_trading_accounts WHERE id=2")
+        acc = cur.fetchone()
+        initial_balance = 100000.0
+        current_balance = float(acc['current_balance']) if acc else initial_balance
+
+        # 每日复利目标增长率: 2^(1/19) - 1 = 3.72%
+        daily_rate = math.pow(2.0, 1.0 / total_days) - 1
+
+        # 已平仓每日盈亏
+        cur.execute("""
+            SELECT DATE(close_time) as day, SUM(realized_pnl) as pnl, COUNT(*) as trades,
+                   SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins
+            FROM futures_positions
+            WHERE status = 'closed' AND account_id = 2
+            GROUP BY DATE(close_time)
+            ORDER BY day
+        """)
+        daily_rows = {str(r['day']): r for r in cur.fetchall()}
+
+        # 浮盈
+        cur.execute("SELECT SUM(unrealized_pnl) as upnl, COUNT(*) as cnt FROM futures_positions WHERE status='open' AND account_id=2")
+        open_row = cur.fetchone()
+        unrealized = float(open_row['upnl'] or 0)
+        open_cnt   = int(open_row['cnt'] or 0)
+
+        # 构建每日计划
+        days_data = []
+        cum_actual = 0.0
+        today = date.today()
+        for i in range(total_days + 1):
+            d = start_date + timedelta(days=i)
+            # End-of-day values: day i means after i full trading days
+            target_balance = initial_balance * math.pow(1 + daily_rate, i + 1)
+            target_profit  = target_balance - initial_balance
+            daily_target   = initial_balance * daily_rate * math.pow(1 + daily_rate, i)
+
+            day_str = str(d)
+            actual_pnl = float(daily_rows[day_str]['pnl']) if day_str in daily_rows else None
+            trades     = int(daily_rows[day_str]['trades']) if day_str in daily_rows else 0
+            wins       = int(daily_rows[day_str]['wins']) if day_str in daily_rows else 0
+            if actual_pnl is not None:
+                cum_actual += actual_pnl
+
+            status = "future"
+            if d < today:
+                status = "done"
+            elif d == today:
+                status = "today"
+
+            days_data.append({
+                "date":         day_str,
+                "day_num":      i + 1,
+                "daily_target": round(daily_target, 2),
+                "cum_target":   round(target_profit, 2),
+                "target_balance": round(target_balance, 2),
+                "actual_pnl":   round(actual_pnl, 2) if actual_pnl is not None else None,
+                "cum_actual":   round(cum_actual, 2),
+                "trades":       trades,
+                "wins":         wins,
+                "wr":           round(wins / trades * 100, 1) if trades > 0 else None,
+                "status":       status,
+            })
+
+        # 今日含浮盈的综合进度
+        today_cum = cum_actual + unrealized
+        today_target = next((d['daily_target'] for d in days_data if d['status'] == 'today'), 0)
+
+        return {
+            "initial_balance": initial_balance,
+            "current_balance": round(current_balance, 2),
+            "target_balance":  200000.0,
+            "cum_realized":    round(cum_actual, 2),
+            "unrealized":      round(unrealized, 2),
+            "today_cum_with_open": round(today_cum, 2),
+            "today_target":    round(today_target, 2),
+            "open_positions":  open_cnt,
+            "daily_rate_pct":  round(daily_rate * 100, 3),
+            "days_elapsed":    (today - start_date).days,
+            "days_remaining":  (end_date - today).days,
+            "days": days_data,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
 @app.get("/market_regime")
 async def market_regime_page():
     """
@@ -1847,7 +1974,7 @@ async def get_strategy_execution_list(
         import pymysql
         
         # 计算时间范围（如果没有指定或为空，默认查询最近30天）
-        now = datetime.utcnow()
+        now = datetime.now()
         time_delta_map = {
             '1h': timedelta(hours=1),
             '24h': timedelta(hours=24),
@@ -2962,7 +3089,7 @@ async def get_trend_analysis():
     # 检查缓存
     with _trend_analysis_cache_lock:
         if _trend_analysis_cache is not None and _trend_analysis_cache_time is not None:
-            cache_age = (datetime.utcnow() - _trend_analysis_cache_time).total_seconds()
+            cache_age = (datetime.now() - _trend_analysis_cache_time).total_seconds()
             if cache_age < TECHNICAL_SIGNALS_CACHE_TTL:
                 logger.debug(f"✅ 使用缓存的趋势分析数据 (缓存年龄: {cache_age:.0f}秒)")
                 return _trend_analysis_cache
@@ -3128,7 +3255,7 @@ async def get_trend_analysis():
             # 更新缓存
             with _trend_analysis_cache_lock:
                 _trend_analysis_cache = result
-                _trend_analysis_cache_time = datetime.utcnow()
+                _trend_analysis_cache_time = datetime.now()
                 logger.debug(f"✅ 趋势分析数据已缓存 ({len(trend_list)} 条记录)")
 
             return result
@@ -3560,7 +3687,7 @@ async def get_futures_signals():
     # 检查缓存
     with _futures_signals_cache_lock:
         if _futures_signals_cache is not None and _futures_signals_cache_time is not None:
-            cache_age = (datetime.utcnow() - _futures_signals_cache_time).total_seconds()
+            cache_age = (datetime.now() - _futures_signals_cache_time).total_seconds()
             if cache_age < TECHNICAL_SIGNALS_CACHE_TTL:
                 logger.debug(f"✅ 使用缓存的合约信号数据 (缓存年龄: {cache_age:.0f}秒)")
                 return _futures_signals_cache
@@ -3677,7 +3804,7 @@ async def get_futures_signals():
             # 更新缓存
             with _futures_signals_cache_lock:
                 _futures_signals_cache = result
-                _futures_signals_cache_time = datetime.utcnow()
+                _futures_signals_cache_time = datetime.now()
                 logger.debug(f"✅ 合约信号数据已缓存 ({len(futures_signals)} 条记录)")
 
             return result
@@ -4179,7 +4306,7 @@ def _analyze_futures_signal(
             'values': _extract_indicator_values(tech_data_1h)
         } if tech_data_1h else None,
         'kelly_advice': kelly_advice,  # 凯利公式建议
-        'updated_at': datetime.utcnow().isoformat()
+        'updated_at': datetime.now().isoformat()
     }
 
 
@@ -4253,7 +4380,7 @@ async def get_dashboard():
                     "bullish_count": bullish,
                     "bearish_count": bearish
                 },
-                "last_updated": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             },
             "message": "降级模式：仅显示价格数据"
         }
@@ -4277,7 +4404,7 @@ async def get_dashboard():
                         "bullish_count": 0,
                         "bearish_count": 0
                     },
-                    "last_updated": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                    "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 },
                 "error": str(e),
                 "message": "数据加载失败，请稍后重试"
@@ -4301,7 +4428,7 @@ async def get_dashboard():
     try:
         # 检查缓存
         from datetime import datetime, timedelta
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if _dashboard_cache and _dashboard_cache_time:
             cache_age = (now - _dashboard_cache_time).total_seconds()
@@ -4351,7 +4478,7 @@ async def get_dashboard():
         _dashboard_cache = data
         _dashboard_cache_time = now
 
-        elapsed = (datetime.utcnow() - start_time).total_seconds()
+        elapsed = (datetime.now() - start_time).total_seconds()
         logger.info(f"✅ Dashboard 数据获取完成，耗时: {elapsed:.1f}秒")
 
         return data
@@ -4375,7 +4502,7 @@ async def get_dashboard():
                     "bullish_count": 0,
                     "bearish_count": 0
                 },
-                "last_updated": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             },
             "error": str(e),
             "message": "数据加载失败，请稍后重试"
@@ -4466,7 +4593,7 @@ async def get_latest_retrospective_analysis():
             cursorclass=pymysql.cursors.DictCursor
         )
         cursor = conn.cursor()
-        now_utc = datetime.utcnow()
+        now_utc = datetime.now()
         since_utc = now_utc - timedelta(hours=12)
         since_ts = int(since_utc.timestamp() * 1000)
 
@@ -4686,7 +4813,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app,  # 直接传递app对象，而不是字符串
         host="0.0.0.0",
-        port=9020,  # 改为9020端口，避免8000端口冲突
+        port=9021,  # 本地开发端口
         reload=False,
         log_level="info",
         access_log=False  # 禁用访问日志

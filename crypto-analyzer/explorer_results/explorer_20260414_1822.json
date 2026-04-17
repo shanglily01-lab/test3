@@ -1,0 +1,235 @@
+[
+  {
+    "round": 5,
+    "name": "MarginalUtilityFracture",
+    "mode": "mtf_btc",
+    "hypothesis": "这是MarginalFluxUtility的稳健演化版。通过定义“边际推力效率”为梯度除以超额买压，当BTC下行时，若山寨币短期内的推力效率相对于其中期均值出现断崖式下跌（<30%），且买压已转为中性偏弱，则为空头入场信号。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 15 or len(cs4h) < 10:\n        return None\n    \n    def get_efficiency(cs, n):\n        f = flux(cs, n)\n        grad = gradient(cs, n)\n        # 修正分母，防止除零，并聚焦于0.45以上的买压贡献\n        excess_f = (f - 0.45) if f > 0.45 else 0.01\n        return grad / excess_f\n\n    # BTC宏观压制\n    if gradient(cs4h, 6) > -0.005: return None\n    \n    eff_short = get_efficiency(cs1h, 2)\n    eff_mid = get_efficiency(cs1h, 8)\n    \n    # 山寨币1h梯度仍为正，但效率断崖下跌，且主动买压正在消失\n    if gradient(cs1h, 2) > 0.001:\n        if eff_short < eff_mid * 0.3 and flux(cs1h, 2) < 0.51:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 46,
+      "wr": 0.6956521739130435,
+      "ev": 0.37177801944957656
+    },
+    "stage2": {
+      "n": 17,
+      "wr": 0.8235294117647058,
+      "ev": 0.8700319773492605
+    },
+    "stage3": {
+      "n": 313,
+      "wr": 0.6869009584664537,
+      "ev": 0.5397418715292807
+    },
+    "stage4_test": {
+      "n": 177,
+      "wr": 0.5819209039548022,
+      "ev": -0.05643878519363414,
+      "verdict": "border"
+    },
+    "top_symbols_train": [
+      [
+        "LINK/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SUI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "WLD/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AAVE/USDT",
+        1.0,
+        4
+      ],
+      [
+        "FIL/USDT",
+        1.0,
+        4
+      ],
+      [
+        "XLM/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SEI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ETHFI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "JUP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "SNX/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PYTH/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ROSE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ENS/USDT",
+        1.0,
+        4
+      ],
+      [
+        "HYPE/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "ENJ/USDT",
+        0.75,
+        4
+      ],
+      [
+        "WIF/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ICP/USDT",
+        0.75,
+        4
+      ],
+      [
+        "AVAX/USDT",
+        0.7368,
+        19
+      ],
+      [
+        "SOL/USDT",
+        0.7222,
+        18
+      ],
+      [
+        "BNB/USDT",
+        0.7143,
+        14
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "XRP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "HBAR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ETC/USDT",
+        1.0,
+        3
+      ],
+      [
+        "W/USDT",
+        1.0,
+        4
+      ],
+      [
+        "STG/USDT",
+        1.0,
+        3
+      ],
+      [
+        "FET/USDT",
+        0.8,
+        5
+      ],
+      [
+        "AAVE/USDT",
+        0.75,
+        8
+      ],
+      [
+        "TON/USDT",
+        0.75,
+        4
+      ],
+      [
+        "COMP/USDT",
+        0.75,
+        4
+      ],
+      [
+        "XVG/USDT",
+        0.75,
+        4
+      ],
+      [
+        "1000BONK/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "ARB/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ONT/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "AR/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ID/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "BLUR/USDT",
+        0.5,
+        4
+      ],
+      [
+        "IOTA/USDT",
+        0.5,
+        4
+      ],
+      [
+        "DUSK/USDT",
+        0.4167,
+        12
+      ],
+      [
+        "ADA/USDT",
+        0.4,
+        5
+      ],
+      [
+        "EDU/USDT",
+        0.375,
+        8
+      ]
+    ],
+    "ts": "2026-04-14T18:22:30.847184"
+  }
+]

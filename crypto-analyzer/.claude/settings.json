@@ -1,8 +1,13 @@
 {
   "permissions": {
     "allow": [
+      "Bash",
       "Bash(test:*)",
-      "Bash(git rm:*)"
-    ]
-  }
+      "Bash(git rm:*)",
+      "Bash(npx:*)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "enableAllProjectMcpServers": true
 }
+

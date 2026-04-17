@@ -464,7 +464,7 @@ async def get_review_summary(
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        time_threshold = datetime.utcnow() - timedelta(hours=hours)
+        time_threshold = datetime.now() - timedelta(hours=hours)
 
         # 订单统计
         cursor.execute("""
@@ -622,7 +622,7 @@ async def get_review_trades(
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        time_threshold = datetime.utcnow() - timedelta(hours=hours)
+        time_threshold = datetime.now() - timedelta(hours=hours)
 
         # 构建筛选条件
         filter_condition = ""
@@ -747,7 +747,7 @@ async def get_cancelled_orders(
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        time_threshold = datetime.utcnow() - timedelta(hours=hours)
+        time_threshold = datetime.now() - timedelta(hours=hours)
 
         # 获取总数
         cursor.execute("""
@@ -861,7 +861,7 @@ async def get_reason_analysis(
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        time_threshold = datetime.utcnow() - timedelta(hours=hours)
+        time_threshold = datetime.now() - timedelta(hours=hours)
 
         # 获取已平仓持仓
         cursor.execute("""
@@ -1007,7 +1007,7 @@ async def get_strategy_suggestions(
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        time_threshold = datetime.utcnow() - timedelta(hours=hours)
+        time_threshold = datetime.now() - timedelta(hours=hours)
 
         # 获取已平仓持仓
         cursor.execute("""

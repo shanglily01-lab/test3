@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-04-14 09:44 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 12841,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "1000PEPE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Price/Volume divergence (price rising on low volume)",
+          "Accelerating negative funding velocity",
+          "Conflicting MACD/EMA signals"
+        ],
+        "win_rate_basis": "Significant bearish divergence between price and volume combined with high flush risk from funding acceleration makes this a high-risk trap zone."
+      },
+      {
+        "symbol": "TAO/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 251.88,
+          "high": 255.67
+        },
+        "stop_loss": 267.56,
+        "target1": 248.55,
+        "target2": 237.26,
+        "win_rate_pct": 62,
+        "risk_reward": 1.4,
+        "confidence": 7,
+        "time_window": "Enter within 6h, hold 12-24h",
+        "entry_trigger": "1h candle rejection of EMA20 ($255.67)",
+        "invalidation": "Hourly close above $267.56 resistance",
+        "confluence_signals": [
+          "Bearish EMA alignment (0/3 EMAs above price)",
+          "OI rising while price falls (bearish conviction)",
+          "Price at 0th percentile of 7-day range"
+        ],
+        "win_rate_basis": "Alignment of bearish momentum, trend structure, and fresh short positioning supports continuation toward ATR-projected lows."
+      },
+      {
+        "symbol": "ENJ/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.0493,
+          "high": 0.0505
+        },
+        "stop_loss": 0.055,
+        "target1": 0.04,
+        "target2": 0.035,
+        "win_rate_pct": 68,
+        "risk_reward": 2.1,
+        "confidence": 8,
+        "time_window": "Enter on next sweep of $0.05, hold 24h",
+        "entry_trigger": "Bearish RSI divergence on 15m timeframe at $0.05 level",
+        "invalidation": "Sustained 4h close above $0.055",
+        "confluence_signals": [
+          "4h RSI extreme overbought (78.88)",
+          "95th percentile Long/Short ratio (extreme retail long crowd)",
+          "Price at 100th percentile of 30-day range"
+        ],
+        "win_rate_basis": "Extreme sentiment exhaustion and overextended technicals suggest a high-probability mean reversion, despite the negative funding rate."
+      },
+      {
+        "symbol": "ADA/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.24,
+          "high": 0.2432
+        },
+        "stop_loss": 0.23,
+        "target1": 0.25,
+        "target2": 0.26,
+        "win_rate_pct": 58,
+        "risk_reward": 1.5,
+        "confidence": 6,
+        "time_window": "Enter near support, hold 12-24h",
+        "entry_trigger": "Hold of $0.24 support level on 1h close",
+        "invalidation": "Break below $0.23 ATR floor",
+        "confluence_signals": [
+          "Fear and Greed Index at 12 (Extreme Fear contrarian buy)",
+          "OI falling with price rising (short covering)",
+          "Price at 4th percentile of 30-day range"
+        ],
+        "win_rate_basis": "Contrarian signal from extreme market-wide fear combined with evidence of short covering at deep-value price levels."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Extreme Fear (12) and high PEPE/ADA correlation (0.86) suggest a beta-driven relief bounce is likely, but ENJ's idiosyncratic blow-off top provides a superior tactical short opportunity.",
+    "highest_conviction_trade": "ENJ/USDT"
+  }
+}

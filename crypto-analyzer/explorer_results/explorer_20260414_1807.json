@@ -1,0 +1,934 @@
+[
+  {
+    "round": 1,
+    "name": "MarginalFluxUtility",
+    "mode": "mtf_btc",
+    "hypothesis": "边际买压效用：衡量每一单位主动买入量(flux)带来的价格涨幅。若BTC处于弱势，山寨币虽然flux尚可，但其产生的梯度位移在边际递减，说明多头正在失去对价格的绝对控制力。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 12 or len(cs4h) < 8:\n        return None\n    \n    # 效用定义：梯度 / (买压比率-0.5的偏移)\n    # 偏移0.5是为了衡量超出中性的那部分买压的做功效率\n    def get_utility(cs, n):\n        f = flux(cs, n)\n        grad = gradient(cs, n)\n        return grad / (f - 0.4 + 1e-9) # 0.4作为起步买压门槛\n\n    util_short = get_utility(cs1h, 2)\n    util_long = get_utility(cs1h, 8)\n\n    # 逻辑：BTC 4h走弱，山寨1h虽在涨，但单位买压的推力（效用）不及长周期的20%\n    if gradient(cs4h, 6) < -0.004 and gradient(cs1h, 2) > 0.001:\n        if util_short < util_long * 0.2 and flux(cs1h, 2) < 0.52:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 40,
+      "wr": 0.725,
+      "ev": 0.4230254123191667
+    },
+    "stage2": {
+      "n": 29,
+      "wr": 0.6551724137931034,
+      "ev": 0.27937309133445143
+    },
+    "stage3": {
+      "n": 331,
+      "wr": 0.6888217522658611,
+      "ev": 0.46421518258181915
+    },
+    "stage4_test": {
+      "n": 244,
+      "wr": 0.5614754098360656,
+      "ev": -0.09379085724166686,
+      "verdict": "border"
+    },
+    "top_symbols_train": [
+      [
+        "WLD/USDT",
+        1.0,
+        3
+      ],
+      [
+        "BCH/USDT",
+        1.0,
+        3
+      ],
+      [
+        "LDO/USDT",
+        1.0,
+        4
+      ],
+      [
+        "TON/USDT",
+        1.0,
+        3
+      ],
+      [
+        "HBAR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "BOME/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ETHFI/USDT",
+        1.0,
+        4
+      ],
+      [
+        "PENDLE/USDT",
+        1.0,
+        5
+      ],
+      [
+        "JUP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "1000LUNC/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        3
+      ],
+      [
+        "XVG/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PYTH/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ENS/USDT",
+        1.0,
+        6
+      ],
+      [
+        "AXL/USDT",
+        1.0,
+        3
+      ],
+      [
+        "TRB/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AVAX/USDT",
+        0.8182,
+        11
+      ],
+      [
+        "SOL/USDT",
+        0.8,
+        15
+      ],
+      [
+        "THETA/USDT",
+        0.8,
+        5
+      ],
+      [
+        "XRP/USDT",
+        0.75,
+        8
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "XRP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "WLD/USDT",
+        1.0,
+        4
+      ],
+      [
+        "TON/USDT",
+        1.0,
+        4
+      ],
+      [
+        "HBAR/USDT",
+        1.0,
+        4
+      ],
+      [
+        "CHZ/USDT",
+        1.0,
+        4
+      ],
+      [
+        "COMP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "STG/USDT",
+        1.0,
+        3
+      ],
+      [
+        "XVG/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ID/USDT",
+        0.8,
+        5
+      ],
+      [
+        "OP/USDT",
+        0.75,
+        4
+      ],
+      [
+        "AAVE/USDT",
+        0.7143,
+        7
+      ],
+      [
+        "ARB/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "JTO/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "XMR/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "BOME/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "DYDX/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ENS/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "THETA/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "IOTA/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ETC/USDT",
+        0.625,
+        8
+      ]
+    ],
+    "ts": "2026-04-14T18:05:29.962162"
+  },
+  {
+    "round": 2,
+    "name": "WickSaturationShort",
+    "mode": "mtf_self",
+    "hypothesis": "在4h宏观下行中，1h反弹表现为“高影线低实体”，即上影线总和远超实体总和，说明每一段上涨都被高位的被动限价单（Passive Supply）瞬间吸收。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 5 or len(cs4h) < 5:\n        return None\n    \n    # 计算最近3根K线的上影线总和与实体总和\n    upper_wicks = sum([(cs1h[-i]['high'] - max(cs1h[-i]['open'], cs1h[-i]['close'])) for i in range(1, 4)])\n    bodies = sum([abs(cs1h[-i]['close'] - cs1h[-i]['open']) for i in range(1, 4)])\n    \n    # 4h宏观趋势看跌 (梯度 < -0.5%)\n    # 1h短期在反弹 (梯度 > 0.1%)\n    # 逻辑：上影线是实体的1.5倍以上，且买压flux掉下0.49\n    if gradient(cs4h, 4) < -0.005 and gradient(cs1h, 3) > 0.001:\n        if upper_wicks > (bodies * 1.5) and flux(cs1h, 2) < 0.49:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 20,
+      "wr": 0.6,
+      "ev": 0.16631005381151695
+    },
+    "stage2": {
+      "n": 39,
+      "wr": 0.6153846153846154,
+      "ev": 0.26747513970668735
+    },
+    "stage3": {
+      "n": 529,
+      "wr": 0.6219281663516069,
+      "ev": 0.29318825640150126
+    },
+    "stage4_test": {
+      "n": 280,
+      "wr": 0.6285714285714286,
+      "ev": 0.2345676365455262,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "LDO/USDT",
+        1.0,
+        6
+      ],
+      [
+        "ONDO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SAND/USDT",
+        1.0,
+        7
+      ],
+      [
+        "PENDLE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "XTZ/USDT",
+        1.0,
+        9
+      ],
+      [
+        "SNX/USDT",
+        1.0,
+        10
+      ],
+      [
+        "ROSE/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ATOM/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "HBAR/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "ORDI/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "AR/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "LTC/USDT",
+        0.8182,
+        11
+      ],
+      [
+        "ONT/USDT",
+        0.8,
+        5
+      ],
+      [
+        "POL/USDT",
+        0.8,
+        5
+      ],
+      [
+        "CHZ/USDT",
+        0.8,
+        10
+      ],
+      [
+        "SOL/USDT",
+        0.75,
+        8
+      ],
+      [
+        "1000PEPE/USDT",
+        0.75,
+        4
+      ],
+      [
+        "LINK/USDT",
+        0.75,
+        4
+      ],
+      [
+        "NEAR/USDT",
+        0.75,
+        4
+      ],
+      [
+        "UNI/USDT",
+        0.75,
+        8
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "FIL/USDT",
+        1.0,
+        4
+      ],
+      [
+        "NEIRO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "STRK/USDT",
+        1.0,
+        4
+      ],
+      [
+        "JUP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "COMP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "XTZ/USDT",
+        1.0,
+        3
+      ],
+      [
+        "LPT/USDT",
+        1.0,
+        3
+      ],
+      [
+        "1000LUNC/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ID/USDT",
+        1.0,
+        3
+      ],
+      [
+        "VET/USDT",
+        1.0,
+        4
+      ],
+      [
+        "TRB/USDT",
+        1.0,
+        3
+      ],
+      [
+        "APT/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "SUPER/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "TON/USDT",
+        0.8,
+        5
+      ],
+      [
+        "TRU/USDT",
+        0.8,
+        5
+      ],
+      [
+        "BLUR/USDT",
+        0.8,
+        5
+      ],
+      [
+        "APE/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ENS/USDT",
+        0.8,
+        5
+      ],
+      [
+        "XRP/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ARKM/USDT",
+        0.75,
+        4
+      ]
+    ],
+    "ts": "2026-04-14T18:05:57.189508"
+  },
+  {
+    "round": 3,
+    "name": "AsymmetricEffortShort",
+    "mode": "mtf_self",
+    "hypothesis": "稳健版EfficiencyScarcity。衡量‘买压转换率’的非线性突变。如果单位买压产生的梯度(gradient/flux)在极短时间内骤降至中期均值的30%以下，说明市场进入了严重的非对称受阻状态。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 12 or len(cs4h) < 6:\n        return None\n    \n    # 定义转换率：梯度 / (买压-0.45) 修正偏移量以放大波动感应\n    def get_conversion(cs, n):\n        f = flux(cs, n)\n        return gradient(cs, n) / (f - 0.4 if f > 0.4 else 0.05)\n\n    conv_short = get_conversion(cs1h, 2)\n    conv_long = get_conversion(cs1h, 10)\n    \n    # 4h看跌，1h在反弹中转换率发生断崖式下跌，且flux跌破中性\n    if gradient(cs4h, 6) < -0.005 and gradient(cs1h, 3) > 0.001:\n        if conv_short < conv_long * 0.25 and flux(cs1h, 2) < 0.49:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 106,
+      "wr": 0.6132075471698113,
+      "ev": 0.16605412192984356
+    },
+    "stage2": {
+      "n": 67,
+      "wr": 0.6567164179104478,
+      "ev": 0.4160073256387131
+    },
+    "stage3": {
+      "n": 818,
+      "wr": 0.6149144254278729,
+      "ev": 0.33727511726908
+    },
+    "stage4_test": {
+      "n": 294,
+      "wr": 0.5986394557823129,
+      "ev": 0.2705988873211884,
+      "verdict": "border"
+    },
+    "top_symbols_train": [
+      [
+        "FIL/USDT",
+        1.0,
+        7
+      ],
+      [
+        "STG/USDT",
+        1.0,
+        3
+      ],
+      [
+        "THETA/USDT",
+        0.9091,
+        11
+      ],
+      [
+        "INJ/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "AR/USDT",
+        0.8571,
+        14
+      ],
+      [
+        "DUSK/USDT",
+        0.8462,
+        13
+      ],
+      [
+        "LINK/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "JTO/USDT",
+        0.8182,
+        11
+      ],
+      [
+        "ZEC/USDT",
+        0.8,
+        5
+      ],
+      [
+        "TAO/USDT",
+        0.8,
+        10
+      ],
+      [
+        "TON/USDT",
+        0.8,
+        10
+      ],
+      [
+        "NEIRO/USDT",
+        0.8,
+        10
+      ],
+      [
+        "XLM/USDT",
+        0.8,
+        5
+      ],
+      [
+        "CAKE/USDT",
+        0.8,
+        5
+      ],
+      [
+        "CHR/USDT",
+        0.8,
+        15
+      ],
+      [
+        "ORDI/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "HYPE/USDT",
+        0.75,
+        4
+      ],
+      [
+        "1000SHIB/USDT",
+        0.75,
+        4
+      ],
+      [
+        "AXS/USDT",
+        0.75,
+        8
+      ],
+      [
+        "BOME/USDT",
+        0.75,
+        8
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "FIL/USDT",
+        1.0,
+        4
+      ],
+      [
+        "WIF/USDT",
+        1.0,
+        5
+      ],
+      [
+        "VIRTUAL/USDT",
+        1.0,
+        3
+      ],
+      [
+        "TIA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "POL/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PENDLE/USDT",
+        1.0,
+        4
+      ],
+      [
+        "APE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ONT/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "IOTA/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ETH/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "BLUR/USDT",
+        0.8,
+        5
+      ],
+      [
+        "CTSI/USDT",
+        0.8,
+        5
+      ],
+      [
+        "XTZ/USDT",
+        0.8,
+        5
+      ],
+      [
+        "SUPER/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ETHFI/USDT",
+        0.75,
+        4
+      ],
+      [
+        "TRB/USDT",
+        0.75,
+        4
+      ],
+      [
+        "RENDER/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ORDI/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ZRO/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "SAND/USDT",
+        0.6667,
+        3
+      ]
+    ],
+    "ts": "2026-04-14T18:06:22.287934"
+  },
+  {
+    "round": 4,
+    "name": "FrictionDecouplingShort",
+    "mode": "mtf_self",
+    "hypothesis": "修正FrictionEfficiency。通过观察‘K线实体占比’与‘买压flux’的背离：如果买压维持在中性以上但K线实体却迅速收缩，说明内部摩擦力（阻力）已达到临界点。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 10 or len(cs4h) < 6:\n        return None\n    \n    # 计算K线实体占比\n    body_ratio = (abs(cs1h[-1][\"close\"] - cs1h[-1][\"open\"])) / (cs1h[-1][\"high\"] - cs1h[-1][\"low\"] + 1e-9)\n    \n    # 逻辑：4h下行背景，1h反弹。如果Flux仍然>0.48（多头还在努力），但实体占比跌破0.25，\n    # 说明多头的努力绝大部分被空头头寸抵消，上涨动力已经枯竭。\n    if gradient(cs4h, 6) < -0.004 and gradient(cs1h, 3) > 0.001:\n        if flux(cs1h, 2) > 0.48 and body_ratio < 0.25:\n            if flux(cs1h, 1) < flux(cs1h, 3): # 买压开始边际减弱\n                return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 146,
+      "wr": 0.5958904109589042,
+      "ev": 0.10811089057574143
+    },
+    "stage2": {
+      "n": 101,
+      "wr": 0.693069306930693,
+      "ev": 0.48531186032410234
+    },
+    "stage3": {
+      "n": 1116,
+      "wr": 0.6129032258064516,
+      "ev": 0.32770837920752216
+    },
+    "stage4_test": {
+      "n": 512,
+      "wr": 0.615234375,
+      "ev": 0.2714813052081274,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "TAO/USDT",
+        1.0,
+        12
+      ],
+      [
+        "TRX/USDT",
+        1.0,
+        4
+      ],
+      [
+        "1000LUNC/USDT",
+        1.0,
+        6
+      ],
+      [
+        "STRK/USDT",
+        0.9286,
+        14
+      ],
+      [
+        "VET/USDT",
+        0.9231,
+        13
+      ],
+      [
+        "ENA/USDT",
+        0.8333,
+        12
+      ],
+      [
+        "OP/USDT",
+        0.8333,
+        12
+      ],
+      [
+        "W/USDT",
+        0.8333,
+        12
+      ],
+      [
+        "IOTA/USDT",
+        0.8182,
+        11
+      ],
+      [
+        "HYPE/USDT",
+        0.8125,
+        16
+      ],
+      [
+        "NEAR/USDT",
+        0.8,
+        10
+      ],
+      [
+        "JTO/USDT",
+        0.8,
+        15
+      ],
+      [
+        "ATOM/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "IMX/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "1000PEPE/USDT",
+        0.75,
+        12
+      ],
+      [
+        "AAVE/USDT",
+        0.75,
+        4
+      ],
+      [
+        "LTC/USDT",
+        0.75,
+        12
+      ],
+      [
+        "RENDER/USDT",
+        0.75,
+        16
+      ],
+      [
+        "ZRO/USDT",
+        0.75,
+        8
+      ],
+      [
+        "COMP/USDT",
+        0.75,
+        8
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "LINK/USDT",
+        1.0,
+        6
+      ],
+      [
+        "FIL/USDT",
+        1.0,
+        7
+      ],
+      [
+        "PENGU/USDT",
+        1.0,
+        3
+      ],
+      [
+        "NEIRO/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ETC/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ATOM/USDT",
+        1.0,
+        6
+      ],
+      [
+        "SEI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "INJ/USDT",
+        1.0,
+        5
+      ],
+      [
+        "STRK/USDT",
+        1.0,
+        3
+      ],
+      [
+        "XTZ/USDT",
+        1.0,
+        3
+      ],
+      [
+        "W/USDT",
+        1.0,
+        3
+      ],
+      [
+        "PYTH/USDT",
+        1.0,
+        4
+      ],
+      [
+        "AR/USDT",
+        1.0,
+        4
+      ],
+      [
+        "THETA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ONT/USDT",
+        0.9091,
+        11
+      ],
+      [
+        "DOT/USDT",
+        0.9,
+        10
+      ],
+      [
+        "ARB/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "BOME/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ROSE/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "1000PEPE/USDT",
+        0.8333,
+        6
+      ]
+    ],
+    "ts": "2026-04-14T18:06:45.139437"
+  }
+]

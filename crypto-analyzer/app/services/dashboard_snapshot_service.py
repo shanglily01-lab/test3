@@ -305,7 +305,7 @@ def update_dashboard_snapshot():
             'news':            news,
             'hyperliquid':     hyperliquid,
             'winrate_history': winrate_history,
-            'updated_at':      datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at':      datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
 
         snapshot_json = json.dumps(snapshot, ensure_ascii=False, default=str)

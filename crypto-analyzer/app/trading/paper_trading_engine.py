@@ -314,7 +314,7 @@ class PaperTradingEngine:
                     # 买单：当前价格必须 <= 限价（价格下跌到限价或以下时成交）
                     if current_price > price:
                         # 价格未达到限价，创建 PENDING 订单
-                        order_id = f"ORDER_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                        order_id = f"ORDER_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
                         with conn.cursor() as cursor:
                             # 计算所需金额（基于限价）
                             total_amount = price * quantity
@@ -342,7 +342,7 @@ class PaperTradingEngine:
                     # 卖单：当前价格必须 >= 限价（价格上涨到限价或以上时成交）
                     if current_price < price:
                         # 价格未达到限价，创建 PENDING 订单
-                        order_id = f"ORDER_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                        order_id = f"ORDER_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
                         with conn.cursor() as cursor:
                             # 检查持仓
                             position = self._get_position(account_id, symbol)
@@ -406,8 +406,8 @@ class PaperTradingEngine:
                     return False, f"持仓不足，需要 {quantity} 个，当前可用 {available} 个", None
 
             # 6. 生成订单ID
-            order_id = f"ORDER_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
-            trade_id = f"TRADE_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            order_id = f"ORDER_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            trade_id = f"TRADE_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
             with conn.cursor() as cursor:
                 # 7. 创建订单记录
@@ -419,7 +419,7 @@ class PaperTradingEngine:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (account_id, order_id, symbol, side, order_type, exec_price, quantity,
                      quantity, total_amount, total_amount, fee, 'FILLED',
-                     exec_price, datetime.utcnow(), order_source, signal_id)
+                     exec_price, datetime.now(), order_source, signal_id)
                 )
 
                 # 7. 执行买入或卖出
@@ -549,7 +549,7 @@ class PaperTradingEngine:
                 WHERE id = %s""",
                 (new_quantity, quantity, new_avg_price, new_cost, price, 
                  float(market_value), float(unrealized_pnl), float(unrealized_pnl_pct), 
-                 datetime.utcnow(), position['id'])
+                 datetime.now(), position['id'])
             )
         else:
             # 新建持仓（买入时当前价格等于买入价格，未实现盈亏为0）
@@ -565,7 +565,7 @@ class PaperTradingEngine:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (account_id, symbol, quantity, quantity, price, total_cost, price,
                  float(market_value), float(unrealized_pnl), float(unrealized_pnl_pct),
-                 datetime.utcnow(), datetime.utcnow(), 'open')
+                 datetime.now(), datetime.now(), 'open')
             )
 
         # 3. 创建交易记录
@@ -575,7 +575,7 @@ class PaperTradingEngine:
              total_amount, fee, cost_price, trade_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (account_id, order_id, trade_id, symbol, 'BUY', price, quantity,
-             price * quantity, fee, price, datetime.utcnow())
+             price * quantity, fee, price, datetime.now())
         )
 
         # 4. 更新账户未实现盈亏、总盈亏和总盈亏百分比
@@ -696,7 +696,7 @@ class PaperTradingEngine:
                 WHERE id = %s""",
                 (new_quantity, quantity, new_avg_price, new_total_cost, price,
                  float(market_value), float(unrealized_pnl), float(unrealized_pnl_pct),
-                 datetime.utcnow(), position['id'])
+                 datetime.now(), position['id'])
             )
 
         # 7. 创建交易记录
@@ -706,7 +706,7 @@ class PaperTradingEngine:
              total_amount, fee, cost_price, realized_pnl, pnl_pct, trade_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (account_id, order_id, trade_id, symbol, 'SELL', price, quantity,
-             sell_amount, fee, avg_cost, realized_pnl, pnl_pct, datetime.utcnow())
+             sell_amount, fee, avg_cost, realized_pnl, pnl_pct, datetime.now())
         )
 
         # 7.1 更新账户未实现盈亏、总盈亏和总盈亏百分比（卖出后可能还有剩余持仓）
@@ -1006,7 +1006,7 @@ class PaperTradingEngine:
             (account_id, account['current_balance'], account['frozen_balance'],
              account['total_equity'], account['realized_pnl'], account['unrealized_pnl'],
              account['total_profit_loss'], account['total_profit_loss_pct'],
-             change_type, change_amount, order_id, notes, datetime.utcnow())
+             change_type, change_amount, order_id, notes, datetime.now())
         )
 
     def get_account_summary(self, account_id: int) -> Dict:
@@ -1248,7 +1248,7 @@ class PaperTradingEngine:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (account_id, order_id, symbol, side, quantity, trigger_price,
                      frozen_amount, frozen_quantity, 'PENDING', False, order_source,
-                     stop_loss_price, take_profit_price, datetime.utcnow())
+                     stop_loss_price, take_profit_price, datetime.now())
                 )
 
                 conn.commit()

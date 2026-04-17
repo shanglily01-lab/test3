@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-04-14 17:49 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 15364,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 74000.0,
+          "high": 74400.0
+        },
+        "stop_loss": 73200.0,
+        "target1": 75500.0,
+        "target2": 76000.0,
+        "win_rate_pct": 75,
+        "risk_reward": 1.45,
+        "confidence": 9,
+        "time_window": "Enter within 4h, hold 12-24h",
+        "entry_trigger": "1h price retracement to EMA20 with RSI holding above 50",
+        "invalidation": "1h candle close below $73,200 (EMA50 support)",
+        "confluence_signals": [
+          "Extreme Fear (12) contrarian buy signal",
+          "Negative funding rate (-0.0052%) with decelerating negative velocity",
+          "Extreme short retail positioning (L/S ratio 0.630)",
+          "Rising Open Interest with price trend continuation",
+          "Bullish EMA alignment (20/50/200)"
+        ],
+        "win_rate_basis": "Alignment of 5 high-probability signals: extreme sentiment reversal, short-squeeze funding dynamics, and healthy trend-following OI buildup suggests a high probability of a squeeze through local resistance."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 2333.0,
+          "high": 2355.0
+        },
+        "stop_loss": 2418.0,
+        "target1": 2250.0,
+        "target2": 2210.0,
+        "win_rate_pct": 70,
+        "risk_reward": 1.35,
+        "confidence": 8,
+        "time_window": "Enter within 2h, hold 8-18h",
+        "entry_trigger": "Failure to reclaim $2,360 on 1h timeframe",
+        "invalidation": "Price close above 24h high ($2,416.40)",
+        "confluence_signals": [
+          "Bearish Price-Volume divergence (Price up, Volume down)",
+          "Strong Bearish Smart Money net flow (-$6.4M)",
+          "Accelerating negative funding velocity",
+          "RSI 4h overbought (72.46) with bearish MACD expansion"
+        ],
+        "win_rate_basis": "Confluence of 4 signals indicating exhaustion. Smart money distribution and weak volume support suggest the current rally is unsustainable, favoring a mean-reversion move to the EMA200."
+      },
+      {
+        "symbol": "BNB",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 615.0,
+          "high": 617.5
+        },
+        "stop_loss": 608.0,
+        "target1": 625.0,
+        "target2": 632.0,
+        "win_rate_pct": 63,
+        "risk_reward": 1.25,
+        "confidence": 7,
+        "time_window": "Enter within 6h, hold 12-24h",
+        "entry_trigger": "Price stability at EMA20 ($615.89)",
+        "invalidation": "1h close below $608.0 (EMA50 support)",
+        "confluence_signals": [
+          "Binance price discount (-0.079%) vs OKX/Bybit (Arbitrage buy pressure)",
+          "Bullish EMA alignment on 1h",
+          "Rising Open Interest (+6.5% 24h)",
+          "Contrarian bullish signal from L/S ratio washout"
+        ],
+        "win_rate_basis": "Primary signal is the cross-exchange spread discount on Binance, which typically attracts arbitrage buying. Combined with bullish trend structure, this provides a 3-signal confluence."
+      },
+      {
+        "symbol": "SOL",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Neutral Smart Money sentiment",
+          "Short-term underperformance vs BTC",
+          "Balanced retail positioning"
+        ],
+        "win_rate_basis": "Signals are contradictory; while the trend is technically up, SOL lacks the aggressive smart money backing seen in BTC or the clear technical exhaustion seen in ETH. Risk-to-reward is currently poor compared to peers."
+      }
+    ],
+    "market_regime": "trending_up",
+    "cross_asset_insight": "ETH/BTC ratio indicates risk-on appetite, but ETH's volume divergence and smart money outflows suggest alpha is rotating back to BTC. BTC is the primary beneficiary of a short-squeeze regime due to extreme negative retail sentiment (L/S 0.63).",
+    "highest_conviction_trade": "BTC"
+  }
+}

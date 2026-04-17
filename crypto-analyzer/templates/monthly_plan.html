@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Neural Obsidian | 月度计划</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  body { font-family: 'Manrope', sans-serif; }
+  h1, h2, h3, .headline { font-family: 'Space Grotesk', sans-serif; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0f1520; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #49f4c8; }
+  .pp { color: #49f4c8; }
+  .pn { color: #ff716c; }
+  .pw { color: #fbbf24; }
+  .card { background: #0f1520; border: 1px solid #1e2a3a; border-radius: 12px; padding: 1.25rem; }
+  .progress-outer { background: #1e2a3a; border-radius: 999px; height: 10px; overflow: hidden; }
+  .progress-inner { height: 10px; border-radius: 999px; transition: width 0.6s ease; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+  .badge-green  { background: rgba(73,244,200,0.15); color: #49f4c8; }
+  .badge-red    { background: rgba(255,113,108,0.15); color: #ff716c; }
+  .badge-yellow { background: rgba(251,191,36,0.15);  color: #fbbf24; }
+  .badge-gray   { background: rgba(255,255,255,0.06); color: #8899aa; }
+  .kpi-card { background: #0f1520; border: 1px solid #1e2a3a; border-radius: 12px; padding: 1.25rem 1.5rem; }
+  .row-today    { background: rgba(73,244,200,0.07); border-left: 3px solid #49f4c8; }
+  .row-done-win { background: rgba(73,244,200,0.03); }
+  .row-done-loss{ background: rgba(255,113,108,0.04); }
+  .row-future   { opacity: 0.55; }
+  table { border-collapse: collapse; width: 100%; }
+  thead tr { border-bottom: 1px solid #1e2a3a; }
+  tbody tr { border-bottom: 1px solid #111a24; transition: background 0.15s; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7f9a; padding: 0.6rem 0.75rem; font-family: 'Space Grotesk', sans-serif; }
+  td { font-size: 0.82rem; padding: 0.55rem 0.75rem; }
+</style>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "on-secondary": "#002045",
+          "inverse-surface": "#f8f9ff",
+          "error-dim": "#d7383b",
+          "on-surface": "#ebeef5",
+          "surface-container-low": "#0f1419",
+          "secondary-container": "#005eb5",
+          "outline": "#72767c",
+          "on-secondary-fixed-variant": "#00509c",
+          "surface-container-highest": "#20262e",
+          "tertiary": "#ff6e80",
+          "primary-container": "#00d4aa",
+          "surface-bright": "#262d35",
+          "tertiary-fixed": "#ff909a",
+          "surface": "#0a0f14",
+          "on-tertiary-fixed": "#39000b",
+          "on-primary-fixed": "#004334",
+          "on-primary": "#005745",
+          "error": "#ff716c",
+          "on-secondary-container": "#f6f7ff",
+          "surface-variant": "#20262e",
+          "primary-fixed-dim": "#33e5ba",
+          "surface-tint": "#49f4c8",
+          "on-error-container": "#ffa8a3",
+          "on-surface-variant": "#a8abb2",
+          "surface-container-lowest": "#000000",
+          "surface-container-high": "#1a2027",
+          "on-tertiary": "#490011",
+          "on-tertiary-container": "#100001",
+          "surface-container": "#151a20",
+          "primary-fixed": "#49f4c8",
+          "tertiary-fixed-dim": "#ff7987",
+          "tertiary-dim": "#ff6e80",
+          "inverse-primary": "#006c55",
+          "secondary-fixed-dim": "#a4c5ff",
+          "on-background": "#ebeef5",
+          "secondary-dim": "#5b9eff",
+          "background": "#0a0f14",
+          "surface-dim": "#0a0f14",
+          "secondary-fixed": "#bbd2ff",
+          "on-tertiary-fixed-variant": "#780022",
+          "outline-variant": "#44484e",
+          "on-primary-container": "#004132",
+          "on-primary-fixed-variant": "#00624d",
+          "primary-dim": "#33e5ba",
+          "on-secondary-fixed": "#003469",
+          "on-error": "#490006",
+          "primary": "#49f4c8",
+          "tertiary-container": "#fa4966",
+          "error-container": "#9f0519",
+          "inverse-on-surface": "#51555c",
+          "secondary": "#5b9eff"
+        },
+        fontFamily: {
+          "headline": ["Space Grotesk"],
+          "body": ["Manrope"],
+          "label": ["Manrope"]
+        },
+        borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+      },
+    },
+  }
+</script>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary selection:text-on-primary">
+
+<!-- Sidebar Navigation -->
+<aside class="fixed left-0 top-0 h-screen w-[240px] bg-[#0a0f14] border-r border-slate-800 flex flex-col py-6 z-50">
+<div class="px-5 mb-6">
+<a href="/" class="block group">
+<h1 class="text-xl font-black tracking-tighter text-[#49f4c8] group-hover:opacity-80 transition-opacity">NEURAL OBSIDIAN</h1>
+<p class="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">Quant Terminal</p>
+</a>
+</div>
+<nav id="sidebar-nav" class="flex-1 px-3 space-y-0.5 overflow-y-auto">
+<a href="/dashboard" data-path="/dashboard" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">dashboard</span><span>Dashboard</span></a>
+<a href="/futures_trading" data-path="/futures_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">show_chart</span><span>U本位合约</span></a>
+<a href="/coin_futures_trading" data-path="/coin_futures_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">currency_bitcoin</span><span>币本位合约</span></a>
+<a href="/live_trading" data-path="/live_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">precision_manufacturing</span><span>Live Trading</span></a>
+<a href="/futures_review" data-path="/futures_review" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">history_edu</span><span>复盘分析</span></a>
+<a href="/monthly_plan" data-path="/monthly_plan" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">target</span><span>月度计划</span></a>
+<a href="/technical-signals" data-path="/technical-signals" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">sensors</span><span>信号分析</span></a>
+<a href="/market_regime" data-path="/market_regime" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">pulse_alert</span><span>行情识别</span></a>
+<a class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm" data-path="/top50" href="/top50"><span class="material-symbols-outlined text-lg">workspace_premium</span><span>TOP 50</span></a>
+<a href="/symbol_blacklist" data-path="/symbol_blacklist" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">block</span><span>交易对黑名单</span></a>
+<a href="/signal_blacklist" data-path="/signal_blacklist" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">do_not_disturb_on</span><span>信号黑名单</span></a>
+<a href="/spot_trading" data-path="/spot_trading" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">currency_exchange</span><span>现货交易</span></a>
+<a href="/etf_data" data-path="/etf_data" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">candlestick_chart</span><span>ETF 数据</span></a>
+<a href="/blockchain_gas" data-path="/blockchain_gas" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">local_gas_station</span><span>Gas 监控</span></a>
+<a href="/corporate_treasury" data-path="/corporate_treasury" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">account_balance</span><span>企业金库</span></a>
+<a href="/data_management" data-path="/data_management" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">storage</span><span>数据管理</span></a>
+<a href="/api-keys" data-path="/api-keys" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">api</span><span>API Keys</span></a>
+<a href="/system-settings" data-path="/system-settings" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">settings</span><span>Settings</span></a>
+<a href="/binance-news" data-path="/binance-news" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-[#49f4c8] hover:bg-[#151a20] transition-all duration-200 text-sm"><span class="material-symbols-outlined text-[18px]">campaign</span><span>公告监控</span></a>
+</nav>
+<script>
+(function(){
+  var path = window.location.pathname.replace(/\/$/, '') || '/';
+  document.querySelectorAll('#sidebar-nav .nav-item').forEach(function(a){
+    if(a.getAttribute('data-path') === path){
+      a.classList.remove('text-slate-400');
+      a.classList.add('text-[#49f4c8]','bg-[#151a20]','border-r-2','border-[#49f4c8]','font-semibold');
+    }
+  });
+})();
+</script>
+</aside>
+
+<!-- Main Content Wrapper -->
+<main class="ml-[240px] h-screen flex flex-col overflow-hidden">
+
+<!-- Top Header Bar -->
+<header class="w-full h-16 bg-[#0a0f14] flex items-center justify-between px-8 sticky top-0 z-40 border-b border-outline-variant/10">
+  <div class="flex items-center gap-4">
+    <h1 class="font-['Space_Grotesk'] text-xl font-bold tracking-tighter text-[#49f4c8]">月度盈利计划</h1>
+    <div class="h-4 w-[1px] bg-outline-variant/30"></div>
+    <span class="text-xs text-slate-400">目标: <span class="pp font-semibold">+200%</span> &nbsp;|&nbsp; 截止 2026-05-01</span>
+  </div>
+  <button onclick="loadData()" class="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary rounded-lg text-xs font-bold transition-colors">
+    <span class="material-symbols-outlined text-[15px]">refresh</span>刷新
+  </button>
+</header>
+
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto px-8 py-6">
+
+  <!-- KPI Row -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="kpi-card">
+      <div class="text-xs text-slate-500 mb-1">账户余额</div>
+      <div class="text-xl font-bold mono pp" id="kpi-balance">--</div>
+      <div class="text-xs text-slate-500 mt-1">起始 $100,000</div>
+    </div>
+    <div class="kpi-card">
+      <div class="text-xs text-slate-500 mb-1">累计已实现盈亏</div>
+      <div class="text-xl font-bold mono" id="kpi-realized">--</div>
+      <div class="text-xs text-slate-500 mt-1" id="kpi-unrealized">浮盈: --</div>
+    </div>
+    <div class="kpi-card">
+      <div class="text-xs text-slate-500 mb-1">今日目标 (复利)</div>
+      <div class="text-xl font-bold mono pw" id="kpi-today-target">--</div>
+      <div class="text-xs text-slate-500 mt-1" id="kpi-daily-rate">日增长率: --</div>
+    </div>
+    <div class="kpi-card">
+      <div class="text-xs text-slate-500 mb-1">剩余天数</div>
+      <div class="text-xl font-bold mono" id="kpi-days">--</div>
+      <div class="text-xs text-slate-500 mt-1" id="kpi-open">持仓中: -- 单</div>
+    </div>
+  </div>
+
+  <!-- Overall Progress -->
+  <div class="card mb-6">
+    <div class="flex justify-between items-center mb-3">
+      <div class="font-semibold text-sm">总目标进度 &nbsp;<span class="text-xs text-slate-500">$100K → $200K (+100%)</span></div>
+      <div class="mono text-xs text-slate-400" id="progress-label">0 / $100,000</div>
+    </div>
+    <div class="progress-outer mb-2">
+      <div class="progress-inner" id="progress-bar" style="width:0%; background: linear-gradient(90deg,#49f4c8,#00b5ff);"></div>
+    </div>
+    <div class="flex justify-between text-xs text-slate-500 mt-1">
+      <span>$100K (起始)</span>
+      <span>$150K (中途)</span>
+      <span>$200K (目标)</span>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card mb-6">
+    <div class="font-semibold text-sm mb-4">资金曲线：目标 vs 实际</div>
+    <div style="height: 220px;">
+      <canvas id="equityCurve"></canvas>
+    </div>
+  </div>
+
+  <!-- Daily Table -->
+  <div class="card mb-6">
+    <div class="font-semibold text-sm mb-4">每日目标明细</div>
+    <div class="overflow-x-auto">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left">日期</th>
+            <th style="text-align:right">当日目标</th>
+            <th style="text-align:right">目标余额</th>
+            <th style="text-align:right">实际盈亏</th>
+            <th style="text-align:right">差额</th>
+            <th style="text-align:right">累计实现</th>
+            <th style="text-align:right">笔数 / 胜率</th>
+            <th style="text-align:center">状态</th>
+          </tr>
+        </thead>
+        <tbody id="plan-table-body">
+          <tr><td colspan="8" class="text-center text-slate-500 py-8">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="text-xs text-slate-600 text-center pb-4">
+    复利公式: 日增长率 5.647% &nbsp;|&nbsp; 40仓 × 10倍杠杆 &nbsp;|&nbsp; TP 3% / SL 2% &nbsp;|&nbsp; 每30秒自动刷新
+  </div>
+
+</div><!-- end scrollable -->
+</main>
+
+<script>
+let chart = null;
+
+function fmt(n, d=2) {
+  if (n === null || n === undefined) return '--';
+  return Number(n).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+}
+function fmtPnl(n) {
+  if (n === null || n === undefined) return '--';
+  const s = (n >= 0 ? '+' : '') + fmt(n);
+  return `<span class="${n >= 0 ? 'pp' : 'pn'}">${s}</span>`;
+}
+
+async function loadData() {
+  try {
+    const res = await fetch('/api/monthly_plan/data');
+    const d = await res.json();
+    renderKPI(d);
+    renderProgress(d);
+    renderChart(d);
+    renderTable(d);
+  } catch(e) { console.error(e); }
+}
+
+function renderKPI(d) {
+  const balPct = (d.current_balance - d.initial_balance) / d.initial_balance * 100;
+  document.getElementById('kpi-balance').innerHTML =
+    `$${fmt(d.current_balance)} <span class="text-sm ${balPct>=0?'pp':'pn'}">(${balPct>=0?'+':''}${fmt(balPct,2)}%)</span>`;
+  const real = d.cum_realized;
+  document.getElementById('kpi-realized').innerHTML =
+    `<span class="${real>=0?'pp':'pn'}">${real>=0?'+':''}$${fmt(Math.abs(real))}</span>`;
+  document.getElementById('kpi-unrealized').textContent =
+    `浮盈: ${d.unrealized>=0?'+':''}$${fmt(d.unrealized)}`;
+  document.getElementById('kpi-today-target').textContent = `+$${fmt(d.today_target)}`;
+  document.getElementById('kpi-daily-rate').textContent = `日增长率: ${fmt(d.daily_rate_pct,3)}%`;
+  const daysEl = document.getElementById('kpi-days');
+  daysEl.textContent = d.days_remaining + ' 天';
+  daysEl.className = 'text-xl font-bold mono ' + (d.days_remaining<=5?'pn':d.days_remaining<=10?'pw':'pp');
+  document.getElementById('kpi-open').textContent = `持仓中: ${d.open_positions} 单`;
+}
+
+function renderProgress(d) {
+  const totalTarget = d.target_balance - d.initial_balance;
+  const actual = d.today_cum_with_open;
+  const pct = Math.max(0, Math.min(100, actual / totalTarget * 100));
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-label').innerHTML =
+    `<span class="${actual>=0?'pp':'pn'}">${actual>=0?'+':''}$${fmt(actual)}</span> / $${fmt(totalTarget)}`;
+}
+
+function renderChart(d) {
+  const labels = d.days.map(x => x.date.slice(5));
+  const targetLine = d.days.map(x => x.target_balance);
+  const actualLine = d.days.map(x => {
+    if (x.status === 'future') return null;
+    if (x.status === 'today') return d.initial_balance + d.today_cum_with_open;
+    return d.initial_balance + x.cum_actual;
+  });
+  if (chart) chart.destroy();
+  const ctx = document.getElementById('equityCurve').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '目标(复利)', data: targetLine, borderColor: '#fbbf24', borderWidth: 2,
+          borderDash: [6,3], pointRadius: 0, fill: false, tension: 0.3 },
+        { label: '实际', data: actualLine, borderColor: '#49f4c8', borderWidth: 2.5,
+          pointRadius: 3, pointBackgroundColor: '#49f4c8',
+          fill: { target: 'origin', above: 'rgba(73,244,200,0.06)', below: 'rgba(255,113,108,0.06)' },
+          tension: 0.3, spanGaps: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { labels: { color: '#8899aa', font: { family: 'Manrope', size: 12 }, boxWidth: 20 } },
+        tooltip: {
+          backgroundColor: '#0f1520', borderColor: '#1e2a3a', borderWidth: 1,
+          titleColor: '#49f4c8', bodyColor: '#cdd5e0',
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: $${fmt(ctx.raw)}` }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#6b7f9a', font: { size: 11 } }, grid: { color: '#111a24' } },
+        y: { ticks: { color: '#6b7f9a', font: { size: 11 }, callback: v => '$'+(v/1000).toFixed(0)+'K' },
+             grid: { color: '#111a24' }, min: 90000 }
+      }
+    }
+  });
+}
+
+function renderTable(d) {
+  let html = '';
+  for (const row of d.days) {
+    const diff = row.actual_pnl !== null ? row.actual_pnl - row.daily_target : null;
+    const rowCls = row.status==='today' ? 'row-today'
+      : row.status==='done' && row.actual_pnl!==null && row.actual_pnl>=row.daily_target ? 'row-done-win'
+      : row.status==='done' ? 'row-done-loss' : 'row-future';
+    const badge = row.status==='today'
+      ? '<span class="badge badge-yellow">TODAY</span>'
+      : row.status==='future'
+      ? '<span class="badge badge-gray">待定</span>'
+      : row.actual_pnl!==null && row.actual_pnl>=row.daily_target
+      ? '<span class="badge badge-green">达标</span>'
+      : row.actual_pnl!==null
+      ? '<span class="badge badge-red">未达标</span>'
+      : '<span class="badge badge-gray">无交易</span>';
+    const wrStr = row.wr!==null ? `${row.trades}笔 / ${row.wr}%` : (row.trades>0?`${row.trades}笔`:'--');
+    html += `<tr class="${rowCls}">
+      <td class="mono text-slate-300">${row.date.slice(5)} <span class="text-slate-600">D${row.day_num}</span></td>
+      <td class="mono text-right pw">+$${fmt(row.daily_target)}</td>
+      <td class="mono text-right text-slate-400">$${fmt(row.target_balance)}</td>
+      <td class="mono text-right">${fmtPnl(row.actual_pnl)}</td>
+      <td class="mono text-right">${diff!==null?fmtPnl(diff):'--'}</td>
+      <td class="mono text-right">${fmtPnl(row.cum_actual)}</td>
+      <td class="text-right text-slate-400">${wrStr}</td>
+      <td class="text-center">${badge}</td>
+    </tr>`;
+  }
+  document.getElementById('plan-table-body').innerHTML = html;
+}
+
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,198 @@
+{
+  "theme": "TimeCompressionBreakout",
+  "slug": "timecompressionbreakout",
+  "desc": "双向突破信号：捕捉长期低波动压缩后的方向性爆发。核心假设：当市场经历一段持续的低波动 + 振幅静默（_time_pressure 高 + amplitude_silence 高），意味着能量在积累；当 seq_contract >= 4（振幅连续收缩）进一步确认蓄势；突破方向由 4h gradient 的符号决定（4h 上行 -> LONG，4h 下行 -> SHORT，4h 中性不触发）。入场触发：近1-2根 1h 振幅突然放大到最近N根均值的1.5倍以上 + _order_flow_delta 与 4h 方向一致。目的：在波动率爆炸前夕精准下注方向。与已有策略差异：不是超卖反弹或动量加速，而是专注于'能量释放瞬间'这种低频但爆发力强的形态。注意：上轮 TCB2_L_v4 已经在 Big4 和 10alts 通过但在 86alts 掉到 54.5%，说明当前条件在大市值币种有效但泛化到山寨币时噪音太大。改进方向：加一个过滤条件剔除弱突破（比如要求 _price_velocity 达到某个最低阈值，或要求 _order_flow_delta 的绝对值超过某门槛），让信号更精确。",
+  "model": "gemini-3-flash-preview",
+  "n_requested": 8,
+  "timestamp": "2026-04-17T12:18:14",
+  "candidates": [
+    {
+      "name": "TCB3_L_v1",
+      "direction": "LONG",
+      "hypothesis": "改进 TCB2_L_v4，保留能量密度识别吸筹的逻辑，通过增加价格速度（Price Velocity）过滤掉无力的漂涨，提升山寨币泛化胜率。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 趋势显著向上\n    if gradient(cs4h, 8) < 0.05: return None\n    # 中期：成交量/振幅比显示能量在低位聚集（吸筹形态）\n    if vol_energy_density(cs1h, 4, 16) < 1.2: return None\n    # 触发：主动买入持续性 + 价格爆发速度确认\n    if taker_sustain(cs1h, 3, 0.52) > 0.6:\n        if _price_velocity(cs1h, 1, 12) > 0.2 and _order_flow_delta(cs1h, 1) > 0.1:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_L_v1",
+        "direction": "LONG",
+        "hypothesis": "改进 TCB2_L_v4，保留能量密度识别吸筹的逻辑，通过增加价格速度（Price Velocity）过滤掉无力的漂涨，提升山寨币泛化胜率。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 趋势显著向上\n    if gradient(cs4h, 8) < 0.05: return None\n    # 中期：成交量/振幅比显示能量在低位聚集（吸筹形态）\n    if vol_energy_density(cs1h, 4, 16) < 1.2: return None\n    # 触发：主动买入持续性 + 价格爆发速度确认\n    if taker_sustain(cs1h, 3, 0.52) > 0.6:\n        if _price_velocity(cs1h, 1, 12) > 0.2 and _order_flow_delta(cs1h, 1) > 0.1:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 64,
+          "wr": 0.5625,
+          "ev": 0.376
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_S_v1",
+      "direction": "SHORT",
+      "hypothesis": "改进 TCB2_S_v4，在 4h 下行趋势中，识别长期振幅静默后的‘重力加速’，要求 OFD 必须显著为负以排除流动性缺失导致的假突破。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 25 or len(cs4h) < 6: return None\n    # 宏观：4h 明确下行\n    if gradient(cs4h, 6) > -0.06: return None\n    # 中期：极度缩量静默\n    if amplitude_silence(cs1h, 12) < 0.6: return None\n    # 触发：价格向下速度突增且伴随净卖盘压制\n    if _price_velocity(cs1h, 2, 10) < -0.3:\n        if _order_flow_delta(cs1h, 1) < -0.12:\n            return 'SHORT'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_S_v1",
+        "direction": "SHORT",
+        "hypothesis": "改进 TCB2_S_v4，在 4h 下行趋势中，识别长期振幅静默后的‘重力加速’，要求 OFD 必须显著为负以排除流动性缺失导致的假突破。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 25 or len(cs4h) < 6: return None\n    # 宏观：4h 明确下行\n    if gradient(cs4h, 6) > -0.06: return None\n    # 中期：极度缩量静默\n    if amplitude_silence(cs1h, 12) < 0.6: return None\n    # 触发：价格向下速度突增且伴随净卖盘压制\n    if _price_velocity(cs1h, 2, 10) < -0.3:\n        if _order_flow_delta(cs1h, 1) < -0.12:\n            return 'SHORT'\n    return None",
+        "s1": {
+          "n": 46,
+          "wr": 0.7174,
+          "ev": 1.0294
+        },
+        "s2": {
+          "n": 246,
+          "wr": 0.5894,
+          "ev": 1.0217
+        },
+        "s3": {
+          "n": 2549,
+          "wr": 0.5634,
+          "ev": 0.5532
+        },
+        "s4": null,
+        "passed_stage": 2,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_L_v2",
+      "direction": "LONG",
+      "hypothesis": "利用 seq_contract 识别振幅连续收缩后的能量坍缩，配合 flux 动量加速捕捉爆发瞬间，解决 TCB2_L_v2 胜率不足的问题。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 处于多头共识区\n    if gradient(cs4h, 8) < 0.02 or _close_consistency(cs4h, 8) < 0.5: return None\n    # 形态：近期振幅连续收缩至少 3 根，能量压缩至极限\n    if seq_contract(cs1h, 6) < 3: return None\n    # 触发：买压动量突然超越长期均值，且成交量温和放大\n    if _flux_momentum(cs1h, 2, 10) > 0.12 and _vol_momentum(cs1h, 1, 6) > 0.1:\n        if _order_flow_delta(cs1h, 1) > 0.08:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_L_v2",
+        "direction": "LONG",
+        "hypothesis": "利用 seq_contract 识别振幅连续收缩后的能量坍缩，配合 flux 动量加速捕捉爆发瞬间，解决 TCB2_L_v2 胜率不足的问题。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 处于多头共识区\n    if gradient(cs4h, 8) < 0.02 or _close_consistency(cs4h, 8) < 0.5: return None\n    # 形态：近期振幅连续收缩至少 3 根，能量压缩至极限\n    if seq_contract(cs1h, 6) < 3: return None\n    # 触发：买压动量突然超越长期均值，且成交量温和放大\n    if _flux_momentum(cs1h, 2, 10) > 0.12 and _vol_momentum(cs1h, 1, 6) > 0.1:\n        if _order_flow_delta(cs1h, 1) > 0.08:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 0,
+          "wr": 0.0,
+          "ev": 0.0
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_S_v2",
+      "direction": "SHORT",
+      "hypothesis": "针对 TCB2_S_v2 信号过稀疏的问题，放宽方向熵速率要求，改用方向共识形成（熵值低）配合 4h 阻力位下挫。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 处于弱势且价格位于近期中下部\n    if gradient(cs4h, 8) > -0.02 or _price_memory(cs4h, 10) > 0.6: return None\n    # 中期：蓄势期低波动占比高\n    if _time_pressure(cs1h, 10, 0.0015) < 0.4: return None\n    # 触发：方向熵降低意味着共识形成，配合卖压加速度突破\n    if direction_entropy(cs1h, 10) < 0.75:\n        if _saturation_velocity(cs1h, 2, 2) > 0.1 and _order_flow_delta(cs1h, 1) < -0.1:\n            return 'SHORT'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_S_v2",
+        "direction": "SHORT",
+        "hypothesis": "针对 TCB2_S_v2 信号过稀疏的问题，放宽方向熵速率要求，改用方向共识形成（熵值低）配合 4h 阻力位下挫。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 处于弱势且价格位于近期中下部\n    if gradient(cs4h, 8) > -0.02 or _price_memory(cs4h, 10) > 0.6: return None\n    # 中期：蓄势期低波动占比高\n    if _time_pressure(cs1h, 10, 0.0015) < 0.4: return None\n    # 触发：方向熵降低意味着共识形成，配合卖压加速度突破\n    if direction_entropy(cs1h, 10) < 0.75:\n        if _saturation_velocity(cs1h, 2, 2) > 0.1 and _order_flow_delta(cs1h, 1) < -0.1:\n            return 'SHORT'\n    return None",
+        "s1": {
+          "n": 0,
+          "wr": 0.0,
+          "ev": 0.0
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_L_v3",
+      "direction": "LONG",
+      "hypothesis": "基于价格密集区（Price Cluster）假设，若市场在窄幅区间充分换手后，成交量方向相关性（vol_dir_correlation）显著转正，预示真突破。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 整体趋势向上\n    if gradient(cs4h, 10) < 0.03: return None\n    # 中期：价格在 ±0.6% 空间内高度密集（窄幅横盘）\n    if price_cluster_density(cs1h, 12, 0.006) < 0.5: return None\n    # 触发：放量且量价同步性极强（阳线放量），突破密集区\n    if vol_dir_correlation(cs1h, 6) > 0.4 and _price_velocity(cs1h, 1, 10) > 0.15:\n        return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_L_v3",
+        "direction": "LONG",
+        "hypothesis": "基于价格密集区（Price Cluster）假设，若市场在窄幅区间充分换手后，成交量方向相关性（vol_dir_correlation）显著转正，预示真突破。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 整体趋势向上\n    if gradient(cs4h, 10) < 0.03: return None\n    # 中期：价格在 ±0.6% 空间内高度密集（窄幅横盘）\n    if price_cluster_density(cs1h, 12, 0.006) < 0.5: return None\n    # 触发：放量且量价同步性极强（阳线放量），突破密集区\n    if vol_dir_correlation(cs1h, 6) > 0.4 and _price_velocity(cs1h, 1, 10) > 0.15:\n        return 'LONG'\n    return None",
+        "s1": {
+          "n": 266,
+          "wr": 0.5226,
+          "ev": 0.0881
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_S_v3",
+      "direction": "SHORT",
+      "hypothesis": "利用振幅偏斜（Upper Shadows）识别上方抛压聚集，在 4h 下行背景下捕捉卖压非线性增长（Saturation Velocity）触发的崩溃。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 6: return None\n    # 宏观：4h 处于显著下降趋势\n    if gradient(cs4h, 6) >= -0.03: return None\n    # 中期：近期 K 线具有明显的上影线偏斜，显示反弹无力\n    if _amplitude_skew(cs1h, 8) < 0.15: return None\n    # 触发：卖压加速度确认爆发且当前价格跌破 1h 近期支撑\n    if _saturation_velocity(cs1h, 3, 3) > 0.12 and _price_memory(cs1h, 8) < 0.2:\n        if _order_flow_delta(cs1h, 1) < -0.05:\n            return 'SHORT'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_S_v3",
+        "direction": "SHORT",
+        "hypothesis": "利用振幅偏斜（Upper Shadows）识别上方抛压聚集，在 4h 下行背景下捕捉卖压非线性增长（Saturation Velocity）触发的崩溃。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 6: return None\n    # 宏观：4h 处于显著下降趋势\n    if gradient(cs4h, 6) >= -0.03: return None\n    # 中期：近期 K 线具有明显的上影线偏斜，显示反弹无力\n    if _amplitude_skew(cs1h, 8) < 0.15: return None\n    # 触发：卖压加速度确认爆发且当前价格跌破 1h 近期支撑\n    if _saturation_velocity(cs1h, 3, 3) > 0.12 and _price_memory(cs1h, 8) < 0.2:\n        if _order_flow_delta(cs1h, 1) < -0.05:\n            return 'SHORT'\n    return None",
+        "s1": {
+          "n": 0,
+          "wr": 0.0,
+          "ev": 0.0
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_L_v4",
+      "direction": "LONG",
+      "hypothesis": "通过 taker_sustain 的高门槛确保机构介入的持续性，配合 1h 振幅相较于历史静默期的倍增，捕捉能量释放最剧烈的时刻。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 趋势稳健\n    if gradient(cs4h, 8) < 0.04: return None\n    # 中期：处于振幅静默期（蓄势）\n    if amplitude_silence(cs1h, 10) < 0.5: return None\n    # 触发：主动买入比例连续 4 根 K 线极高，且瞬时振幅是静默期的 1.8 倍以上\n    avg_amp = amplitude(cs1h, 10)\n    if taker_sustain(cs1h, 4, 0.53) > 0.7:\n        if amplitude(cs1h, 1) > 1.8 * avg_amp and _order_flow_delta(cs1h, 1) > 0.1:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_L_v4",
+        "direction": "LONG",
+        "hypothesis": "通过 taker_sustain 的高门槛确保机构介入的持续性，配合 1h 振幅相较于历史静默期的倍增，捕捉能量释放最剧烈的时刻。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 趋势稳健\n    if gradient(cs4h, 8) < 0.04: return None\n    # 中期：处于振幅静默期（蓄势）\n    if amplitude_silence(cs1h, 10) < 0.5: return None\n    # 触发：主动买入比例连续 4 根 K 线极高，且瞬时振幅是静默期的 1.8 倍以上\n    avg_amp = amplitude(cs1h, 10)\n    if taker_sustain(cs1h, 4, 0.53) > 0.7:\n        if amplitude(cs1h, 1) > 1.8 * avg_amp and _order_flow_delta(cs1h, 1) > 0.1:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 14,
+          "wr": 0.5714,
+          "ev": 0.4118
+        },
+        "s2": {
+          "n": 15,
+          "wr": 0.3333,
+          "ev": -0.6344
+        },
+        "s3": null,
+        "s4": null,
+        "passed_stage": 1,
+        "passed": false
+      }
+    },
+    {
+      "name": "TCB3_S_v4",
+      "direction": "SHORT",
+      "hypothesis": "捕捉高位‘成交量能量密度’骤增后的方向性背离，即高成交量横盘（滞涨）后的向下破位。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 动量衰竭或转下\n    if gradient(cs4h, 8) > 0.02: return None\n    # 中期：高能量密度（成交量大但振幅小），暗示分歧巨大或主力出货\n    if vol_energy_density(cs1h, 4, 12) < 1.3: return None\n    # 触发：净卖盘流向确认向下突破，且价格速度下穿\n    if _order_flow_delta(cs1h, 2) < -0.1 and _price_velocity(cs1h, 1, 10) < -0.2:\n        return 'SHORT'\n    return None",
+      "stage_stats": {
+        "name": "TCB3_S_v4",
+        "direction": "SHORT",
+        "hypothesis": "捕捉高位‘成交量能量密度’骤增后的方向性背离，即高成交量横盘（滞涨）后的向下破位。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    # 宏观：4h 动量衰竭或转下\n    if gradient(cs4h, 8) > 0.02: return None\n    # 中期：高能量密度（成交量大但振幅小），暗示分歧巨大或主力出货\n    if vol_energy_density(cs1h, 4, 12) < 1.3: return None\n    # 触发：净卖盘流向确认向下突破，且价格速度下穿\n    if _order_flow_delta(cs1h, 2) < -0.1 and _price_velocity(cs1h, 1, 10) < -0.2:\n        return 'SHORT'\n    return None",
+        "s1": {
+          "n": 779,
+          "wr": 0.4634,
+          "ev": 0.0464
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    }
+  ]
+}

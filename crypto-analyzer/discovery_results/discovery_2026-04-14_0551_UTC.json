@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-04-14 05:51 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12669,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ACT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.013,
+          "high": 0.0132
+        },
+        "stop_loss": 0.0128,
+        "target1": 0.0138,
+        "target2": 0.0142,
+        "win_rate_pct": 65,
+        "risk_reward": 3.0,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests $0.0130-$0.0132 zone; 1h candle closes above $0.0130 after retest.",
+        "invalidation": "1h candle close below $0.0128 or strong bearish volume spike."
+      }
+    ]
+  }
+}

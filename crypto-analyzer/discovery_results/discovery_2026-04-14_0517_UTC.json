@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-04-14 05:17 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17713,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ZEN/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 5.79,
+          "high": 5.85
+        },
+        "stop_loss": 5.65,
+        "target1": 6.1,
+        "target2": 6.39,
+        "win_rate_pct": 65,
+        "risk_reward": 3.35,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $5.80 after touching $5.79",
+        "invalidation": "1h close below $5.67",
+        "confluence_signals": [
+          "Extreme short crowd (contrarian bullish)",
+          "FEAR_AND_GREED_INDEX: Extreme Fear (contrarian buy)",
+          "1d channel up",
+          "EMA_1h bullish alignment",
+          "Price at strong support zone"
+        ],
+        "win_rate_basis": "Contrarian extreme short positioning and overall market fear suggest a bounce is likely from support, supported by bullish 1d channel and EMA alignment. However, weak buying volume and bearish MACD/funding velocity reduce conviction, leading to a 65% estimate."
+      },
+      {
+        "symbol": "ZIL/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Skipped due to critical data issues with KEY_PRICE_LEVELS and EMAs, making it impossible to define precise entry, stop, and targets. Also, conflicting signals between extreme long crowd (bearish) and bullish price-volume divergence."
+      },
+      {
+        "symbol": "ZK/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Skipped due to critical data issues with KEY_PRICE_LEVELS and EMAs, making it impossible to define precise entry, stop, and targets. Additionally, strong bearish signal from Hyperliquid Smart Money (net outflow, 0 longs vs 19 shorts) conflicts with bullish price-volume divergence."
+      }
+    ]
+  }
+}

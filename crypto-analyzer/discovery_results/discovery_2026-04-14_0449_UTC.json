@@ -1,0 +1,123 @@
+{
+  "timestamp": "2026-04-14 04:49 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18167,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "0G/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.575,
+          "high": 0.59
+        },
+        "stop_loss": 0.56,
+        "target1": 0.61,
+        "target2": 0.64,
+        "win_rate_pct": 72,
+        "risk_reward": 1.89,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds above $0.57 support or 1h close above EMA20 ($0.59)",
+        "invalidation": "1h close below $0.56",
+        "confluence_signals": [
+          "Volatility compression (spring tension building)",
+          "Price falling with LOW volume (weak selling, bullish divergence)",
+          "OI falling + price falling (deleveraging/capitulation signal)",
+          "Funding velocity accelerating positive (shorts paying more, short squeeze building)",
+          "Extreme Fear & Greed Index (contrarian buy signal)",
+          "Price at EMA20/50 support"
+        ],
+        "win_rate_basis": "Multiple strong bullish signals (5+) including volatility compression, weak selling, deleveraging, and accelerating short squeeze mechanics, combined with an Extreme Fear market sentiment, suggest a high probability of a bounce or reversal."
+      },
+      {
+        "symbol": "1000PEPE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Missing critical price level data (resistance, support, EMA, ATR range)"
+        ],
+        "win_rate_basis": "Cannot estimate win rate due to lack of actionable price levels for defining entry, stop loss, and targets."
+      },
+      {
+        "symbol": "1000SHIB/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Missing critical price level data (resistance, support, EMA, ATR range)"
+        ],
+        "win_rate_basis": "Cannot estimate win rate due to lack of actionable price levels for defining entry, stop loss, and targets."
+      },
+      {
+        "symbol": "2Z/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Extreme bearish funding rate (short squeeze fuel)",
+          "Extreme long crowd (contrarian bearish signal)"
+        ],
+        "win_rate_basis": "Strongly conflicting signals between extreme negative funding (bullish) and extreme long/short ratio (bearish) indicate high uncertainty and risk of being whipsawed, making a reliable win rate estimate impossible."
+      },
+      {
+        "symbol": "AAVE/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 103.8,
+          "high": 104.15
+        },
+        "stop_loss": 105.0,
+        "target1": 97.99,
+        "target2": 95.32,
+        "win_rate_pct": 62,
+        "risk_reward": 7.14,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price rejection at $104.15 resistance or 1h close below $103.80",
+        "invalidation": "1h close above $105.00",
+        "confluence_signals": [
+          "Extreme long crowd (contrarian bearish signal)",
+          "Price near significant resistance ($104.15)",
+          "Funding velocity decelerating negative (long flush momentum fading, still negative indicating vulnerability)",
+          "Hyperliquid Smart Money showing negative P&L and 0% win rate despite inflow"
+        ],
+        "win_rate_basis": "The combination of an extreme long crowd positioning and price approaching a key resistance level suggests a high probability of a bearish reversal or correction, despite some underlying bullish momentum signals. The fading long flush momentum indicates longs are still vulnerable."
+      }
+    ]
+  }
+}

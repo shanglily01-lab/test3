@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-04-14 01:57 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17707,
+  "results": {
+    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"AVNT/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 0.13,\n        \"high\": 0.135\n      },\n      \"stop_loss\": 0.128,\n      \"target1\": 0.14,\n      \"target2\": 0.15,\n      \"win_rate_pct\": 70,\n      \"risk_reward\": 3.25,\n      \"confidence\": 8,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"1h candle close above $0.132, confirming support holds\",\n      \"invalidation\": \"1h candle close below $0.128\",\n      \"confluence_signals\": [\n        \"EXTREME short crowd (6th percentile L/S ratio)\",\n        \"Funding Velocity accelerating positive (short squeeze building)\",\n        \"Price near strong support at $0.13\",\n        \"Overall market FEAR_AND_GREED_INDEX in 'Extreme Fear' (contrarian buy signal)\",\n        \"RSI 4h low (32.19), room for upside\"\n      ],\n      \"win_rate_basis\": \"Multiple strong contr",
+    "parse_error": "JSON extraction failed"
+  }
+}

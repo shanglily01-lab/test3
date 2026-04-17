@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-04-14 05:04 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17487,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ME/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: MACD expanding bearish, low volume on price rise, and aggressive sellers contradict the positive funding rate and stable OI. The price is in a sideways channel, leading to unclear direction and low conviction for precise trade setup."
+      },
+      {
+        "symbol": "MEME/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Despite strong bullish signals (EMA alignment, rising OI, accelerating funding velocity), the provided KEY_PRICE_LEVELS for resistance and support are ambiguous ('none found' or '$0.00'), preventing the definition of exact entry, stop loss, and profit targets as required."
+      }
+    ]
+  }
+}

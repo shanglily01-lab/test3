@@ -1,0 +1,158 @@
+{
+  "timestamp": "2026-04-14 01:56 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18035,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ARKM/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.1,
+          "high": 0.101
+        },
+        "stop_loss": 0.098,
+        "target1": 0.11,
+        "target2": 0.115,
+        "win_rate_pct": 70,
+        "risk_reward": 5.0,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests and holds $0.10 support on 1h timeframe, ideally with increasing volume",
+        "invalidation": "1h close below $0.098",
+        "confluence_signals": [
+          "Extreme short crowd (contrarian bullish)",
+          "Price falling with LOW volume (weak selling)",
+          "Open Interest rising with price (healthy buildup)",
+          "Price above all 1h EMAs (bullish structure)",
+          "Overall market in Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Multiple strong bullish signals: contrarian extreme short crowd, bullish price-volume divergence, healthy OI growth, and a bullish EMA structure, all supported by the overall market's extreme fear sentiment, suggest a high probability long setup."
+      },
+      {
+        "symbol": "ASR/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Extreme bearish funding rate (potential short squeeze fuel)",
+          "Extreme long crowd in L/S ratio (contrarian bearish)",
+          "Bearish perp premium"
+        ],
+        "win_rate_basis": "Conflicting extreme signals from funding rate (bullish squeeze potential) and L/S ratio (contrarian bearish) make the directional bias unclear. The bearish perp premium adds further ambiguity, leading to a skip."
+      },
+      {
+        "symbol": "ASTER/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.685,
+          "high": 0.69
+        },
+        "stop_loss": 0.695,
+        "target1": 0.66,
+        "target2": 0.65,
+        "win_rate_pct": 65,
+        "risk_reward": 6.0,
+        "confidence": 7,
+        "time_window": "enter within 8h, hold 12-24h",
+        "entry_trigger": "Price shows rejection from $0.69 resistance or 1h candle close below $0.675",
+        "invalidation": "1h close above $0.695",
+        "confluence_signals": [
+          "RSI_1h overbought (>70)",
+          "Price rising with LOW volume (weak buying)",
+          "Funding velocity accelerating negative (long flush building)",
+          "Current price near resistance levels"
+        ],
+        "win_rate_basis": "Overbought RSI, weak buying volume despite price gains, and accelerating negative funding velocity strongly suggest a potential reversal or pullback. Current price at resistance enhances the short setup probability."
+      },
+      {
+        "symbol": "ATOM/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Price around EMAs with bearish 1h alignment",
+          "Funding velocity decelerating positive (squeeze momentum fading)",
+          "Bearish perp premium (high percentile for negative premium)",
+          "Balanced L/S ratio and stable OI (no clear edge)"
+        ],
+        "win_rate_basis": "A mix of neutral and slightly bearish signals, including fading squeeze momentum and bearish perp premium, combined with balanced positioning and price hovering around EMAs, does not provide a clear directional edge for a high-conviction trade."
+      },
+      {
+        "symbol": "AUCTION/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 4.68,
+          "high": 4.7
+        },
+        "stop_loss": 4.62,
+        "target1": 4.86,
+        "target2": 4.94,
+        "win_rate_pct": 70,
+        "risk_reward": 2.42,
+        "confidence": 8,
+        "time_window": "enter within 8h, hold 12-24h",
+        "entry_trigger": "Price dips to $4.68-$4.70 zone and shows bullish reaction (e.g., strong 1h candle close)",
+        "invalidation": "1h close below $4.62",
+        "confluence_signals": [
+          "Bullish EMA alignment (price above all 3 EMAs)",
+          "MACD_1h bullish and EXPANDING",
+          "Open Interest rising with price (healthy buildup)",
+          "Extreme short crowd (contrarian bullish)",
+          "Overall market in Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Strong bullish momentum (EMA alignment, expanding MACD), healthy OI, and an extreme short crowd (contrarian bullish) provide a robust foundation for a long trade, especially if entered on a slight pullback to capitalize on the overbought RSI."
+      },
+      {
+        "symbol": "AVAX/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 9.56,
+          "high": 9.61
+        },
+        "stop_loss": 9.75,
+        "target1": 9.24,
+        "target2": 9.0,
+        "win_rate_pct": 70,
+        "risk_reward": 2.4,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price fails to break above $9.61 resistance or 1h close below $9.50",
+        "invalidation": "1h close above $9.75",
+        "confluence_signals": [
+          "Price rising with LOW volume (weak buying)",
+          "Funding velocity decelerating positive (squeeze momentum fading)",
+          "Bearish perp premium",
+          "Current price at multiple resistance levels",
+          "Hyperliquid Smart Money shows extremely low L/S ratio (bearish positioning)"
+        ],
+        "win_rate_basis": "Weak buying volume, fading squeeze momentum, a bearish perp premium, and the price encountering multiple resistance levels collectively indicate a strong bearish reversal potential. The extremely low smart money L/S ratio further supports a short bias."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear' (F&G Index=12), often preceding bounces. High correlations among ARKM, ASTER, ATOM, AUCTION, and AVAX suggest a synchronized market, implying that a broader market move could influence all of them.",
+    "highest_conviction_trade": "ARKM/USDT"
+  }
+}

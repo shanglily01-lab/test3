@@ -101,7 +101,7 @@ class MockPriceCollector:
             return {
                 'exchange': self.exchange_id,
                 'symbol': symbol,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(),
                 'price': new_price,
                 'open': self.open_prices[symbol],
                 'high': high,
@@ -170,7 +170,7 @@ class MockPriceCollector:
             if since:
                 start_time = datetime.fromtimestamp(since / 1000)
             else:
-                start_time = datetime.utcnow() - timedelta(minutes=timeframe_minutes * limit)
+                start_time = datetime.now() - timedelta(minutes=timeframe_minutes * limit)
 
             for i in range(limit):
                 timestamp = start_time + timedelta(minutes=timeframe_minutes * i)
@@ -243,7 +243,7 @@ class MockPriceCollector:
             return {
                 'exchange': self.exchange_id,
                 'symbol': symbol,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(),
                 'bids': bids,
                 'asks': asks,
                 'bid_volume': sum(bid[1] for bid in bids),
@@ -283,7 +283,7 @@ class MockPriceCollector:
                 trades.append({
                     'exchange': self.exchange_id,
                     'symbol': symbol,
-                    'timestamp': datetime.utcnow() - timedelta(seconds=i * 2),
+                    'timestamp': datetime.now() - timedelta(seconds=i * 2),
                     'price': round(price, 2),
                     'amount': round(amount, 4),
                     'side': side,

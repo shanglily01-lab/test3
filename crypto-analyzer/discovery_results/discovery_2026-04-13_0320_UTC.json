@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-04-13 03:20 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 14414,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "DOT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.21,
+          "high": 1.22
+        },
+        "stop_loss": 1.2,
+        "target1": 1.25,
+        "target2": 1.31,
+        "win_rate_pct": 68,
+        "risk_reward": 3.0,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above $1.22 after testing $1.21 support",
+        "invalidation": "price closes below $1.20",
+        "confluence_signals": [
+          "4h RSI oversold (<30)",
+          "EXTREME short crowd (contrarian bullish)",
+          "Price at strong support ($1.21 - $1.22)"
+        ],
+        "win_rate_basis": "Three strong bullish signals (oversold RSI, extreme contrarian L/S ratio, and price at support) contribute to a high probability of a bounce, estimating a 68% win rate."
+      }
+    ]
+  }
+}

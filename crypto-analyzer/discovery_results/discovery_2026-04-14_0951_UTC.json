@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-04-14 09:51 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 12259,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "CHR/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.0181,
+          "high": 0.0183
+        },
+        "stop_loss": 0.0175,
+        "target1": 0.0195,
+        "target2": 0.02,
+        "win_rate_pct": 60,
+        "risk_reward": 2.13,
+        "confidence": 6,
+        "time_window": "Enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above $0.0185 to confirm breakout from compression",
+        "invalidation": "1h close below EMA20 ($0.0178) or RSI dropping below 40",
+        "confluence_signals": [
+          "ATR compression (0.66x) suggests imminent breakout",
+          "OI rising + price rising indicates healthy trend continuation",
+          "Price above all 3 EMAs on 1h timeframe"
+        ],
+        "win_rate_basis": "Bullish EMA alignment and positive OI flow combine with a high compression ratio to favor a volatility expansion to the upside, though high L/S ratio limits the ceiling."
+      },
+      {
+        "symbol": "THETA/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.1783,
+          "high": 0.181
+        },
+        "stop_loss": 0.186,
+        "target1": 0.17,
+        "target2": 0.165,
+        "win_rate_pct": 58,
+        "risk_reward": 1.73,
+        "confidence": 5,
+        "time_window": "Enter within 2-6h, hold 24h",
+        "entry_trigger": "Failure to hold $0.18 resistance on 1h timeframe",
+        "invalidation": "1h close above $0.186 or funding rate turning sharply positive",
+        "confluence_signals": [
+          "Perp premium at 98th percentile suggests over-extended long positioning",
+          "RSI 4h approaching overbought (68.98)",
+          "MACD 1h trend is bearish"
+        ],
+        "win_rate_basis": "Extreme perp premium often leads to mean reversion flushes; bearish MACD and high 4h RSI provide technical confluence for a local top."
+      },
+      {
+        "symbol": "STX/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.223,
+          "high": 0.226
+        },
+        "stop_loss": 0.235,
+        "target1": 0.21,
+        "target2": 0.205,
+        "win_rate_pct": 62,
+        "risk_reward": 1.44,
+        "confidence": 7,
+        "time_window": "Enter within 4h, hold 12-24h",
+        "entry_trigger": "1h MACD histogram expansion to the downside",
+        "invalidation": "1h close above $0.235 (24h high)",
+        "confluence_signals": [
+          "Price-Volume divergence: price rising on low volume indicates exhaustion",
+          "MACD 1h bearish and expanding",
+          "Smart money net flow is negative"
+        ],
+        "win_rate_basis": "The bearish price-volume divergence is a high-reliability indicator of a 'fake' move, supported by expanding bearish MACD momentum."
+      },
+      {
+        "symbol": "IOTA/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.055,
+          "high": 0.056
+        },
+        "stop_loss": 0.053,
+        "target1": 0.06,
+        "target2": 0.065,
+        "win_rate_pct": 68,
+        "risk_reward": 2.25,
+        "confidence": 8,
+        "time_window": "Enter within 8h, hold 24-48h",
+        "entry_trigger": "Price stability above $0.055 while Fear & Greed remains below 20",
+        "invalidation": "New 7d low below $0.052",
+        "confluence_signals": [
+          "Extreme Fear (12) provides a strong contrarian buy signal",
+          "Price at 6th percentile of 30d range (deep value/oversold)",
+          "Price-Volume divergence: price falling on low volume indicates seller exhaustion"
+        ],
+        "win_rate_basis": "Confluence of extreme market fear, deep discount in the 30-day range, and drying up of selling volume creates a high-probability bounce scenario for a laggard asset."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Extreme Fear (12) suggests a systemic bottoming. IOTA and STX show 0.65 correlation, but IOTA's seller exhaustion vs STX's buyer exhaustion suggests a rotation out of recent gainers into deep-value laggards.",
+    "highest_conviction_trade": "IOTA/USDT"
+  }
+}

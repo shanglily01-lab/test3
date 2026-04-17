@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-04-14 06:24 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12985,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ZEC/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 357.0,
+          "high": 358.0
+        },
+        "stop_loss": 366.0,
+        "target1": 342.86,
+        "target2": 333.26,
+        "win_rate_pct": 62,
+        "risk_reward": 1.57,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below $357.52 (nearest support level), confirming breakdown.",
+        "invalidation": "1h close above $366.00 (stop loss level).",
+        "confluence_signals": [
+          "Price-Volume Divergence: price rising with LOW volume (weak buying)",
+          "Funding Velocity: accelerating negative (longs paying more, flush building)",
+          "Hyperliquid Smart Money: net outflow, more shorts, 0% win rate",
+          "OI Interpretation: falling OI + price falling (deleveraging/liquidations)"
+        ],
+        "win_rate_basis": "Four bearish signals (weak buying, accelerating negative funding velocity, smart money outflow/bearish positioning, deleveraging) indicate strong downside pressure. This aligns with a 62% win rate, despite counter-signals like Extreme Fear and 1d channel up, which are considered but outweighed by immediate market structure and flow data."
+      }
+    ]
+  }
+}

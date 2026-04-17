@@ -1,0 +1,111 @@
+{
+  "timestamp": "2026-04-14 06:17 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 13431,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SPK/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Conflicting sentiment signals (Extreme long crowd vs. healthy OI buildup)",
+          "Ambiguous and severely truncated key price levels, making precise entry/exit impossible",
+          "MACD 1h expanding bearish"
+        ],
+        "win_rate_basis": "Signals are contradictory and critical price level data is uninterpretable, leading to no clear edge for a trade."
+      },
+      {
+        "symbol": "STRK/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.031,
+          "high": 0.032
+        },
+        "stop_loss": 0.0295,
+        "target1": 0.035,
+        "target2": 0.04,
+        "win_rate_pct": 72,
+        "risk_reward": 3.0,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters $0.031-$0.032 zone and 1h candle shows bullish reversal (e.g., hammer, bullish engulfing).",
+        "invalidation": "Price closes below $0.0295 on 4h chart or a significant bearish catalyst emerges.",
+        "confluence_signals": [
+          "RSI 4h oversold (<30)",
+          "EXTREME short crowd (0th percentile L/S ratio, contrarian bullish)",
+          "OI FALLING + price falling (capitulation signal, often precedes bounces)",
+          "Price positioned very low in 7d/30d range (10th/3rd percentile)",
+          "FEAR_AND_GREED_INDEX in 'Extreme Fear' (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Multiple strong contrarian bullish signals (4h RSI oversold, extreme short positioning, capitulation-like OI, low price range) align with the overall market 'Extreme Fear' sentiment, suggesting a high probability bounce or short squeeze."
+      },
+      {
+        "symbol": "STX/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.215,
+          "high": 0.22
+        },
+        "stop_loss": 0.207,
+        "target1": 0.23,
+        "target2": 0.24,
+        "win_rate_pct": 60,
+        "risk_reward": 1.55,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters $0.215-$0.22 zone and 1h candle shows bullish continuation or support confirmation.",
+        "invalidation": "Price closes below $0.207 on 4h chart or volume divergence intensifies with bearish price action.",
+        "confluence_signals": [
+          "Strong positive funding rate (90th percentile, increasing)",
+          "OI RISING + price rising (healthy trend continuation)",
+          "EMA 1h bullish alignment (price above 3/3 EMAs)",
+          "FEAR_AND_GREED_INDEX in 'Extreme Fear' (contrarian buy signal)",
+          "Funding velocity decelerating negative (flush momentum fading)"
+        ],
+        "win_rate_basis": "Positive funding rate, healthy OI buildup, and bullish EMA alignment suggest continued momentum. The 'Extreme Fear' index supports a contrarian long. However, price rising with low volume is a significant counter-signal, reducing win rate."
+      },
+      {
+        "symbol": "SUI/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.92,
+          "high": 0.93
+        },
+        "stop_loss": 0.89,
+        "target1": 0.96,
+        "target2": 0.97,
+        "win_rate_pct": 65,
+        "risk_reward": 1.14,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters $0.92-$0.93 zone and 1h candle shows bullish reversal or strong bounce from support.",
+        "invalidation": "Price closes below $0.89 on 4h chart or short squeeze dynamics reverse.",
+        "confluence_signals": [
+          "EMA 1h bullish alignment (price above 3/3 EMAs)",
+          "Strong positive funding rate (86th percentile, increasing)",
+          "OI RISING + price rising (healthy trend continuation)",
+          "EXTREME short crowd (0th percentile L/S ratio, contrarian bullish)",
+          "Funding velocity accelerating positive (shorts paying more, squeeze building)",
+          "FEAR_AND_GREED_INDEX in 'Extreme Fear' (contrarian buy signal)"
+        ],
+        "win_rate_basis": "A strong combination of bullish trend indicators (EMA, funding, OI) with extreme short positioning and accelerating funding velocity points to a short squeeze potential. The 'Extreme Fear' market sentiment adds to the contrarian long case. However, volume divergence and aggressive sellers are moderating factors."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear' (F&G Index=12), which historically precedes bounces. STRK and SUI exhibit strong contrarian bullish signals (extreme short positioning, oversold RSI) suggesting they are prime candidates for a short squeeze or reversal, potentially leading the market bounce from fear.",
+    "highest_conviction_trade": "STRK/USDT"
+  }
+}

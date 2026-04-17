@@ -182,8 +182,8 @@ class InvestmentStrategy:
         """
         self.name = name
         self.description = ""
-        self.created_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.created_at = datetime.now()
+        self.updated_at = datetime.now()
 
         # 五维度权重
         self.dimension_weights = DimensionWeights()
@@ -488,7 +488,7 @@ class StrategyManager:
                 return False
 
             # 更新时间
-            strategy.updated_at = datetime.utcnow()
+            strategy.updated_at = datetime.now()
 
             # 保存到文件
             file_path = self.config_dir / f"{strategy.name}.json"
@@ -647,8 +647,8 @@ class StrategyManager:
             new_strategy = InvestmentStrategy.from_dict(source.to_dict())
             new_strategy.name = new_name
             new_strategy.description = new_description or f"从 {source_name} 复制"
-            new_strategy.created_at = datetime.utcnow()
-            new_strategy.updated_at = datetime.utcnow()
+            new_strategy.created_at = datetime.now()
+            new_strategy.updated_at = datetime.now()
 
             # 保存
             return self.save_strategy(new_strategy)

@@ -74,7 +74,7 @@ class SmartFuturesCollector:
         Returns:
             True表示需要采集，False表示跳过
         """
-        now = datetime.utcnow()
+        now = datetime.now()
 
         # 如果从未采集过，则需要采集
         if interval not in self.last_collection_time:
@@ -441,7 +441,7 @@ class SmartFuturesCollector:
         根据时间判断需要采集哪些时间周期，避免重复采集
         同时采集U本位和币本位合约数据
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now()
         logger.info("=" * 60)
         logger.info("🧠 开始智能数据采集周期（分层策略）")
 
@@ -487,7 +487,7 @@ class SmartFuturesCollector:
                 collected_intervals.append(interval)
 
                 # 更新采集时间
-                self.last_collection_time[interval] = datetime.utcnow()
+                self.last_collection_time[interval] = datetime.now()
             else:
                 elapsed = self._get_elapsed_time(interval)
                 logger.info(f"⏭️  跳过 {interval} K线 (距上次仅 {elapsed}，无需采集)")
@@ -498,7 +498,7 @@ class SmartFuturesCollector:
             logger.info(f"✓ 保存 {len(all_klines)} 条K线数据，影响 {inserted} 行")
 
         # 统计
-        elapsed = (datetime.utcnow() - start_time).total_seconds()
+        elapsed = (datetime.now() - start_time).total_seconds()
 
         # 分别统计U本位和币本位数据
         usdt_klines = [k for k in all_klines if k.get('contract_type') != 'coin_futures']
@@ -532,7 +532,7 @@ class SmartFuturesCollector:
         if interval not in self.last_collection_time:
             return "首次"
 
-        elapsed_seconds = (datetime.utcnow() - self.last_collection_time[interval]).total_seconds()
+        elapsed_seconds = (datetime.now() - self.last_collection_time[interval]).total_seconds()
 
         if elapsed_seconds < 60:
             return f"{int(elapsed_seconds)}秒"

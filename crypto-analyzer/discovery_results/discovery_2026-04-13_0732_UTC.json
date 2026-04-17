@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-04-13 07:32 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 13824,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "LINEA/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Critical key price levels (support/resistance) are missing or invalid, preventing the definition of a precise trade plan.",
+        "confluence_signals": [],
+        "win_rate_basis": "Insufficient data for a valid trade plan."
+      },
+      {
+        "symbol": "ZEC/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 358.0,
+          "high": 362.0
+        },
+        "stop_loss": 370.0,
+        "target1": 340.0,
+        "target2": 330.0,
+        "win_rate_pct": 70,
+        "risk_reward": 2.5,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters entry zone or 1h close below $355.44 after a retest.",
+        "invalidation": "Price closes 1h above $370.00 before entry, or funding velocity accelerates positively.",
+        "confluence_signals": [
+          "Extreme bullish funding rate (crowded longs)",
+          "Extreme long L/S ratio (contrarian bearish)",
+          "Funding Velocity accelerating negative (long squeeze building)",
+          "Price pulling back from significant rally highs",
+          "OI rising + price falling (bearish conviction/liquidation cascade)",
+          "MACD contracting bullish momentum",
+          "Price below EMA20/50"
+        ],
+        "win_rate_basis": "Multiple strong contrarian bearish signals (crowded longs, negative funding velocity acceleration, extreme L/S ratio) combined with price pullback and bearish OI action provide high conviction for a short squeeze/correction, contributing to a 70% win rate."
+      }
+    ]
+  }
+}

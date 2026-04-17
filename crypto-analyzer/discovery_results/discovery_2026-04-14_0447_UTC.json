@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-04-14 04:47 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18010,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ARKM/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.1,
+          "high": 0.102
+        },
+        "stop_loss": 0.098,
+        "target1": 0.11,
+        "target2": 0.115,
+        "win_rate_pct": 70,
+        "risk_reward": 3.83,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "price retests $0.10 - $0.102 support zone, or 1h candle close above $0.103 with increased volume",
+        "invalidation": "price closes below $0.098 on 1h timeframe",
+        "confluence_signals": [
+          "EXTREME short crowd (6th percentile) — contrarian bullish",
+          "Price falling with LOW volume (weak selling)",
+          "OI RISING (+7.51% 24h) + price rising (healthy buildup)",
+          "Price above 3/3 EMAs (bullish alignment)"
+        ]
+      }
+    ]
+  }
+}

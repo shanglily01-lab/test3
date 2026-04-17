@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-04-14 05:46 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 15611,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 72400.0,
+          "high": 72800.0
+        },
+        "stop_loss": 71000.0,
+        "target1": 74870.0,
+        "target2": 76404.93,
+        "win_rate_pct": 60,
+        "risk_reward": 1.41,
+        "confidence": 6,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "Price retests EMA50 ($72,455) or EMA20 ($73,254) and shows bullish candle on 1h timeframe.",
+        "invalidation": "Price closes below EMA200 ($71,959) on 4h timeframe.",
+        "confluence_signals": [
+          "Long/Short Ratio: EXTREME short crowd (contrarian bullish)",
+          "Fear & Greed Index: Extreme Fear (contrarian buy)",
+          "Price-Volume Divergence: Price falling with LOW volume (weak selling)",
+          "EMA alignment: Bullish",
+          "Open Interest: RISING + price rising (healthy buildup)",
+          "Funding Velocity: decelerating negative (flush momentum fading)"
+        ],
+        "win_rate_basis": "Long/Short Ratio EXTREME short crowd (contrarian bullish), Fear & Greed Index Extreme Fear (contrarian buy), Price falling with LOW volume (weak selling), and bullish EMA alignment suggest a strong bounce potential on dips. However, Hyperliquid Smart Money STRONG_BEARISH and negative funding rate introduce significant counter-risk, reducing the win rate from a higher base."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 2380.0,
+          "high": 2395.0
+        },
+        "stop_loss": 2405.0,
+        "target1": 2299.09,
+        "target2": 2256.35,
+        "win_rate_pct": 65,
+        "risk_reward": 5.05,
+        "confidence": 7,
+        "time_window": "enter within 1-4h, hold 8-16h",
+        "entry_trigger": "Rejection at $2,395.85 resistance, e.g., 1h close below $2,390.",
+        "invalidation": "Price closes above $2,400 on 1h timeframe.",
+        "confluence_signals": [
+          "RSI_1h: Overbought (>87)",
+          "Funding Rate: EXTREME bullish positioning (long squeeze risk)",
+          "Funding Velocity: Accelerating negative (flush building, longs paying more)",
+          "Hyperliquid Smart Money: STRONG_BEARISH",
+          "Price at resistance"
+        ],
+        "win_rate_basis": "RSI_1h overbought, EXTREME positive Funding Rate with accelerating negative Funding Velocity (flush building), and Hyperliquid Smart Money STRONG_BEARISH indicate high long squeeze risk. Price at resistance further supports a short. Conflicting extreme short retail crowd is noted but overridden by funding and smart money dynamics for an immediate short."
+      }
+    ]
+  }
+}

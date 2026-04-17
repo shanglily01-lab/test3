@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-04-14 01:54 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17949,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "0G/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.575,
+          "high": 0.585
+        },
+        "stop_loss": 0.565,
+        "target1": 0.6,
+        "target2": 0.64,
+        "win_rate_pct": 70,
+        "risk_reward": 1.33,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds above $0.57 support or 1h candle close above EMA50",
+        "invalidation": "Price closes below $0.565 or funding velocity turns significantly negative",
+        "confluence_signals": [
+          "Volatility compressed (0.54x ATR)",
+          "Funding rate 13th percentile (bearish sentiment, potential for squeeze)",
+          "Funding Velocity accelerating positive (shorts paying more, squeeze building)",
+          "OI falling + price falling (capitulation signal)",
+          "Price near EMA support (EMA20=0.59, EMA50=0.58)",
+          "EMA_1h alignment bullish"
+        ],
+        "win_rate_basis": "Multiple strong contrarian bullish signals (funding rate, funding velocity, OI capitulation) combined with volatility compression and price at EMA support suggest a high probability bounce/short squeeze."
+      }
+    ]
+  }
+}

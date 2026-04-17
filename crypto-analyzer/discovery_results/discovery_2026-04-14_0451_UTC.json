@@ -1,0 +1,91 @@
+{
+  "timestamp": "2026-04-14 04:51 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17976,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ARKM/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.1,
+          "high": 0.101
+        },
+        "stop_loss": 0.098,
+        "target1": 0.11,
+        "target2": 0.115,
+        "win_rate_pct": 70,
+        "risk_reward": 3.8,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above $0.101 after a dip, or price tests $0.10 and shows signs of bounce (e.g., strong wick)",
+        "invalidation": "Price closes 4h below $0.098",
+        "confluence_signals": [
+          "Extreme short crowd (contrarian bullish, 6th percentile L/S ratio)",
+          "Open Interest rising with price (healthy trend continuation)",
+          "Price falling with LOW volume (weak selling, bullish divergence)",
+          "Bullish EMA alignment (price above 3/3 EMAs)",
+          "Extreme Fear & Greed Index (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Multiple strong bullish signals are aligned, including extreme contrarian positioning (L/S ratio) and healthy trend indicators (OI, PVD). The bullish EMA alignment and the overall market's Extreme Fear & Greed Index further support a long position. The 1h RSI is overbought, suggesting a potential dip before entry, which aligns with the specified entry zone near strong support."
+      },
+      {
+        "symbol": "ASR/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Strongly conflicting positioning signals: The funding rate indicates extreme bearish positioning (0th percentile, bullish for price due to potential short squeeze fuel), while the Long/Short ratio indicates an extreme long crowd (93rd percentile, bearish for price due to potential long squeeze). This creates high uncertainty and makes a clear directional bias difficult."
+      },
+      {
+        "symbol": "ASTER/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: Positive price/volume dynamics (OI rising with price, weak selling on price fall) are countered by a bearish funding velocity (accelerating negative, 'flush building'). Hyperliquid Smart Money is neutral despite recorded inflow. The mixed signals prevent a high-conviction trade setup."
+      },
+      {
+        "symbol": "ATOM/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Bearish Price-Volume Divergence (price rising with low volume, indicating weak buying) and decelerating positive funding velocity (suggesting fading squeeze momentum) outweigh the general contrarian buy signal from the F&G index. The lack of strong buying conviction makes this a low-probability long, and no clear short signals are present."
+      }
+    ]
+  }
+}

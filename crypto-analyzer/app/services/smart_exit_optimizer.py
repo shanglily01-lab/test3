@@ -40,10 +40,10 @@ class SmartExitOptimizer:
             self.account_id = getattr(live_engine, 'account_id', 2)
 
         # 数据库连接池（增加池大小以支持多个并发监控任务）
-        # 每个监控任务每秒需要1个连接，预留20个连接支持20个并发持仓监控
+        # 每个监控任务每秒需要1个连接，预留32个连接支持32个并发持仓监控
         self.db_pool = pooling.MySQLConnectionPool(
             pool_name="exit_optimizer_pool",
-            pool_size=5,
+            pool_size=32,
             **db_config
         )
 
@@ -77,6 +77,9 @@ class SmartExitOptimizer:
         # 分阶段超时 - 亏损持续时间追踪（生物学负反馈：需持续亏损才平仓，非瞬时亏损）
         # key: "position_id:hour_checkpoint"，value: 首次触发该档位亏损的时间
         self._loss_onset_times: Dict[str, datetime] = {}
+
+        # 移动止盈追踪：记录每个持仓的历史峰值ROI
+        self.peak_roi: Dict[int, float] = {}
 
     def _get_pool_connection(self):
         """从连接池获取连接，并设置InnoDB锁等待超时"""
@@ -131,6 +134,10 @@ class SmartExitOptimizer:
             # 清理价格采样
             if position_id in self.price_samples:
                 del self.price_samples[position_id]
+
+            # 清理移动止盈峰值记录
+            if position_id in self.peak_roi:
+                del self.peak_roi[position_id]
 
             logger.info(f"⏹️ 停止监控持仓 {position_id}")
 
@@ -258,7 +265,8 @@ class SmartExitOptimizer:
                     close_extended, extended_close_time,
                     max_profit_pct, max_profit_price, max_profit_time,
                     stop_loss_price, take_profit_price, leverage,
-                    margin, entry_price, max_hold_minutes, timeout_at, created_at
+                    margin, entry_price, max_hold_minutes, timeout_at, created_at,
+                    source
                 FROM futures_positions
                 WHERE id = %s
             """, (position_id,))
@@ -451,6 +459,10 @@ class SmartExitOptimizer:
         # 计算当前回撤（从最高点）
         drawback = max_profit_pct - profit_pct
 
+        _source = position.get('source', '') or ''
+        _SCHEDULED_PREFIXES = ('discovery_trader', 'top50_trader', 'alien_trader', 'market_trader', 'dimension_trader')
+        _is_scheduled = any(_source.startswith(p) for p in _SCHEDULED_PREFIXES)
+
         # ========== 优先级最高：止损止盈检查（任何时候都检查） ==========
 
         # 检查止损价格
@@ -482,6 +494,28 @@ class SmartExitOptimizer:
                 # 空头：当前价格 <= 止盈价
                 if current_price <= take_profit_price:
                     return True, f"止盈(价格{current_price:.8f} <= 止盈价{take_profit_price:.8f}, 价格变化{profit_pct:.2f}%, ROI {roi_pct:.2f}%)"
+
+        # discovery_trader / top50_trader / dimension_trader: skip smart-exit logic, only SL/TP and max_hold
+        if _is_scheduled:
+            _open_ref = position.get('created_at') or position.get('open_time')
+            # 首选：planned_close_time / timeout_at（由开仓时策略 hold_h 换算的精确时间）
+            _deadline = position.get('planned_close_time') or position.get('timeout_at')
+            if _deadline:
+                if datetime.now() >= _deadline:
+                    hold_hours = (datetime.now() - _open_ref).total_seconds() / 3600 if _open_ref else 0
+                    return True, f"max_hold到期 (planned_close到期, 持仓{hold_hours:.1f}h)"
+                return False, ""
+            # 次选：max_hold_minutes 列（策略参数写入的分钟数）
+            max_hold_minutes = position.get('max_hold_minutes')
+            if max_hold_minutes and max_hold_minutes > 0 and _open_ref:
+                hold_minutes = (datetime.now() - _open_ref).total_seconds() / 60
+                if hold_minutes >= max_hold_minutes:
+                    hold_hours = hold_minutes / 60
+                    return True, f"max_hold到期 ({hold_hours:.1f}h, max={max_hold_minutes/60:.0f}h)"
+                return False, ""
+            # 两者都缺失：数据异常，不强制平仓
+            logger.warning(f"[MAX_HOLD] 仓位 {position.get('id')} source={_source} 缺少 planned_close_time 和 max_hold_minutes，跳过超时检查")
+            return False, ""
 
         # ========== 智能监控逻辑（开仓30分钟后启动，每秒实时检查）==========
         position_id = position['id']
@@ -522,12 +556,21 @@ class SmartExitOptimizer:
                         f"持仓{position_id} {position_side} 趋势不明朗({against_count}/16逆向)，继续等待"
                     )
 
-            # === 优先级3: 移动止盈（暂时关闭，0.5%阈值过于敏感被插针频繁触发）===
-            # 固定止损2% + 固定止盈6% 已足够兜底，暂不启用追踪回撤
-            # TRAILING_STOP_ROI_THRESHOLD = 10.0
-            # TRAILING_STOP_DRAWDOWN_PCT = 0.5
-            # if roi_pct >= TRAILING_STOP_ROI_THRESHOLD:
-            #     ...（已关闭）
+            # === 优先级3: 移动止盈止损 ===
+            # 激活: ROI >= 6% 后开始追踪；从峰值回撤 >= 2.5% ROI 则平仓
+            # （原0.5%阈值过紧，改为2.5%避免被插针误触发）
+            TRAILING_ACTIVATE_ROI = 6.0   # 盈利6% ROI后开启追踪
+            TRAILING_DRAWDOWN_PCT = 2.5   # 从峰值回撤2.5% ROI触发平仓
+
+            # 更新峰值ROI
+            if roi_pct > self.peak_roi.get(position_id, 0.0):
+                self.peak_roi[position_id] = roi_pct
+
+            peak = self.peak_roi.get(position_id, 0.0)
+            if peak >= TRAILING_ACTIVATE_ROI:
+                drawdown = peak - roi_pct
+                if drawdown >= TRAILING_DRAWDOWN_PCT:
+                    return True, f"移动止盈触发(峰值ROI{peak:.2f}%,当前ROI{roi_pct:.2f}%,回撤{drawdown:.2f}%)"
 
         # ========== 智能平仓逻辑（计划平仓前30分钟）==========
         planned_close_time = position['planned_close_time']
@@ -822,15 +865,21 @@ class SmartExitOptimizer:
 
             if close_result['success']:
                 # 计算已实现盈亏
+                # close_position_by_side already wrote the correct value to DB;
+                # we compute here only so _update_position_closed has a fallback
+                # (the SQL uses IF(... = 0, ...) so it won't overwrite a correct value).
                 try:
-                    ep = float(position.get('entry_price', 0))
-                    qty = float(position.get('position_size', 0))
+                    ep = float(position.get('entry_price') or position.get('avg_entry_price') or 0)
+                    qty = float(position.get('position_size') or 0)
                     cp = float(current_price)
+                    if ep <= 0 or qty <= 0:
+                        raise ValueError(f"invalid ep={ep} qty={qty}")
                     if position['direction'] == 'LONG':
                         realized_pnl = (cp - ep) * qty
                     else:
                         realized_pnl = (ep - cp) * qty
-                except Exception:
+                except Exception as pnl_err:
+                    logger.warning(f"本地PnL计算失败 (DB值将保留): {pnl_err}")
                     realized_pnl = 0.0
 
                 # 同步平掉关联的实盘仓位（调交易所真实下单）
@@ -1003,13 +1052,15 @@ class SmartExitOptimizer:
             cursor = conn.cursor()
 
             now = datetime.now()
+            # Use IF(...) to protect the realized_pnl already set by close_position_by_side.
+            # Only overwrite if the field is still NULL or exactly 0 (unset).
             cursor.execute("""
                 UPDATE futures_positions
                 SET
                     status = 'closed',
                     close_time = %s,
                     mark_price = %s,
-                    realized_pnl = %s,
+                    realized_pnl = IF(realized_pnl IS NULL OR realized_pnl = 0, %s, realized_pnl),
                     notes = CONCAT(IFNULL(notes, ''), '|close_reason:', %s)
                 WHERE id = %s
             """, (now, close_price, round(realized_pnl, 4), close_reason, position_id))
@@ -1491,6 +1542,18 @@ class SmartExitOptimizer:
             entry_price = float(position.get('entry_price', 0))
             entry_time = position.get('entry_signal_time') or position.get('open_time') or datetime.now()
             quantity = float(position.get('quantity', 0))
+
+            # discovery_trader / top50_trader / dimension_trader 仓位：跳过智能平仓逻辑，只检查 max_hold 超时
+            _source = position.get('source', '')
+            _SCHED = ('discovery_trader', 'top50_trader', 'alien_trader', 'market_trader', 'dimension_trader')
+            if any(_source.startswith(p) for p in _SCHED):
+                _created_at = position.get('created_at') or position.get('open_time')
+                if _created_at:
+                    _hold_min = (datetime.now() - _created_at).total_seconds() / 60
+                    _max_hold = position.get('max_hold_minutes') or 240
+                    if _hold_min >= _max_hold:
+                        return (f'max_hold到期({_hold_min/60:.1f}h)', 1.0)
+                return None
             margin = float(position.get('margin', 0))
             leverage = float(position.get('leverage', 1))
 
@@ -1586,7 +1649,7 @@ class SmartExitOptimizer:
             # ============================================================
             timeout_at = position.get('timeout_at')
             if timeout_at:
-                now_utc = datetime.utcnow()
+                now_utc = datetime.now()
                 if now_utc >= timeout_at:
                     max_hold_minutes = position.get('max_hold_minutes') or 240  # fallback 4小时
                     logger.warning(

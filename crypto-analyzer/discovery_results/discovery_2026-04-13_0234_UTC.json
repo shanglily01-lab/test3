@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-04-13 02:34 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 11239,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 71200.0,
+          "high": 71300.0
+        },
+        "stop_loss": 71800.0,
+        "target1": 70428.0,
+        "target2": 69722.29,
+        "win_rate_pct": 65,
+        "risk_reward": 1.49,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below EMA20 ($71,268.65) after retest of entry zone, or clear price rejection at EMA20",
+        "invalidation": "1h close above EMA50 ($71,700.94)",
+        "confluence_signals": [
+          "Extreme long crowd (contrarian bearish)",
+          "Price rising with LOW volume (weak buying)",
+          "Negative funding rate",
+          "Price below EMAs"
+        ],
+        "win_rate_basis": "Extreme long positioning (95th percentile) indicates high probability of a long squeeze. Weak buying volume on recent price rises confirms lack of demand. Negative funding adds to bearish sentiment. Combined, these signals provide a strong confluence for a bearish move, estimated at 65% win rate."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 2205.0,
+          "high": 2210.0
+        },
+        "stop_loss": 2220.0,
+        "target1": 2173.0,
+        "target2": 2138.51,
+        "win_rate_pct": 65,
+        "risk_reward": 2.61,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below EMA20 ($2,205.51) after retest of entry zone, or clear price rejection at EMA20/EMA50",
+        "invalidation": "1h close above EMA200 ($2,207.50)",
+        "confluence_signals": [
+          "Extreme long crowd (contrarian bearish)",
+          "Negative funding rate",
+          "Price below EMAs"
+        ],
+        "win_rate_basis": "Extreme long positioning (95th percentile) suggests a high probability of a long squeeze. Negative funding rate further supports bearish sentiment. Price currently below key EMAs indicates resistance overhead. Together, these signals point to a 65% win rate for a short trade."
+      },
+      {
+        "symbol": "BNB",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 595.0,
+          "high": 597.0
+        },
+        "stop_loss": 589.0,
+        "target1": 610.75,
+        "target2": 612.65,
+        "win_rate_pct": 65,
+        "risk_reward": 2.1,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $597.14 (immediate support) to confirm bounce, or hold of current entry zone",
+        "invalidation": "1h close below $589.00",
+        "confluence_signals": [
+          "EXTREME bearish funding (short squeeze fuel)",
+          "MACD 1h bullish EXPANDING",
+          "Price in lower 7d/30d range percentiles"
+        ],
+        "win_rate_basis": "Extreme bearish funding (0th percentile) is a strong contrarian bullish signal, indicating potential for a short squeeze. Bullish expanding MACD supports upward momentum. Price being in the lower percentiles of its recent ranges suggests it is relatively undervalued. These factors combine for an estimated 65% win rate."
+      },
+      {
+        "symbol": "SOL",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 82.5,
+          "high": 82.8
+        },
+        "stop_loss": 83.5,
+        "target1": 81.24,
+        "target2": 79.67,
+        "win_rate_pct": 58,
+        "risk_reward": 1.66,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below EMA20 ($82.29) after retest of entry zone, or clear price rejection at EMA20/EMA50",
+        "invalidation": "1h close above EMA200 ($83.07)",
+        "confluence_signals": [
+          "Extreme long crowd (contrarian bearish)",
+          "Price below EMAs"
+        ],
+        "win_rate_basis": "Extreme long positioning (91st percentile) suggests a high probability of a long squeeze. Price below key EMAs indicates resistance overhead. However, positive funding and weak selling volume introduce some conflicting bullish signals, reducing the win rate to an estimated 58%."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "BTC leads ETH and SOL by 1h, and BNB by 2h. High correlations exist across all. Extreme long positioning in BTC, ETH, and SOL suggests a coordinated flush of overleveraged longs is a significant risk.",
+    "highest_conviction_trade": "BTC"
+  }
+}

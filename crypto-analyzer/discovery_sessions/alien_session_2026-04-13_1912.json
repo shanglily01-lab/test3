@@ -1,0 +1,30 @@
+{
+  "session_id": "2026-04-13_1912",
+  "session_type": "alien",
+  "started_at": "2026-04-13T19:12:57.969527+00:00",
+  "deadline_utc": "2026-04-13T23:12:57.969527+00:00",
+  "max_hold_h": 4,
+  "status": "completed",
+  "total_pnl": -1.78,
+  "trades": [
+    {
+      "symbol": "SOL/USDT",
+      "direction": "LONG",
+      "entry_price": 83.1,
+      "quantity": 60.168471720818296,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 81.6725,
+      "take_profit": 85.4792,
+      "position_id": 23299,
+      "open_time": "2026-04-13T19:12:57.969527+00:00",
+      "phase": "DISSIPATIVE",
+      "g4": 0.01167,
+      "g1": -0.00566,
+      "amp": 0.01145,
+      "final_pnl": -1.78
+    }
+  ],
+  "session_file": "D:\\test3\\crypto-analyzer\\discovery_sessions\\alien_session_2026-04-13_1912.json",
+  "completed_at": "2026-04-13T19:18:11.396413+00:00"
+}

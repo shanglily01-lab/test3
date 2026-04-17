@@ -1,0 +1,110 @@
+{
+  "timestamp": "2026-04-14 02:00 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17540,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "CKB/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Missing precise key price levels (resistance/support/EMAs) makes it impossible to define actionable entry, stop, and targets.",
+        "confluence_signals": [],
+        "win_rate_basis": "N/A"
+      },
+      {
+        "symbol": "COMP/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 20.4,
+          "high": 20.6
+        },
+        "stop_loss": 19.8,
+        "target1": 21.05,
+        "target2": 21.6,
+        "win_rate_pct": 70,
+        "risk_reward": 1.57,
+        "confidence": 8,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "1h close above $20.70 after a pullback to the entry zone, or sustained price action above EMA20 ($20.65).",
+        "invalidation": "1h close below $19.93 (strong support).",
+        "confluence_signals": [
+          "Extreme short crowd (L/S ratio <10th percentile)",
+          "Accelerating positive Funding Velocity (short squeeze building)",
+          "Price falling with LOW volume (weak selling divergence)",
+          "Bullish EMA alignment (price above 3/3 EMAs)",
+          "1D channel up"
+        ],
+        "win_rate_basis": "Strong alignment of 5 bullish signals: Extreme short positioning (contrarian), funding velocity indicating short squeeze, bullish price-volume divergence, and clear bullish momentum structure (EMA alignment, 1D channel). This combination suggests a high probability of an upward move or squeeze."
+      },
+      {
+        "symbol": "COS/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Missing precise key price levels (resistance/support/EMAs) makes it impossible to define actionable entry, stop, and targets.",
+        "confluence_signals": [],
+        "win_rate_basis": "N/A"
+      },
+      {
+        "symbol": "COW/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Conflicting signals: While the L/S ratio is extremely short (contrarian bullish) and OI confirms trend continuation, the 1h RSI is overbought, price-volume divergence indicates weak buying, and perp premium is very low (bearish). Price is also at resistance, making the immediate direction unclear.",
+        "confluence_signals": [],
+        "win_rate_basis": "N/A"
+      },
+      {
+        "symbol": "CRV/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Strongly conflicting sentiment signals: Retail L/S ratio and OI suggest a contrarian bullish squeeze, but Hyperliquid Smart Money shows significant net outflow with an extremely low L/S ratio (bearish). This fundamental disagreement between market participants creates high uncertainty.",
+        "confluence_signals": [],
+        "win_rate_basis": "N/A"
+      }
+    ]
+  }
+}

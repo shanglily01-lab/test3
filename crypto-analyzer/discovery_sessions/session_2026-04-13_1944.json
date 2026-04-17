@@ -1,0 +1,72 @@
+{
+  "session_id": "2026-04-13_1944",
+  "started_at": "2026-04-13T19:44:49.638415+00:00",
+  "deadline_utc": "2026-04-13T23:44:49.638415+00:00",
+  "max_hold_h": 4,
+  "status": "completed",
+  "total_pnl": 151.83,
+  "trades": [
+    {
+      "symbol": "BTC/USDT",
+      "direction": "LONG",
+      "entry_price": 73073.5,
+      "quantity": 0.06842425776786386,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 70400.0,
+      "take_profit": 73128.0,
+      "position_id": 23300,
+      "open_time": "2026-04-13T19:44:49.638415+00:00",
+      "win_rate_pct": 65,
+      "confidence": 7,
+      "final_pnl": 4.56
+    },
+    {
+      "symbol": "ETH/USDT",
+      "direction": "LONG",
+      "entry_price": 2255.73,
+      "quantity": 2.216577338599921,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 2170.0,
+      "take_profit": 2257.55,
+      "position_id": 23301,
+      "open_time": "2026-04-13T19:44:49.638415+00:00",
+      "win_rate_pct": 60,
+      "confidence": 6,
+      "final_pnl": 7.76
+    },
+    {
+      "symbol": "BNB/USDT",
+      "direction": "LONG",
+      "entry_price": 607.56,
+      "quantity": 8.229639870959248,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 590.0,
+      "take_profit": 610.75,
+      "position_id": 23302,
+      "open_time": "2026-04-13T19:44:49.638415+00:00",
+      "win_rate_pct": 70,
+      "confidence": 8,
+      "final_pnl": 27.32
+    },
+    {
+      "symbol": "SOL/USDT",
+      "direction": "LONG",
+      "entry_price": 83.79,
+      "quantity": 59.67299200381907,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 81.0,
+      "take_profit": 85.66,
+      "position_id": 23303,
+      "open_time": "2026-04-13T19:44:49.638415+00:00",
+      "win_rate_pct": 58,
+      "confidence": 6,
+      "final_pnl": 112.19
+    }
+  ],
+  "session_file": "D:\\test3\\crypto-analyzer\\discovery_sessions\\session_2026-04-13_1944.json",
+  "completed_at": "2026-04-13T22:20:19.586794+00:00"
+}

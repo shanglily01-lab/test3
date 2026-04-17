@@ -339,7 +339,7 @@ class HyperliquidCollector:
             fills = await self.fetch_user_fills(address, limit=100)
 
             # 3. 过滤时间范围
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = datetime.now() - timedelta(hours=hours)
             recent_trades = []
 
             for fill in fills:
@@ -405,7 +405,7 @@ class HyperliquidCollector:
             # 6. 构建返回数据
             result = {
                 'address': address,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(),
                 'hours': hours,
                 'positions': positions,
                 'recent_trades': recent_trades,
@@ -430,7 +430,7 @@ class HyperliquidCollector:
             logger.error(f"监控地址失败: {e}")
             return {
                 'address': address,
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(),
                 'error': str(e),
                 'positions': [],
                 'recent_trades': [],
@@ -624,7 +624,7 @@ class HyperliquidCollector:
                 'trade_count': len(coin_trades),
                 'total_pnl': total_pnl,
                 'current_position': current_position,
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now()
             }
 
             logger.info(f"生成信号: {coin} - {signal_type} ({signal_strength}), 净流入: ${net_flow:,.2f}, PnL: ${total_pnl:,.2f}")
@@ -682,7 +682,7 @@ class HyperliquidCollector:
                         'roi': roi_decimal * 100,  # 转换为百分比
                         'volume': vlm,
                         'period': period,
-                        'discovered_at': datetime.utcnow()
+                        'discovered_at': datetime.now()
                     }
 
                     smart_traders.append(trader)
@@ -727,7 +727,7 @@ class HyperliquidCollector:
 
             # 3. 批量抓取这些地址的成交记录
             all_trades = []
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = datetime.now() - timedelta(hours=hours)
 
             total_fills = 0
             total_analyzed = 0

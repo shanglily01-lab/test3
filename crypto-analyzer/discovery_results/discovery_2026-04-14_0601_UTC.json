@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-04-14 06:01 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12902,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "FLOW/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.039,
+          "high": 0.04
+        },
+        "stop_loss": 0.042,
+        "target1": 0.035,
+        "target2": 0.031,
+        "win_rate_pct": 68,
+        "risk_reward": 2.67,
+        "confidence": 7,
+        "time_window": "enter within 4-8h if resistance tested, hold 12-24h",
+        "entry_trigger": "Price enters $0.039-$0.040 zone and shows rejection (e.g., 1h candle close below $0.04 after testing it, or bearish divergence on lower timeframes)",
+        "invalidation": "Price closes 1h above $0.041, or current price drops significantly below $0.039 before entry",
+        "confluence_signals": [
+          "Extreme long crowd in L/S ratio (97th percentile)",
+          "Price rising with LOW volume (weak buying)",
+          "Approaching $0.04 resistance level",
+          "MACD_1h bearish and EXPANDING"
+        ],
+        "win_rate_basis": "Four aligned bearish signals (extreme L/S ratio, weak volume, resistance, MACD divergence) contribute to a 68% win rate. The extreme long positioning is a strong contrarian indicator, reinforced by price-volume divergence at key resistance."
+      },
+      {
+        "symbol": "FOGO/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.0195,
+          "high": 0.0205
+        },
+        "stop_loss": 0.0215,
+        "target1": 0.0185,
+        "target2": 0.0165,
+        "win_rate_pct": 65,
+        "risk_reward": 2.33,
+        "confidence": 6,
+        "time_window": "enter within 4-8h if resistance tested, hold 12-24h",
+        "entry_trigger": "Price approaches or tests $0.02 resistance level and shows rejection (e.g., bearish candlestick pattern at $0.02)",
+        "invalidation": "Price closes 1h above $0.021, or current price drops significantly below $0.0195 before entry",
+        "confluence_signals": [
+          "Extreme long crowd in L/S ratio (93rd percentile)",
+          "Price rising with LOW volume (weak buying)",
+          "OI falling with price rising (short covering exhaustion)",
+          "Approaching $0.02 which acts as resistance/EMA confluence"
+        ],
+        "win_rate_basis": "Three strong bearish signals (extreme L/S ratio, weak volume, short covering exhaustion) are present, with price approaching a key resistance level. This combination suggests a high probability of a pullback, estimating a 65% win rate. Smart money signals are mixed but with zero win rate and outflow."
+      },
+      {
+        "symbol": "G/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (resistance, support, EMAs, 24h/7d range) are all listed as $0.00, making it impossible to define actionable entry, stop loss, and profit targets. Therefore, this symbol is skipped."
+      },
+      {
+        "symbol": "GALA/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (resistance, support, EMAs, 24h/7d range) are all listed as $0.00, making it impossible to define actionable entry, stop loss, and profit targets. Additionally, there is a critical contradiction in the reported funding rate (0.0100% vs -0.03577% in different sections). Therefore, this symbol is skipped."
+      }
+    ],
+    "market_regime": "ranging_up_with_fear",
+    "cross_asset_insight": "Market-wide extreme fear (F&G Index=12) suggests potential for contrarian bounces, but individual assets show low volume rallies and extreme long positioning, indicating local exhaustion and potential for pullbacks.",
+    "highest_conviction_trade": "FLOW/USDT"
+  }
+}

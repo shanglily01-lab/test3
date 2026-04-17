@@ -733,7 +733,7 @@ class LiveOrderMonitor:
 📊 数量: {quantity}
 💡 原因: {reason}
 
-⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
+⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
             notifier._send_telegram(message)
@@ -762,7 +762,7 @@ class LiveOrderMonitor:
 📊 价格偏离: {deviation_pct:.2f}% (> 0.5%)
 💡 原因: 价格偏离过大，避免追高/杀低
 
-⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
+⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
             notifier._send_telegram(message)

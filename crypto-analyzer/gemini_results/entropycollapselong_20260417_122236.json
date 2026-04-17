@@ -1,0 +1,186 @@
+{
+  "theme": "EntropyCollapseLong",
+  "slug": "entropycollapselong",
+  "desc": "做多信号：捕捉下跌末端的'方向共识形成'瞬间。核心逻辑：在一段混乱震荡下跌后，市场突然出现方向性一致（方向熵快速下降），同时位置在历史低位，买盘开始净流入，是空头回补+多头抄底的共振点。原语组合：(1) _entropy_velocity 显著为负（近期 n 根的方向熵比 lag 根前更低，方向共识形成）；(2) _price_memory < 0.3（当前价在近期低位区）；(3) _order_flow_delta > 0 或 flux 快速回升；(4) 4h gradient 不能是强多（避免尾随追高）也不能是极强空（避免抄底抄半山腰）。加分：_close_consistency 开始从下半区往上半区迁移。目的：在下跌趋势的'尾部衰竭+反弹启动'的过渡瞬间精确捕捉，比超卖反弹更晚但更确定。与已有策略差异：用方向熵作为'混乱变有序'的独特度量，不是简单的均线或振幅过滤。",
+  "model": "gemini-3-flash-preview",
+  "n_requested": 8,
+  "timestamp": "2026-04-17T12:22:36",
+  "candidates": [
+    {
+      "name": "ECL_L_v1_Core",
+      "direction": "LONG",
+      "hypothesis": "核心逻辑：在4h级别非极弱的前提下，1h级别处于价格低位区间，方向熵快速下降意味着混乱的震荡下跌正在转为有序的反弹，配合净买入流确认入场。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    g4h = gradient(cs4h, 8)\n    if not (-0.6 < g4h < 0.1): return None\n    ev = _entropy_velocity(cs1h, 10, 5)\n    pm = _price_memory(cs1h, 20)\n    ofd = _order_flow_delta(cs1h, 3)\n    if ev < -0.05 and pm < 0.25 and ofd > 0.02:\n        return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v1_Core",
+        "direction": "LONG",
+        "hypothesis": "核心逻辑：在4h级别非极弱的前提下，1h级别处于价格低位区间，方向熵快速下降意味着混乱的震荡下跌正在转为有序的反弹，配合净买入流确认入场。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    g4h = gradient(cs4h, 8)\n    if not (-0.6 < g4h < 0.1): return None\n    ev = _entropy_velocity(cs1h, 10, 5)\n    pm = _price_memory(cs1h, 20)\n    ofd = _order_flow_delta(cs1h, 3)\n    if ev < -0.05 and pm < 0.25 and ofd > 0.02:\n        return 'LONG'\n    return None",
+        "s1": {
+          "n": 239,
+          "wr": 0.4895,
+          "ev": -0.077
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_L_v2_Energy",
+      "direction": "LONG",
+      "hypothesis": "在方向熵坍缩的同时，要求成交量能量密度显著增加，确保方向共识是由真实资金流入推动，而非缩量虚假反弹。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 24 or len(cs4h) < 8: return None\n    g4h = gradient(cs4h, 6)\n    if g4h < -0.5 or g4h > 0.2: return None\n    ev = _entropy_velocity(cs1h, 12, 6)\n    ved = vol_energy_density(cs1h, 3, 12)\n    pm = _price_memory(cs1h, 14)\n    if ev < -0.03 and ved > 1.2 and pm < 0.3:\n        if flux(cs1h, 3) > 0.55:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v2_Energy",
+        "direction": "LONG",
+        "hypothesis": "在方向熵坍缩的同时，要求成交量能量密度显著增加，确保方向共识是由真实资金流入推动，而非缩量虚假反弹。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 24 or len(cs4h) < 8: return None\n    g4h = gradient(cs4h, 6)\n    if g4h < -0.5 or g4h > 0.2: return None\n    ev = _entropy_velocity(cs1h, 12, 6)\n    ved = vol_energy_density(cs1h, 3, 12)\n    pm = _price_memory(cs1h, 14)\n    if ev < -0.03 and ved > 1.2 and pm < 0.3:\n        if flux(cs1h, 3) > 0.55:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 3,
+          "wr": 0.3333,
+          "ev": -0.437
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_L_v3_FluxMom",
+      "direction": "LONG",
+      "hypothesis": "利用买压动量加速作为共识形成的先行指标。当熵减速且短期买压远超长期买压时，确认为空头衰竭后的快速反扑。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    if gradient(cs4h, 8) < -0.4: return None\n    ev = _entropy_velocity(cs1h, 8, 4)\n    fm = _flux_momentum(cs1h, 3, 10)\n    cc = _close_consistency(cs1h, 10)\n    if ev < -0.06 and fm > 0.15 and cc < 0.4:\n        return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v3_FluxMom",
+        "direction": "LONG",
+        "hypothesis": "利用买压动量加速作为共识形成的先行指标。当熵减速且短期买压远超长期买压时，确认为空头衰竭后的快速反扑。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    if gradient(cs4h, 8) < -0.4: return None\n    ev = _entropy_velocity(cs1h, 8, 4)\n    fm = _flux_momentum(cs1h, 3, 10)\n    cc = _close_consistency(cs1h, 10)\n    if ev < -0.06 and fm > 0.15 and cc < 0.4:\n        return 'LONG'\n    return None",
+        "s1": {
+          "n": 0,
+          "wr": 0.0,
+          "ev": 0.0
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_L_v4_ConsistencyShift",
+      "direction": "LONG",
+      "hypothesis": "捕捉收盘价一致性从极低（下半区占比低）开始回升的瞬间，配合方向熵下降，识别出‘从乱序下跌到有序回升’的拐点。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    if gradient(cs4h, 6) > 0.2: return None\n    ev = _entropy_velocity(cs1h, 14, 7)\n    cc = _close_consistency(cs1h, 12)\n    pm = _price_memory(cs1h, 24)\n    if ev < -0.04 and 0.1 < cc < 0.45 and pm < 0.35:\n        if _order_flow_delta(cs1h, 5) > 0:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v4_ConsistencyShift",
+        "direction": "LONG",
+        "hypothesis": "捕捉收盘价一致性从极低（下半区占比低）开始回升的瞬间，配合方向熵下降，识别出‘从乱序下跌到有序回升’的拐点。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    if gradient(cs4h, 6) > 0.2: return None\n    ev = _entropy_velocity(cs1h, 14, 7)\n    cc = _close_consistency(cs1h, 12)\n    pm = _price_memory(cs1h, 24)\n    if ev < -0.04 and 0.1 < cc < 0.45 and pm < 0.35:\n        if _order_flow_delta(cs1h, 5) > 0:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 260,
+          "wr": 0.5038,
+          "ev": -0.0834
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_L_v5_TakerPersistence",
+      "direction": "LONG",
+      "hypothesis": "在价格低位且熵坍缩时，寻找主动买盘的持续性。taker_sustain 确保了共识形成后有持续的买入力量支撑。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    if gradient(cs4h, 8) < -0.5: return None\n    ev = _entropy_velocity(cs1h, 10, 5)\n    ts = taker_sustain(cs1h, 5, 0.48)\n    pm = _price_memory(cs1h, 15)\n    if ev < -0.05 and ts > 0.6 and pm < 0.2:\n        return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v5_TakerPersistence",
+        "direction": "LONG",
+        "hypothesis": "在价格低位且熵坍缩时，寻找主动买盘的持续性。taker_sustain 确保了共识形成后有持续的买入力量支撑。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    if gradient(cs4h, 8) < -0.5: return None\n    ev = _entropy_velocity(cs1h, 10, 5)\n    ts = taker_sustain(cs1h, 5, 0.48)\n    pm = _price_memory(cs1h, 15)\n    if ev < -0.05 and ts > 0.6 and pm < 0.2:\n        return 'LONG'\n    return None",
+        "s1": {
+          "n": 470,
+          "wr": 0.5511,
+          "ev": 0.1389
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_L_v6_ContractBounce",
+      "direction": "LONG",
+      "hypothesis": "结合形态上的振幅递减（seq_contract）与方向熵坍缩。在波动率挤压后的第一个有序向上脉冲是高胜率入场点。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    sc = seq_contract(cs1h, 5)\n    ev = _entropy_velocity(cs1h, 8, 4)\n    pm = _price_memory(cs1h, 20)\n    if sc >= 3 and ev < -0.07 and pm < 0.4:\n        if gradient(cs1h, 3) > 0:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v6_ContractBounce",
+        "direction": "LONG",
+        "hypothesis": "结合形态上的振幅递减（seq_contract）与方向熵坍缩。在波动率挤压后的第一个有序向上脉冲是高胜率入场点。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    sc = seq_contract(cs1h, 5)\n    ev = _entropy_velocity(cs1h, 8, 4)\n    pm = _price_memory(cs1h, 20)\n    if sc >= 3 and ev < -0.07 and pm < 0.4:\n        if gradient(cs1h, 3) > 0:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 68,
+          "wr": 0.4706,
+          "ev": 0.048
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_S_v7_EntropyExhaustion",
+      "direction": "SHORT",
+      "hypothesis": "反向应用：在一段疯狂上涨后，方向熵突然坍缩（高位共识达成），配合卖压加速度回升，捕捉多头衰竭后的均值回归。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    g4h = gradient(cs4h, 8)\n    if g4h < 0.2: return None\n    ev = _entropy_velocity(cs1h, 10, 5)\n    pm = _price_memory(cs1h, 20)\n    sv = _saturation_velocity(cs1h, 5, 3)\n    if ev < -0.05 and pm > 0.75 and sv > 0.05:\n        return 'SHORT'\n    return None",
+      "stage_stats": {
+        "name": "ECL_S_v7_EntropyExhaustion",
+        "direction": "SHORT",
+        "hypothesis": "反向应用：在一段疯狂上涨后，方向熵突然坍缩（高位共识达成），配合卖压加速度回升，捕捉多头衰竭后的均值回归。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    g4h = gradient(cs4h, 8)\n    if g4h < 0.2: return None\n    ev = _entropy_velocity(cs1h, 10, 5)\n    pm = _price_memory(cs1h, 20)\n    sv = _saturation_velocity(cs1h, 5, 3)\n    if ev < -0.05 and pm > 0.75 and sv > 0.05:\n        return 'SHORT'\n    return None",
+        "s1": {
+          "n": 0,
+          "wr": 0.0,
+          "ev": 0.0
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    },
+    {
+      "name": "ECL_L_v8_SpatialVelocity",
+      "direction": "LONG",
+      "hypothesis": "利用振幅归一化动量确认反弹强度，在熵坍缩表明方向明确后，选择动量输出最平稳（price_velocity适中）的时刻入场。",
+      "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    ev = _entropy_velocity(cs1h, 12, 6)\n    pv = _price_velocity(cs1h, 5, 10)\n    sc = _spatial_close(cs1h, 15)\n    if ev < -0.04 and 0.1 < pv < 0.5 and sc < 0.4:\n        if flux(cs1h, 5) > 0.52:\n            return 'LONG'\n    return None",
+      "stage_stats": {
+        "name": "ECL_L_v8_SpatialVelocity",
+        "direction": "LONG",
+        "hypothesis": "利用振幅归一化动量确认反弹强度，在熵坍缩表明方向明确后，选择动量输出最平稳（price_velocity适中）的时刻入场。",
+        "code": "def sig(cs1h, cs4h):\n    if len(cs1h) < 20 or len(cs4h) < 8: return None\n    ev = _entropy_velocity(cs1h, 12, 6)\n    pv = _price_velocity(cs1h, 5, 10)\n    sc = _spatial_close(cs1h, 15)\n    if ev < -0.04 and 0.1 < pv < 0.5 and sc < 0.4:\n        if flux(cs1h, 5) > 0.52:\n            return 'LONG'\n    return None",
+        "s1": {
+          "n": 4,
+          "wr": 0.5,
+          "ev": -0.5369
+        },
+        "s2": null,
+        "s3": null,
+        "s4": null,
+        "passed_stage": 0,
+        "passed": false
+      }
+    }
+  ]
+}

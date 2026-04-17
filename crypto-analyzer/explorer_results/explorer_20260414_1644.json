@@ -1,0 +1,235 @@
+[
+  {
+    "round": 2,
+    "name": "FluxInertiaTrap",
+    "mode": "mtf_btc",
+    "hypothesis": "山寨币在BTC走弱时强行拉升，但其买压(flux)已在二阶导数上出现衰减（3段连续下降），这种价格惯性上涨往往是由于空头平仓而非多头入场，极易被反杀。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 10:\n        return None\n    \n    # BTC 4h 走势疲软\n    btc_weak = gradient(cs4h, 4) < -0.002\n    \n    # 山寨币价格还在上涨，但买压flux三段式衰减\n    f2, f4, f6 = flux(cs1h, 2), flux(cs1h, 4), flux(cs1h, 6)\n    flux_exhaustion = f2 < f4 < f6\n    \n    # 价格梯度仍然为正（惯性）\n    price_inertia = gradient(cs1h, 2) > 0 and gradient(cs1h, 5) > 0\n    \n    if btc_weak and flux_exhaustion and price_inertia:\n        if f2 < 0.49: # 核心买压已转入中性偏弱区\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 17,
+      "wr": 0.5882352941176471,
+      "ev": 0.12719125660310746
+    },
+    "stage2": {
+      "n": 49,
+      "wr": 0.6326530612244898,
+      "ev": 0.5100168008266326
+    },
+    "stage3": {
+      "n": 468,
+      "wr": 0.6346153846153846,
+      "ev": 0.30101940133460425
+    },
+    "stage4_test": {
+      "n": 258,
+      "wr": 0.49612403100775193,
+      "ev": -0.0699574274669264,
+      "verdict": "FAIL"
+    },
+    "top_symbols_train": [
+      [
+        "AAVE/USDT",
+        1.0,
+        4
+      ],
+      [
+        "1000SHIB/USDT",
+        1.0,
+        7
+      ],
+      [
+        "1000BONK/USDT",
+        1.0,
+        4
+      ],
+      [
+        "VIRTUAL/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ALGO/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ICP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "BOME/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ETHFI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ARKM/USDT",
+        1.0,
+        5
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AXL/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ENA/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "TRB/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "SAND/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "UNI/USDT",
+        0.8,
+        5
+      ],
+      [
+        "SEI/USDT",
+        0.8,
+        5
+      ],
+      [
+        "THETA/USDT",
+        0.8,
+        5
+      ],
+      [
+        "TRU/USDT",
+        0.7778,
+        9
+      ],
+      [
+        "HYPE/USDT",
+        0.75,
+        4
+      ],
+      [
+        "LTC/USDT",
+        0.75,
+        4
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "NEAR/USDT",
+        0.8,
+        5
+      ],
+      [
+        "LINK/USDT",
+        0.75,
+        8
+      ],
+      [
+        "ORDI/USDT",
+        0.75,
+        4
+      ],
+      [
+        "JTO/USDT",
+        0.7143,
+        7
+      ],
+      [
+        "XVG/USDT",
+        0.7143,
+        7
+      ],
+      [
+        "TON/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "ARB/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "XMR/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "STRK/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "FLOW/USDT",
+        0.6667,
+        6
+      ],
+      [
+        "TRB/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "APT/USDT",
+        0.5,
+        4
+      ],
+      [
+        "VIRTUAL/USDT",
+        0.5,
+        4
+      ],
+      [
+        "XLM/USDT",
+        0.5,
+        4
+      ],
+      [
+        "ONT/USDT",
+        0.5,
+        4
+      ],
+      [
+        "ICP/USDT",
+        0.5,
+        4
+      ],
+      [
+        "ZRO/USDT",
+        0.5,
+        6
+      ],
+      [
+        "SEI/USDT",
+        0.5,
+        4
+      ],
+      [
+        "EDU/USDT",
+        0.5,
+        4
+      ],
+      [
+        "1000SATS/USDT",
+        0.5,
+        4
+      ]
+    ],
+    "ts": "2026-04-14T16:42:54.008296"
+  }
+]

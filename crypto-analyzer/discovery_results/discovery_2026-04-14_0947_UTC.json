@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-04-14 09:47 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 12743,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ORDI/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 2.58,
+          "high": 2.64
+        },
+        "stop_loss": 2.72,
+        "target1": 2.45,
+        "target2": 2.27,
+        "win_rate_pct": 58,
+        "risk_reward": 2.5,
+        "confidence": 6,
+        "time_window": "Enter within 8h, hold 12-24h",
+        "entry_trigger": "1h bearish engulfing candle near $2.58 resistance",
+        "invalidation": "1h candle close above $2.65 with high volume",
+        "confluence_signals": [
+          "Price-volume divergence (rising price on low volume)",
+          "Negative funding velocity acceleration",
+          "Resistance proximity at $2.64",
+          "MACD 1h bearish expansion"
+        ],
+        "win_rate_basis": "Combination of price-volume divergence and bearish MACD structure suggests exhaustion, but strong 24h returns limit the win rate to 58% due to momentum inertia."
+      },
+      {
+        "symbol": "TRU/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.0067,
+          "high": 0.007
+        },
+        "stop_loss": 0.0064,
+        "target1": 0.0082,
+        "target2": 0.01,
+        "win_rate_pct": 75,
+        "risk_reward": 3.8,
+        "confidence": 9,
+        "time_window": "Enter immediately, hold 24-48h",
+        "entry_trigger": "RSI 1h recovery above 30",
+        "invalidation": "New 24h low below $0.0063",
+        "confluence_signals": [
+          "RSI 1h oversold (<30)",
+          "Open Interest capitulation (-15.89% in 24h)",
+          "Extreme Fear (12) sentiment backdrop",
+          "L/S ratio at 0th percentile (extreme short crowd)"
+        ],
+        "win_rate_basis": "High win rate (75%) derived from the confluence of extreme oversold conditions, massive deleveraging (OI drop), and contrarian signals from the 0th percentile L/S ratio."
+      },
+      {
+        "symbol": "XMR/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 344.0,
+          "high": 346.5
+        },
+        "stop_loss": 339.0,
+        "target1": 358.0,
+        "target2": 365.0,
+        "win_rate_pct": 68,
+        "risk_reward": 2.4,
+        "confidence": 7,
+        "time_window": "Enter on dip to EMA20, hold 24h",
+        "entry_trigger": "Touch of EMA20 ($346.5) with bullish RSI bounce",
+        "invalidation": "4h candle close below EMA200 ($341.5)",
+        "confluence_signals": [
+          "Bullish EMA alignment (3/3)",
+          "Healthy OI buildup (+7.33% in 24h)",
+          "Funding rate at 0th percentile (squeeze potential)",
+          "Strong 7d relative strength (86th percentile)"
+        ],
+        "win_rate_basis": "Trend continuation supported by rising OI and extreme bearish positioning (funding) creates a high probability of a short squeeze toward $360."
+      },
+      {
+        "symbol": "CAKE/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 1.58,
+          "high": 1.6
+        },
+        "stop_loss": 1.64,
+        "target1": 1.51,
+        "target2": 1.46,
+        "win_rate_pct": 55,
+        "risk_reward": 2.0,
+        "confidence": 5,
+        "time_window": "Enter within 4h, hold 12h",
+        "entry_trigger": "Failure to break $1.60 on 1h chart",
+        "invalidation": "1h candle close above $1.62",
+        "confluence_signals": [
+          "RSI 4h overbought (79.85)",
+          "1h MACD bearish expansion",
+          "Price-vol divergence (falling price on low volume)",
+          "Resistance at $1.60"
+        ],
+        "win_rate_basis": "Overbought 4h RSI suggests a near-term top, but positive 24h OI and trend alignment keep the conviction moderate."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Extreme Fear (12) combined with TRU's capitulation and XMR's squeeze potential suggests a market-wide liquidity flush is nearing completion. High correlation (0.54) between ORDI and CAKE indicates a beta-driven move; focus on assets with idiosyncratic positioning extremes (TRU/XMR) for higher alpha.",
+    "highest_conviction_trade": "TRU/USDT"
+  }
+}

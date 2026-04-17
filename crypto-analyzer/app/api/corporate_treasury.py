@@ -191,7 +191,7 @@ async def get_corporate_treasury_summary():
                 },
                 "top_holders": top_holders
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
     except Exception as e:
@@ -300,7 +300,7 @@ async def get_companies_list(
             "success": True,
             "data": companies,
             "count": len(companies),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
     except Exception as e:
@@ -420,7 +420,7 @@ async def get_company_history(
                 "financing": financing,
                 "stock_prices": stock_prices
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
     except HTTPException:
@@ -482,7 +482,7 @@ async def get_recent_activities(
             "success": True,
             "data": activities,
             "count": len(activities),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
     except Exception as e:

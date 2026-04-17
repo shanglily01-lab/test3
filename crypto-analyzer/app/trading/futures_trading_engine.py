@@ -523,8 +523,17 @@ class FuturesTradingEngine:
                     'message': f"无法获取{symbol}的价格，请检查数据源或稍后重试。错误: {str(price_error)}"
                 }
 
+            # 1.45. 模拟滑点（0.08% per side）—— 使仿真更接近真实执行
+            # 做多入场：买入时价格略高（市场冲击）
+            # 做空入场：卖出时价格略低（市场冲击）
+            SLIPPAGE_PCT = Decimal('0.0008')
+            if position_side == 'LONG':
+                current_price = current_price * (1 + SLIPPAGE_PCT)
+            else:
+                current_price = current_price * (1 - SLIPPAGE_PCT)
+
             # 1.5. 检查限价单逻辑
-            logger.info(f"[开仓] {symbol} {position_side} 收到 limit_price={limit_price}, current_price={current_price}")
+            logger.info(f"[开仓] {symbol} {position_side} 收到 limit_price={limit_price}, current_price={current_price}(含滑点)")
             # 如果设置了限价，检查是否需要创建未成交订单
             if limit_price and limit_price > 0:
                 should_create_pending_order = False
@@ -638,7 +647,7 @@ class FuturesTradingEngine:
                         float(limit_fee), float(Decimal('0.0004')),
                         float(limit_stop_loss_price) if limit_stop_loss_price else None,
                         float(limit_take_profit_price) if limit_take_profit_price else None,
-                        source, entry_signal_type, signal_id, strategy_id, datetime.utcnow()
+                        source, entry_signal_type, signal_id, strategy_id, datetime.now()
                     ))
                     
                     # 更新总权益（限价单时还没有持仓，未实现盈亏为0）
@@ -822,7 +831,7 @@ class FuturesTradingEngine:
                 float(stop_loss_pct) if stop_loss_pct else None,
                 float(take_profit_pct) if take_profit_pct else None,
                 entry_ema_diff, entry_signal_type, entry_score, entry_reason,
-                datetime.utcnow(), source, signal_id, strategy_id
+                datetime.now(), source, signal_id, strategy_id
             ))
 
             position_id = cursor.lastrowid
@@ -860,7 +869,7 @@ class FuturesTradingEngine:
                 float(entry_price), float(quantity), float(quantity),
                 float(margin_required), float(notional_value), float(notional_value),
                 float(fee), float(fee_rate),
-                float(entry_price), datetime.utcnow(),
+                float(entry_price), datetime.now(),
                 source, signal_id, strategy_id
             ))
 
@@ -885,7 +894,7 @@ class FuturesTradingEngine:
                 account_id, order_id, position_id, trade_id,
                 symbol, side, float(entry_price), float(quantity), float(notional_value),
                 leverage, float(margin_required), float(fee), float(fee_rate),
-                float(entry_price), datetime.utcnow()
+                float(entry_price), datetime.now()
             ))
 
             # 9. 更新账户余额
@@ -918,7 +927,7 @@ class FuturesTradingEngine:
             self.connection.commit()
 
             # 记录当前时间（本地时间）
-            current_time_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             # 根据交易对确定数量显示精度
             qty_precision = get_quantity_precision(symbol)
             logger.info(
@@ -1060,6 +1069,15 @@ class FuturesTradingEngine:
                 if not current_price or current_price <= 0:
                     raise ValueError(f"无法获取{symbol}的有效价格")
 
+            # 模拟平仓滑点（0.08%）—— 平仓时同样有市场冲击
+            # 做多平仓：卖出时价格略低
+            # 做空平仓：买入时价格略高
+            SLIPPAGE_PCT = Decimal('0.0008')
+            if position_side == 'LONG':
+                current_price = current_price * (1 - SLIPPAGE_PCT)
+            else:
+                current_price = current_price * (1 + SLIPPAGE_PCT)
+
             # 3. 计算盈亏
             close_value = current_price * close_quantity
             open_value = entry_price * close_quantity
@@ -1150,7 +1168,7 @@ class FuturesTradingEngine:
                 float(current_price), float(close_quantity), float(close_quantity),
                 float(close_value), float(close_value),
                 float(fee), float(fee_rate),
-                float(current_price), datetime.utcnow(),
+                float(current_price), datetime.now(),
                 float(realized_pnl), float(pnl_pct),
                 'strategy', reason
             ))
@@ -1179,7 +1197,7 @@ class FuturesTradingEngine:
                 symbol, side, float(current_price), float(close_quantity), float(close_value),
                 leverage, float(position_margin), float(fee), float(fee_rate),
                 float(realized_pnl), float(pnl_pct), float(roi),
-                float(entry_price), float(current_price), datetime.utcnow()
+                float(entry_price), float(current_price), datetime.now()
             ))
 
             # 7. 更新持仓状态
@@ -1204,7 +1222,7 @@ class FuturesTradingEngine:
                 SET status = 'closed', close_time = %s,
                     realized_pnl = %s, notes = %s
                 WHERE id = %s""",
-                (datetime.utcnow(), float(realized_pnl), notes_reason, position_id)
+                (datetime.now(), float(realized_pnl), notes_reason, position_id)
             )
 
             # 释放全部保证金
@@ -1291,7 +1309,7 @@ class FuturesTradingEngine:
                         open_time = position['open_time']
                         if isinstance(open_time, str):
                             open_time = datetime.strptime(open_time, '%Y-%m-%d %H:%M:%S')
-                        hold_duration = datetime.utcnow() - open_time
+                        hold_duration = datetime.now() - open_time
                         hours, remainder = divmod(hold_duration.total_seconds(), 3600)
                         minutes = remainder // 60
                         if hours >= 24:

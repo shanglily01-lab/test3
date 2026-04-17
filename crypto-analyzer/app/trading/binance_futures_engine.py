@@ -1103,7 +1103,7 @@ class BinanceFuturesEngine:
                     close_reason = %s
                 WHERE id = %s"""
             update_params = (float(remaining_qty), new_status, float(pnl),
-                 float(avg_price), datetime.utcnow(), reason, position_id)
+                 float(avg_price), datetime.now(), reason, position_id)
 
             cursor.execute(update_sql, update_params)
 
@@ -1120,7 +1120,7 @@ class BinanceFuturesEngine:
                         open_time = position['open_time']
                         if isinstance(open_time, str):
                             open_time = datetime.strptime(open_time, '%Y-%m-%d %H:%M:%S')
-                        hold_duration = datetime.utcnow() - open_time
+                        hold_duration = datetime.now() - open_time
                         hours, remainder = divmod(hold_duration.total_seconds(), 3600)
                         minutes = remainder // 60
                         if hours >= 24:
@@ -1662,7 +1662,7 @@ class BinanceFuturesEngine:
                  float(stop_loss_price) if stop_loss_price else None,
                  float(take_profit_price) if take_profit_price else None,
                  entry_ema_diff,
-                 datetime.utcnow(), status, source, signal_id, strategy_id, binance_order_id, paper_position_id)
+                 datetime.now(), status, source, signal_id, strategy_id, binance_order_id, paper_position_id)
 
             cursor.execute(insert_sql, insert_params)
 

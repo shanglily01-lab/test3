@@ -1,0 +1,235 @@
+[
+  {
+    "round": 5,
+    "name": "KineticEfficiencyShort",
+    "mode": "mtf_self",
+    "hypothesis": "能量效率比(abs(gradient)/amplitude)显著下降，意味着价格虽在上涨但单位波动的方向性贡献在减弱，这种‘磨损’式上涨通常是微观派发特征，配合4h宏观下行极具胜率。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 10:\n        return None\n    \n    # 计算1h动能效率：方向位移 / 总波动范围\n    eff_short = abs(gradient(cs1h, 3)) / (amplitude(cs1h, 3) + 1e-6)\n    eff_long = abs(gradient(cs1h, 7)) / (amplitude(cs1h, 7) + 1e-6)\n    \n    # 逻辑：价格处于反弹中（gradient>0），但效率严重衰减（跌幅超过30%），且买压flux已经弱化\n    if gradient(cs4h, 4) < -0.005:\n        if gradient(cs1h, 3) > 0.002 and eff_short < eff_long * 0.7:\n            if flux(cs1h, 3) < 0.48:\n                return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 24,
+      "wr": 0.625,
+      "ev": 0.544466482886544
+    },
+    "stage2": {
+      "n": 92,
+      "wr": 0.7282608695652174,
+      "ev": 0.5323792179592041
+    },
+    "stage3": {
+      "n": 670,
+      "wr": 0.6298507462686567,
+      "ev": 0.3714145565163166
+    },
+    "stage4_test": {
+      "n": 313,
+      "wr": 0.6070287539936102,
+      "ev": 0.19845102166296738,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "XLM/USDT",
+        1.0,
+        3
+      ],
+      [
+        "DRIFT/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SAND/USDT",
+        1.0,
+        6
+      ],
+      [
+        "CTSI/USDT",
+        1.0,
+        4
+      ],
+      [
+        "IMX/USDT",
+        1.0,
+        3
+      ],
+      [
+        "TRB/USDT",
+        0.9167,
+        12
+      ],
+      [
+        "POL/USDT",
+        0.9,
+        10
+      ],
+      [
+        "STRK/USDT",
+        0.9,
+        10
+      ],
+      [
+        "AXL/USDT",
+        0.875,
+        8
+      ],
+      [
+        "THETA/USDT",
+        0.875,
+        8
+      ],
+      [
+        "TIA/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ATOM/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ROSE/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "CHZ/USDT",
+        0.8125,
+        16
+      ],
+      [
+        "SNX/USDT",
+        0.8,
+        10
+      ],
+      [
+        "ENS/USDT",
+        0.8,
+        5
+      ],
+      [
+        "VET/USDT",
+        0.8,
+        10
+      ],
+      [
+        "STX/USDT",
+        0.8,
+        5
+      ],
+      [
+        "PYTH/USDT",
+        0.7857,
+        14
+      ],
+      [
+        "LDO/USDT",
+        0.7778,
+        9
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "WLD/USDT",
+        1.0,
+        3
+      ],
+      [
+        "OP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "CHZ/USDT",
+        1.0,
+        4
+      ],
+      [
+        "BLUR/USDT",
+        1.0,
+        4
+      ],
+      [
+        "STRK/USDT",
+        1.0,
+        3
+      ],
+      [
+        "LPT/USDT",
+        1.0,
+        3
+      ],
+      [
+        "APE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "VET/USDT",
+        1.0,
+        4
+      ],
+      [
+        "CFX/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ONT/USDT",
+        0.875,
+        8
+      ],
+      [
+        "XTZ/USDT",
+        0.875,
+        8
+      ],
+      [
+        "WIF/USDT",
+        0.8,
+        5
+      ],
+      [
+        "TON/USDT",
+        0.8,
+        5
+      ],
+      [
+        "POL/USDT",
+        0.75,
+        8
+      ],
+      [
+        "PENDLE/USDT",
+        0.75,
+        4
+      ],
+      [
+        "W/USDT",
+        0.75,
+        4
+      ],
+      [
+        "AXL/USDT",
+        0.75,
+        8
+      ],
+      [
+        "DOGE/USDT",
+        0.7,
+        10
+      ],
+      [
+        "FET/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "APT/USDT",
+        0.6667,
+        3
+      ]
+    ],
+    "ts": "2026-04-14T16:47:54.981456"
+  }
+]

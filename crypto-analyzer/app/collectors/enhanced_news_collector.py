@@ -445,7 +445,7 @@ class CoinGeckoNewsCollector:
                                 'content': f"{coin.get('name')} is currently trending on CoinGecko. Market Cap Rank: #{coin.get('market_cap_rank', 'N/A')}",
                                 'url': f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",
                                 'source': 'CoinGecko Trending',
-                                'published_at': datetime.utcnow().isoformat(),
+                                'published_at': datetime.now().isoformat(),
                                 'symbols': [symbol],
                                 'sentiment': 'positive',  # 热门通常是正面的
                                 'data_source': 'coingecko',
@@ -492,12 +492,12 @@ class CoinGeckoNewsCollector:
                                 emoji = '🚀' if change_24h > 0 else '📉'
 
                                 news = {
-                                    'id': f"cg_mover_{coin.get('id', '')}_{datetime.utcnow().strftime('%Y%m%d')}",
+                                    'id': f"cg_mover_{coin.get('id', '')}_{datetime.now().strftime('%Y%m%d')}",
                                     'title': f"{emoji} {coin.get('name', '')} ({symbol}) {change_24h:+.1f}% in 24h",
                                     'content': f"{coin.get('name')} price is ${coin.get('current_price', 0):,.2f}, changed {change_24h:+.2f}% in the last 24 hours. Market Cap: ${coin.get('market_cap', 0):,.0f}",
                                     'url': f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",
                                     'source': 'CoinGecko Markets',
-                                    'published_at': datetime.utcnow().isoformat(),
+                                    'published_at': datetime.now().isoformat(),
                                     'symbols': [symbol],
                                     'sentiment': sentiment,
                                     'data_source': 'coingecko',

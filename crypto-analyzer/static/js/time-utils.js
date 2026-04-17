@@ -2,14 +2,14 @@
  * 统一的时间格式化工具
  *
  * 规则：
- * - 后端和数据库：UTC+0（标准时间）
- * - 前端显示：自动转换为 UTC+8（北京时间/中国时区）
- * - 显示格式：明确标注 UTC+8
+ * - 后端和数据库：本地时间（UTC+8）
+ * - 前端显示：直接使用，无需转换
+ * - 显示格式：本地时间，可选标注 UTC+8
  */
 
 /**
- * 将UTC时间转换为UTC+8并格式化
- * @param {string|Date} utcTime - UTC时间字符串或Date对象
+ * 格式化本地时间字符串（DB 存储本地时间，无需 UTC 转换）
+ * @param {string|Date} utcTime - 本地时间字符串或Date对象
  * @param {string} format - 格式类型: 'full'（完整）, 'datetime'（日期+时间）, 'date'（仅日期）, 'time'（仅时间）, 'relative'（相对时间）
  * @param {boolean} showTimezone - 是否显示时区标识（默认true）
  * @returns {string} 格式化后的时间字符串
@@ -23,18 +23,9 @@ function formatTimeUTC8(utcTime, format = 'datetime', showTimezone = true) {
         if (utcTime instanceof Date) {
             date = utcTime;
         } else if (typeof utcTime === 'string') {
-            // 检查是否有时区标识（Z或±HH:MM）
-            // 注意：不能用 includes('-') 判断，因为日期格式本身包含 '-'
-            const hasTimezone = utcTime.endsWith('Z') ||
-                               /[+-]\d{2}:\d{2}$/.test(utcTime) ||
-                               /[+-]\d{4}$/.test(utcTime);
-
-            if (!hasTimezone) {
-                // 没有时区信息，假设是UTC时间，添加Z后缀
-                date = new Date(utcTime + 'Z');
-            } else {
-                date = new Date(utcTime);
-            }
+            // DB 存储本地时间，去除时区后缀直接解析为本地时间
+            const s = utcTime.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '');
+            date = new Date(s);
         } else {
             return '-';
         }
@@ -44,15 +35,13 @@ function formatTimeUTC8(utcTime, format = 'datetime', showTimezone = true) {
             return '-';
         }
 
-        // 转换为UTC+8（北京时间）
-        const utc8Date = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-
-        const year = utc8Date.getUTCFullYear();
-        const month = String(utc8Date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(utc8Date.getUTCDate()).padStart(2, '0');
-        const hours = String(utc8Date.getUTCHours()).padStart(2, '0');
-        const minutes = String(utc8Date.getUTCMinutes()).padStart(2, '0');
-        const seconds = String(utc8Date.getUTCSeconds()).padStart(2, '0');
+        // 直接使用本地时间，无需偏移
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
 
         const tz = showTimezone ? ' (UTC+8)' : '';
 
@@ -160,18 +149,17 @@ function formatDuration(openTime, closeTime = null) {
 }
 
 /**
- * 将UTC+8时间转换为UTC时间（用于提交到后端）
- * @param {string|Date} utc8Time - UTC+8时间
- * @returns {string} ISO格式的UTC时间字符串
+ * 本地时间原样返回（后端存本地时间，无需转换）
+ * @param {string|Date} utc8Time - 本地时间
+ * @returns {string} 本地时间字符串
  */
 function convertToUTC(utc8Time) {
     if (!utc8Time) return null;
-
     try {
-        const date = new Date(utc8Time);
-        // 减去8小时
-        const utcDate = new Date(date.getTime() - 8 * 60 * 60 * 1000);
-        return utcDate.toISOString();
+        const s = typeof utc8Time === 'string'
+            ? utc8Time.replace(' ', 'T').replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '')
+            : utc8Time instanceof Date ? utc8Time.toISOString().replace('Z', '') : String(utc8Time);
+        return s;
     } catch (e) {
         console.error('时间转换失败:', e, utc8Time);
         return null;

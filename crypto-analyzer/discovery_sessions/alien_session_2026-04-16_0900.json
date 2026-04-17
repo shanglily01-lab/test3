@@ -1,0 +1,46 @@
+{
+  "session_id": "2026-04-16_0900",
+  "session_type": "alien",
+  "started_at": "2026-04-16T09:00:48.900597",
+  "deadline_utc": "2026-04-16T12:00:48.900597",
+  "max_hold_h": 3,
+  "status": "active",
+  "total_pnl": null,
+  "trades": [
+    {
+      "symbol": "BTC/USDT",
+      "direction": "LONG",
+      "entry_price": 74689.8,
+      "quantity": 0.06694354516948767,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 74078.2,
+      "take_profit": 75709.1333,
+      "position_id": 24091,
+      "open_time": "2026-04-16T09:00:48.900597",
+      "phase": "DRIVEN_DOWN",
+      "g4": 0.01195,
+      "g1": -0.00359,
+      "amp": 0.00546,
+      "final_pnl": null
+    },
+    {
+      "symbol": "ETH/USDT",
+      "direction": "LONG",
+      "entry_price": 2356.73,
+      "quantity": 2.1215837198151677,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 2334.1525,
+      "take_profit": 2394.3592,
+      "position_id": 24092,
+      "open_time": "2026-04-16T09:00:48.900597",
+      "phase": "DISSIPATIVE",
+      "g4": 0.0111,
+      "g1": -0.00719,
+      "amp": 0.00639,
+      "final_pnl": null
+    }
+  ],
+  "session_file": "D:\\test3\\crypto-analyzer\\discovery_sessions\\alien_session_2026-04-16_0900.json"
+}

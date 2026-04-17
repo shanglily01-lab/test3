@@ -1,0 +1,111 @@
+{
+  "timestamp": "2026-04-13 02:44 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 11210,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 70428.0,
+          "high": 70566.5
+        },
+        "stop_loss": 70328.0,
+        "target1": 71255.88,
+        "target2": 73255.7,
+        "win_rate_pct": 70,
+        "risk_reward": 4.39,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $70,566.50 after testing the support zone, or a clear bounce from $70,428.00 with increased volume",
+        "invalidation": "1h close below $70,328.00",
+        "confluence_signals": [
+          "RSI_4h oversold (29.57)",
+          "Price falling with LOW volume (weak selling)",
+          "OI FALLING + price falling = deleveraging/capitulation",
+          "EXTREME long crowd (contrarian bearish)",
+          "Current price near bottom of 24h ATR expected range",
+          "Price at strong support"
+        ],
+        "win_rate_basis": "Multiple strong signals align for a potential bounce: oversold 4h RSI, weak selling volume, deleveraging, and extreme long sentiment (contrarian bullish). Price is at key support, indicating a strong reversal point."
+      },
+      {
+        "symbol": "ETH",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 2173.0,
+          "high": 2182.65
+        },
+        "stop_loss": 2163.0,
+        "target1": 2204.99,
+        "target2": 2255.89,
+        "win_rate_pct": 65,
+        "risk_reward": 1.47,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $2,182.65 after testing support, or clear bounce from $2,173.00 with increased volume",
+        "invalidation": "1h close below $2,163.00",
+        "confluence_signals": [
+          "Price falling with LOW volume (weak selling)",
+          "OI FALLING + price falling = deleveraging/capitulation",
+          "EXTREME long crowd (contrarian bearish)",
+          "Current price near immediate support"
+        ],
+        "win_rate_basis": "Strong signals from price-volume divergence, deleveraging, and extreme long sentiment point to a potential bounce. Although 4h RSI is not oversold, the other factors provide sufficient confluence for a long position at support."
+      },
+      {
+        "symbol": "BNB",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 589.17,
+          "high": 591.18
+        },
+        "stop_loss": 584.17,
+        "target1": 602.52,
+        "target2": 610.75,
+        "win_rate_pct": 72,
+        "risk_reward": 2.14,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $591.18 after testing support, or clear bounce from $589.17 with increased volume",
+        "invalidation": "1h close below $584.17",
+        "confluence_signals": [
+          "EXTREME bearish funding rate (0th percentile) - potential short squeeze",
+          "Price near strong support ($589.17)",
+          "Price low in 7d/30d range (13th/6th percentile)",
+          "MACD_1h bullish and EXPANDING"
+        ],
+        "win_rate_basis": "The combination of an extreme bearish funding rate (strong short squeeze fuel), price at multi-day lows and strong support, and bullish MACD provides high conviction for a long reversal."
+      },
+      {
+        "symbol": "SOL",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 81.24,
+          "high": 81.83
+        },
+        "stop_loss": 80.74,
+        "target1": 82.27,
+        "target2": 85.66,
+        "win_rate_pct": 68,
+        "risk_reward": 1.01,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $81.83 after testing support, or clear bounce from $81.24 with increased volume",
+        "invalidation": "1h close below $80.74",
+        "confluence_signals": [
+          "RSI_4h oversold (29.93)",
+          "EXTREME long crowd (contrarian bearish)",
+          "Price near strong support ($81.24)",
+          "Price low in 7d/30d range (26th/17th percentile)",
+          "Current price near bottom of 24h ATR expected range"
+        ],
+        "win_rate_basis": "Oversold 4h RSI, extreme long crowd (contrarian bullish), and price at strong support in a lower range position contribute to a high probability long reversal."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "High correlations mean BTC's lead on ETH and SOL (1h) is crucial. Extreme long sentiment across BTC, ETH, SOL, coupled with deleveraging and weak selling volume (divergence), suggests a potential bounce or short-term reversal across the board.",
+    "highest_conviction_trade": "BNB"
+  }
+}

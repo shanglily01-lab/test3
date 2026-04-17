@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-04-13 03:15 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 14168,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "APT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.81,
+          "high": 0.817
+        },
+        "stop_loss": 0.805,
+        "target1": 0.84,
+        "target2": 0.87,
+        "win_rate_pct": 62,
+        "risk_reward": 1.91,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above $0.815",
+        "invalidation": "1h candle close below $0.805",
+        "confluence_signals": [
+          "RSI_4h oversold (<30)",
+          "Price at strong support ($0.81)",
+          "MACD_1h bullish expanding"
+        ],
+        "win_rate_basis": "RSI_4h oversold and price at a strong support level provide a strong bounce potential. MACD_1h confirms nascent bullish momentum. These three signals align for a 62% win rate."
+      },
+      {
+        "symbol": "G/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Critically missing/zero price level data (resistance, support, EMA, ATR) makes robust and actionable stop loss and profit target calculations impossible, rendering any trade plan unreliable."
+      },
+      {
+        "symbol": "RAY/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Critically missing/zero price level data, volatility data, and unavailable Open Interest/Long-Short Ratio make it impossible to formulate a reliable and actionable trade plan."
+      }
+    ]
+  }
+}

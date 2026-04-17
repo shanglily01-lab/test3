@@ -1,0 +1,116 @@
+{
+  "timestamp": "2026-04-14 04:45 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17540,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ACT/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (support, resistance, EMA, 24h/7d ranges) are inconsistent with the current price and listed as generic placeholder values (e.g., $0.01 for all levels), making it impossible to derive precise entry, stop, and target levels as required."
+      },
+      {
+        "symbol": "ACU/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.085,
+          "high": 0.09
+        },
+        "stop_loss": 0.079,
+        "target1": 0.1,
+        "target2": 0.105,
+        "win_rate_pct": 70,
+        "risk_reward": 2.5,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests $0.085-$0.090 zone or 1h candle closes above EMA20 after a pullback.",
+        "invalidation": "1h candle closes below $0.079 or funding rate reverses significantly to positive percentile.",
+        "confluence_signals": [
+          "Extreme bearish funding rate (0th percentile) - contrarian bullish",
+          "Bullish EMA alignment (price above all EMAs)",
+          "MACD 1h bullish expanding",
+          "1d channel up structure",
+          "Fear & Greed Index in Extreme Fear - market-wide contrarian buy"
+        ],
+        "win_rate_basis": "Extreme bearish funding rate and market-wide extreme fear provide a strong contrarian bullish foundation (70-78%). Bullish momentum (EMA, MACD, channel) further supports a long, offset slightly by weak buying volume (net 70%)."
+      },
+      {
+        "symbol": "ACX/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (support, resistance, EMA, 24h/7d ranges) are inconsistent with the current price and listed as generic placeholder values (e.g., $0.04 for all levels), making it impossible to derive precise entry, stop, and target levels as required."
+      },
+      {
+        "symbol": "ADA/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.24,
+          "high": 0.242
+        },
+        "stop_loss": 0.238,
+        "target1": 0.255,
+        "target2": 0.26,
+        "win_rate_pct": 72,
+        "risk_reward": 4.67,
+        "confidence": 8,
+        "time_window": "enter within 8h, hold 12-24h",
+        "entry_trigger": "Price holds $0.24 support, with a 1h candle close above $0.241.",
+        "invalidation": "1h candle closes below $0.238 or Funding Velocity turns strongly positive.",
+        "confluence_signals": [
+          "Extreme short crowd (0th percentile L/S ratio) - contrarian bullish",
+          "Price near 7d/30d lows - value area",
+          "Price at strong psychological and technical support ($0.24)",
+          "Fear & Greed Index in Extreme Fear - market-wide contrarian buy",
+          "Hyperliquid Smart Money net inflow"
+        ],
+        "win_rate_basis": "Extreme short positioning, price at multi-day lows near strong support, and market-wide fear provide a robust contrarian bullish setup (70-78%). Smart money inflow adds conviction, slightly offset by weak buying volume and accelerating negative funding velocity (net 72%)."
+      },
+      {
+        "symbol": "AEVO/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (support, resistance, EMA, 24h/7d ranges) are inconsistent with the current price and listed as generic placeholder values (e.g., $0.02 for all levels), making it impossible to derive precise entry, stop, and target levels as required."
+      }
+    ]
+  }
+}

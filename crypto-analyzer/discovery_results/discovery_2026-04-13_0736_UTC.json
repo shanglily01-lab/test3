@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-04-13 07:36 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12094,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "C98/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals between oversold technicals (RSI, weak selling volume) and strong bearish sentiment indicators (extreme long positioning, rising OI with falling price). Additionally, critical price levels for support are not found, making precise trade planning impossible."
+      },
+      {
+        "symbol": "QNT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 73.93,
+          "high": 74.46
+        },
+        "stop_loss": 71.5,
+        "target1": 77.76,
+        "target2": 79.94,
+        "win_rate_pct": 72,
+        "risk_reward": 2.13,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above $74.50 or clear bounce from $73.93 support zone.",
+        "invalidation": "Price closes below $71.88 support level.",
+        "confluence_signals": [
+          "RSI_4h oversold (<30)",
+          "Price-volume divergence (price falling with low volume, weak selling)",
+          "OI falling + price falling (capitulation/deleveraging signal)",
+          "Extreme short crowd (contrarian bullish signal from L/S ratio 0th percentile)",
+          "Fear & Greed Index (Extreme Fear, contrarian buy signal)"
+        ],
+        "win_rate_basis": "Multiple strong bullish signals converging: RSI oversold, weak selling volume, OI capitulation, extreme short positioning, and overall extreme market fear. This high confluence suggests a strong potential for a bounce or reversal from current lows, supporting a 70-75% win rate estimate."
+      },
+      {
+        "symbol": "G/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (resistance, support, EMAs, 24h/7d range) are reported as $0.00, making it impossible to define precise entry, stop loss, and profit targets."
+      },
+      {
+        "symbol": "RAY/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Data for Open Interest and Long/Short Ratio is unavailable. Price action is completely flat with 0% volatility. The funding rate interpretation is contradictory and ambiguous, making a reliable directional trade plan impossible."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The overall market is in a state of Extreme Fear (F&G Index=12), which historically precedes bounces and contrarian buy signals. Global liquidations are balanced, indicating no immediate cascade risk.",
+    "highest_conviction_trade": "QNT/USDT"
+  }
+}

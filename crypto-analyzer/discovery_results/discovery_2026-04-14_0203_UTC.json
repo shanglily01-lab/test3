@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-04-14 02:03 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17420,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "FF/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: 4h RSI oversold suggests a bounce, but price rising on low volume and falling Open Interest (short covering exhaustion) indicate weakness. The extreme short crowd is bullish, but funding velocity suggests squeeze momentum is fading. These contradictions make a clear directional trade difficult."
+      }
+    ]
+  }
+}

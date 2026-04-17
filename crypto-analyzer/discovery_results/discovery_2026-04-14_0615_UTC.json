@@ -1,0 +1,99 @@
+{
+  "timestamp": "2026-04-14 06:15 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12352,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SENT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.015,
+          "high": 0.016
+        },
+        "stop_loss": 0.0145,
+        "target1": 0.018,
+        "target2": 0.02,
+        "win_rate_pct": 68,
+        "risk_reward": 3.5,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $0.016",
+        "invalidation": "1h close below $0.0145",
+        "confluence_signals": [
+          "Price at 7d/30d low (6th/2nd percentile)",
+          "Extreme short crowd (L/S Ratio 0.612, 10th percentile) - contrarian bullish",
+          "Funding Velocity accelerating positive (short squeeze building)",
+          "Funding rate in 10th percentile (bearish positioning)"
+        ],
+        "win_rate_basis": "Four strong contrarian bullish signals (low price in range, extreme short crowd, accelerating funding velocity, low funding rate percentile) suggest a high probability of a short squeeze or bounce, offsetting bearish EMA alignment and low volume."
+      },
+      {
+        "symbol": "SHELL/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: Extreme long crowd (contrarian bearish) vs. 1D channel up and rising Open Interest with rising price (bullish trend continuation). This contradictory evidence makes a clear directional trade plan unreliable."
+      },
+      {
+        "symbol": "SIGN/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.0305,
+          "high": 0.0315
+        },
+        "stop_loss": 0.0295,
+        "target1": 0.0335,
+        "target2": 0.035,
+        "win_rate_pct": 70,
+        "risk_reward": 2.17,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $0.031",
+        "invalidation": "1h close below $0.0295",
+        "confluence_signals": [
+          "Price at 7d_range=0th_pct (extreme low)",
+          "Extreme short crowd (L/S Ratio 0.285, 95th percentile) - contrarian bullish",
+          "Funding rate in 3rd percentile (extreme bearish positioning, short squeeze fuel)",
+          "Perp premium in 100th percentile (strong bullish premium)",
+          "MACD 1h bullish and EXPANDING"
+        ],
+        "win_rate_basis": "Five strong contrarian bullish signals (extreme low price, extreme short crowd, extreme funding rate, high perp premium, expanding bullish MACD) indicate a high probability of a sharp bounce or short squeeze. This outweighs bearish 1D channel and OI rising with falling price."
+      },
+      {
+        "symbol": "SKL/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Severe data inconsistencies in provided Key Price Levels (Resistance/Support, EMAs) and contradictory interpretations of Funding Rate and Long/Short Ratio make it impossible to form a reliable and actionable trade plan."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The overall market is in 'Extreme Fear' (F&G Index 12), suggesting a contrarian buying opportunity, especially for assets exhibiting extreme bearish positioning like SENT and SIGN, which could lead to sharp bounces or short squeezes.",
+    "highest_conviction_trade": "SIGN/USDT"
+  }
+}

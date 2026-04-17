@@ -91,7 +91,7 @@ class AdaptiveOptimizer:
         conn = self._get_connection()
         cursor = conn.cursor()
 
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+        cutoff_time = datetime.now() - timedelta(hours=hours)
 
         logger.info(f"📊 开始分析最近{hours}小时的交易表现...")
 
@@ -277,7 +277,7 @@ class AdaptiveOptimizer:
 
         # 生成报告
         report = {
-            'timestamp': datetime.utcnow(),
+            'timestamp': datetime.now(),
             'analysis_hours': hours,
             'blacklist_candidates': blacklist_candidates,
             'problematic_signals': problematic_signals,

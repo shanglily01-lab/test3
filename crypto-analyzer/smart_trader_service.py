@@ -9,6 +9,8 @@ import time
 import sys
 import os
 import asyncio
+import urllib.request
+import json as _json
 from datetime import datetime, time as dt_time, timezone, timedelta
 from decimal import Decimal
 from loguru import logger
@@ -62,11 +64,8 @@ class SmartDecisionBrain:
         # 从config.yaml加载配置
         self._load_config()
 
-        self.threshold = 55  # 开仓阈值 (信号确认模式基础阈值)
-        # 主策略两路均为 opt-in：默认关，仅当 system_settings 为 1 且服务启动加载后才启用
-        self.signal_confirmation_enabled = False
-        self.trend_following_enabled = False
-        self.max_threshold = 150  # 🔥 评分上限：拒绝150+分信号(数据显示高分=追涨杀跌=亏损)
+        self.threshold = 65  # 开仓阈值提高至65：减少低质量信号，提高胜率
+        self.max_threshold = 130  # 评分上限：拒绝高分追涨杀跌信号（130分以上往往是过热信号）
 
         # 初始化信号黑名单检查器（动态加载，5分钟缓存）
         self.blacklist_checker = SignalBlacklistChecker(db_config, cache_minutes=5)
@@ -218,25 +217,35 @@ class SmartDecisionBrain:
             if self.signal_blacklist:
                 logger.info(f"   🚫 禁用信号: {len(self.signal_blacklist)} 个")
 
-            # 7. 从数据库加载评分权重
+            # 7. 从数据库加载评分权重（含 is_active=FALSE 的禁用信号，权重置0）
             self.scoring_weights = {}
+            self._disabled_signals = set()
             try:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT signal_component, weight_long, weight_short
+                    SELECT signal_component, weight_long, weight_short, is_active
                     FROM signal_scoring_weights
-                    WHERE is_active = TRUE AND strategy_type = 'default'
+                    WHERE strategy_type = 'default'
                 """)
                 weight_rows = cursor.fetchall()
+                active_count = 0
+                disabled_count = 0
                 for row in weight_rows:
-                    self.scoring_weights[row['signal_component']] = {
-                        'long': float(row['weight_long']),
-                        'short': float(row['weight_short'])
-                    }
+                    if row['is_active']:
+                        self.scoring_weights[row['signal_component']] = {
+                            'long': float(row['weight_long']),
+                            'short': float(row['weight_short'])
+                        }
+                        active_count += 1
+                    else:
+                        # 禁用信号: 权重置0，并记录到禁用集合
+                        self.scoring_weights[row['signal_component']] = {'long': 0.0, 'short': 0.0}
+                        self._disabled_signals.add(row['signal_component'])
+                        disabled_count += 1
                 cursor.close()
 
                 if self.scoring_weights:
-                    logger.info(f"   📊 评分权重: 从数据库加载 {len(self.scoring_weights)} 个组件")
+                    logger.info(f"   Signal weights: loaded {active_count} active, {disabled_count} disabled from DB")
             except:
                 # 如果表不存在，使用默认权重（硬编码）
                 self.scoring_weights = {
@@ -354,6 +363,1639 @@ class SmartDecisionBrain:
                     cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
         return self.connection
 
+    def _get_hl_whale_signal(self, symbol: str) -> tuple:
+        """
+        查询 Hyperliquid 鲸鱼资金流向信号
+        Returns: (signal, long_short_ratio, net_flow, total_volume)
+          signal: 'STRONG_BULLISH'|'BULLISH'|'STRONG_BEARISH'|'BEARISH'|'NEUTRAL'
+        """
+        try:
+            # 将 Binance 格式 (BTC/USDT) 转换为 HL 格式 (BTC)
+            hl_coin = symbol.replace('/USDT', '').replace('1000', 'k')
+            # 特殊映射
+            hl_map = {'1000PEPE': 'kPEPE', '1000BONK': 'kBONK', '1000SHIB': 'kSHIB', '1000FLOKI': 'kFLOKI'}
+            hl_coin = hl_map.get(symbol.replace('/USDT', ''), hl_coin)
+
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT net_flow, long_short_ratio, total_volume, hyperliquid_signal, updated_at
+                    FROM hyperliquid_symbol_aggregation
+                    WHERE symbol = %s AND period = '24h'
+                    LIMIT 1
+                """, (hl_coin,))
+                row = cursor.fetchone()
+
+            if not row:
+                return ('NEUTRAL', 1.0, 0.0, 0.0)
+
+            # 数据超过2小时不用
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=2):
+                return ('NEUTRAL', 1.0, 0.0, 0.0)
+
+            net_flow = float(row['net_flow'] or 0)
+            ls_ratio = float(row['long_short_ratio'] or 1.0)
+            total_vol = float(row['total_volume'] or 0)
+            hl_sig = row['hyperliquid_signal'] or 'NEUTRAL'
+
+            # 使用 HL 预计算信号 + L/S 比率双重判断
+            # L/S 相对阈值（基于总量）- 解决绝对值阈值对小币种不适用的问题
+            if hl_sig in ('STRONG_BULLISH', 'BULLISH'):
+                signal = hl_sig
+            elif hl_sig in ('STRONG_BEARISH', 'BEARISH'):
+                signal = hl_sig
+            elif total_vol > 30000:
+                # 用 L/S 比率作为补充信号
+                if ls_ratio >= 3.0:
+                    signal = 'STRONG_BULLISH'
+                elif ls_ratio >= 2.0:
+                    signal = 'BULLISH'
+                elif ls_ratio <= 0.33:
+                    signal = 'STRONG_BEARISH'
+                elif ls_ratio <= 0.5:
+                    signal = 'BEARISH'
+                else:
+                    signal = 'NEUTRAL'
+            else:
+                signal = 'NEUTRAL'
+
+            return (signal, ls_ratio, net_flow, total_vol)
+        except Exception as e:
+            logger.debug(f"HL whale signal query failed for {symbol}: {e}")
+            return ('NEUTRAL', 1.0, 0.0, 0.0)
+
+    def _get_mf_confluence_signal(self, symbol: str) -> str:
+        """
+        多时间框架共振信号 (Multi-timeframe confluence)
+        数据来源: technical_signals_cache (每小时更新)
+        逻辑: 1H[24h] + 15M[4h] 同时偏向多头/空头 → 共振确认
+        Returns: 'BULLISH'|'BEARISH'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT timeframe, window_label, bullish_pct, bearish_pct
+                    FROM technical_signals_cache
+                    WHERE symbol = %s AND timeframe IN ('1h', '15m')
+                      AND window_label IN ('24h', '4h')
+                      AND updated_at >= NOW() - INTERVAL 2 HOUR
+                """, (symbol,))
+                rows = cursor.fetchall()
+
+            # 提取各时间框架数据
+            data = {}
+            for r in rows:
+                key = f"{r['timeframe']}_{r['window_label']}"
+                data[key] = {'bull': float(r['bullish_pct']), 'bear': float(r['bearish_pct'])}
+
+            h1_24h = data.get('1h_24h', {})
+            m15_4h = data.get('15m_4h', {})
+            if not h1_24h or not m15_4h:
+                return 'NEUTRAL'
+
+            bull_1h = h1_24h.get('bull', 50)
+            bear_1h = h1_24h.get('bear', 50)
+            bull_15m = m15_4h.get('bull', 50)
+            bear_15m = m15_4h.get('bear', 50)
+
+            # 极强多头共振: 1H超70%多 AND 15M超65%多 (先检查强信号)
+            if bull_1h > 70 and bull_15m > 65:
+                return 'STRONG_BULLISH'
+            # 极强空头共振: 1H超70%空 AND 15M超65%空
+            elif bear_1h > 70 and bear_15m > 65:
+                return 'STRONG_BEARISH'
+            # 多头共振: 1H超60%多 AND 15M超55%多
+            elif bull_1h > 60 and bull_15m > 55:
+                return 'BULLISH'
+            # 空头共振: 1H超60%空 AND 15M超55%空
+            elif bear_1h > 60 and bear_15m > 55:
+                return 'BEARISH'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"MF confluence signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _detect_volume_climax(self, klines_1h: list) -> str:
+        """
+        量价高潮信号 (Volume Climax)
+        原理: 连续下跌 + 成交量递增 → 恐慌性抛售/强制平仓高潮 → 反弹 LONG
+              连续上涨 + 成交量递增 → 多头高潮出货 → 回调 SHORT
+        条件: 最近4根1H K线中连续3根同向 + 每根量比前根大 + 总量 > 平均1.5x
+
+        Returns: 'BULLISH_CLIMAX'|'BEARISH_CLIMAX'|'NONE'
+        """
+        if len(klines_1h) < 6:
+            return 'NONE'
+
+        recent = klines_1h[-5:]  # 最近5根
+        avg_vol = sum(k['volume'] for k in klines_1h[-24:]) / 24
+
+        # 检查最近3根是否连续下跌且量递增
+        bear_run = []
+        bull_run = []
+        for k in recent[-3:]:
+            is_red = k['close'] < k['open']
+            is_green = k['close'] > k['open']
+            bear_run.append(is_red)
+            bull_run.append(is_green)
+
+        bear_consec = all(bear_run)
+        bull_consec = all(bull_run)
+
+        if not bear_consec and not bull_consec:
+            return 'NONE'
+
+        vols = [k['volume'] for k in recent[-3:]]
+
+        # 量能必须递增（每根 > 前根 的 90%）
+        vol_increasing = all(vols[i] >= vols[i-1] * 0.90 for i in range(1, len(vols)))
+        # 最后一根量 > 1.5x 平均量（确认是高潮量）
+        vol_spike = vols[-1] > avg_vol * 1.5
+
+        if bear_consec and vol_increasing and vol_spike:
+            return 'BULLISH_CLIMAX'  # 空头高潮 → 多头反弹机会
+        elif bull_consec and vol_increasing and vol_spike:
+            return 'BEARISH_CLIMAX'  # 多头高潮 → 空头回调机会
+        return 'NONE'
+
+    def _detect_taker_buy_signal(self, klines_1h: list) -> str:
+        """
+        主动买入比例信号 (Taker Buy Ratio)
+        原理: taker_buy_volume/total_volume 反映主动买方 vs 主动卖方的力量对比
+          - 吸筹信号: 前3根低买盘(< 0.40) → 最近2根买盘突增(> 0.62)
+            → 大资金趁跌承接，均值回归LONG
+          - 持续施压: 连续4根买盘极低(< 0.36) → 空方主导，SHORT
+        需要至少6根K线，且每根都有taker_buy_base_volume数据
+        Returns: 'BULLISH_ABSORPTION'|'BEARISH_PRESSURE'|'NONE'
+        """
+        if len(klines_1h) < 6:
+            return 'NONE'
+        recent = klines_1h[-6:]
+        buy_ratios = []
+        for k in recent:
+            vol = float(k.get('volume', 0) or 0)
+            tbv = k.get('taker_buy_base_volume')
+            if vol > 0 and tbv is not None:
+                buy_ratios.append(float(tbv) / vol)
+            else:
+                return 'NONE'  # 数据不完整则跳过
+        # 吸筹: 前3根低买盘 + 最近2根买盘突增
+        prior_low = all(r < 0.42 for r in buy_ratios[:3])
+        recent_surge = all(r > 0.60 for r in buy_ratios[-2:])
+        if prior_low and recent_surge:
+            return 'BULLISH_ABSORPTION'
+        # 持续施压: 最近4根买盘持续极低
+        persistent_pressure = all(r < 0.36 for r in buy_ratios[-4:])
+        if persistent_pressure:
+            return 'BEARISH_PRESSURE'
+        return 'NONE'
+
+    def _calc_ema(self, closes: list, period: int) -> list:
+        """指数移动平均(EMA)计算"""
+        if len(closes) < period:
+            return []
+        k = 2.0 / (period + 1)
+        ema = sum(closes[:period]) / period
+        result = [ema]
+        for price in closes[period:]:
+            ema = price * k + ema * (1 - k)
+            result.append(ema)
+        return result
+
+    def _detect_macd_crossover(self, klines_1h: list) -> str:
+        """
+        MACD柱状图零轴交叉信号 (MACD Histogram Crossover)
+        原理: MACD柱状图 = MACD线(EMA12-EMA26) - 信号线(EMA9)
+          - 柱状图从负转正 (零轴上穿): 动量由空转多 → LONG
+          - 柱状图从正转负 (零轴下穿): 动量由多转空 → SHORT
+        这是动量切换的早期信号，比价格方向更超前
+        需要: 至少40根1H K线 (26+9+5 冗余)
+        Returns: 'BULLISH_CROSS'|'BEARISH_CROSS'|'NONE'
+        """
+        if len(klines_1h) < 40:
+            return 'NONE'
+        closes = [float(k['close']) for k in klines_1h[-40:]]
+        ema12 = self._calc_ema(closes, 12)
+        ema26 = self._calc_ema(closes, 26)
+        # ema12有29个元素，ema26有15个元素
+        # ema26[i]对应closes[25+i]，ema12[14+i]对应closes[25+i]
+        if len(ema26) < 2:
+            return 'NONE'
+        macd = [ema12[14 + i] - ema26[i] for i in range(len(ema26))]
+        if len(macd) < 11:
+            return 'NONE'
+        signal = self._calc_ema(macd, 9)
+        if len(signal) < 2:
+            return 'NONE'
+        offset = len(macd) - len(signal)
+        histogram = [macd[offset + i] - signal[i] for i in range(len(signal))]
+        if len(histogram) < 2:
+            return 'NONE'
+        prev_hist = histogram[-2]
+        curr_hist = histogram[-1]
+        if prev_hist < 0 and curr_hist > 0:
+            return 'BULLISH_CROSS'
+        elif prev_hist > 0 and curr_hist < 0:
+            return 'BEARISH_CROSS'
+        return 'NONE'
+
+    def _calc_rsi(self, closes: list, period: int = 14) -> list:
+        """
+        Wilder RSI计算
+        Returns: RSI值列表，长度 = len(closes) - period - 1
+        每个元素对应 closes[period + i] 位置的RSI值 (i=0,1,...)
+        """
+        if len(closes) <= period + 1:
+            return []
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+        gains = [max(0.0, d) for d in deltas]
+        losses = [max(0.0, -d) for d in deltas]
+        avg_gain = sum(gains[:period]) / period
+        avg_loss = sum(losses[:period]) / period
+        rsi_vals = []
+        for i in range(period, len(deltas)):
+            if avg_loss == 0.0:
+                rsi_vals.append(100.0)
+            else:
+                rs = avg_gain / avg_loss
+                rsi_vals.append(100.0 - 100.0 / (1.0 + rs))
+            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        return rsi_vals
+
+    def _detect_rsi_divergence(self, klines_1h: list) -> str:
+        """
+        RSI背离信号 (RSI Divergence)
+        原理:
+          - 多头背离(Bullish): 价格创新低但RSI未创新低 → 卖压衰竭 → LONG信号
+          - 空头背离(Bearish): 价格创新高但RSI未创新高 → 买力衰竭 → SHORT信号
+        条件:
+          - 需要至少35根1H K线（14根初始RSI + 21根检测窗口）
+          - 窗口: 前10根 vs 后10根（最新K线排除，避免未完成蜡烛干扰）
+          - 背离确认: 价格变化幅度 > 0.5%，RSI反向变化 > 3点
+        Returns: 'BULLISH_DIVERGENCE'|'BEARISH_DIVERGENCE'|'NONE'
+        """
+        if len(klines_1h) < 35:
+            return 'NONE'
+        closes = [k['close'] for k in klines_1h[-35:]]
+        rsi_values = self._calc_rsi(closes, period=14)
+        # rsi_values有20个元素，对应closes[14:34]
+        if len(rsi_values) < 20:
+            return 'NONE'
+        # early窗口: closes[14:24] <-> rsi_values[0:10]
+        # recent窗口: closes[24:34] <-> rsi_values[10:20]（排除closes[34]未完成K线）
+        early_closes = closes[14:24]
+        recent_closes = closes[24:34]
+        early_rsi = rsi_values[:10]
+        recent_rsi = rsi_values[10:]
+        # 多头背离: 找两段各自的最低价和对应RSI
+        early_min_idx = early_closes.index(min(early_closes))
+        recent_min_idx = recent_closes.index(min(recent_closes))
+        early_low_price = early_closes[early_min_idx]
+        recent_low_price = recent_closes[recent_min_idx]
+        early_low_rsi = early_rsi[early_min_idx]
+        recent_low_rsi = recent_rsi[recent_min_idx]
+        if recent_low_price < early_low_price * 0.995 and recent_low_rsi > early_low_rsi + 3.0:
+            return 'BULLISH_DIVERGENCE'
+        # 空头背离: 找两段各自的最高价和对应RSI
+        early_max_idx = early_closes.index(max(early_closes))
+        recent_max_idx = recent_closes.index(max(recent_closes))
+        early_high_price = early_closes[early_max_idx]
+        recent_high_price = recent_closes[recent_max_idx]
+        early_high_rsi = early_rsi[early_max_idx]
+        recent_high_rsi = recent_rsi[recent_max_idx]
+        if recent_high_price > early_high_price * 1.005 and recent_high_rsi < early_high_rsi - 3.0:
+            return 'BEARISH_DIVERGENCE'
+        return 'NONE'
+
+    def _get_rsi_level_signal(self, klines_1h: list) -> str:
+        """
+        RSI绝对位置信号 (RSI Level)
+        原理: 基于最新K线的RSI绝对水平判断超卖/超买
+          - 极度超卖 RSI < 15: 历史均值回归 → STRONG_LONG
+          - 超卖 RSI 15-25: 低位反弹概率增加 → LONG
+          - 极度超买 RSI > 85: 高位回落概率增加 → STRONG_SHORT
+          - 超买 RSI 75-85: 获利了结压力 → SHORT
+        与RSI背离信号互补：背离看动量变化, 位置信号看绝对水平
+        Returns: 'STRONG_LONG'|'LONG'|'STRONG_SHORT'|'SHORT'|'NEUTRAL'
+        """
+        if len(klines_1h) < 20:
+            return 'NEUTRAL'
+        closes = [float(k['close']) for k in klines_1h[-20:]]
+        rsi_values = self._calc_rsi(closes, period=14)
+        if not rsi_values:
+            return 'NEUTRAL'
+        current_rsi = rsi_values[-1]
+        if current_rsi < 15:
+            return 'STRONG_LONG'
+        elif current_rsi < 25:
+            return 'LONG'
+        elif current_rsi > 85:
+            return 'STRONG_SHORT'
+        elif current_rsi > 75:
+            return 'SHORT'
+        return 'NEUTRAL'
+
+    def _get_kdj_signal(self, symbol: str) -> str:
+        """
+        KDJ指标信号 (来自 technical_indicators_cache)
+        KDJ的J值比RSI更敏感: J = 3K - 2D
+        J < 0  : 极度超卖（超越正常边界，恐慌性抛售）→ STRONG_LONG
+        J 0-20 : 超卖区域 → LONG
+        J > 100: 极度超买（超越正常边界，疯狂追涨）→ STRONG_SHORT
+        J 80-100: 超买区域 → SHORT
+        数据来源: technical_indicators_cache (每小时更新, timeframe='1h')
+        Returns: 'STRONG_LONG'|'LONG'|'STRONG_SHORT'|'SHORT'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT kdj_k, kdj_d, kdj_j, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s AND timeframe = '1h'
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row or row['kdj_j'] is None:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=3):
+                return 'NEUTRAL'
+            j = float(row['kdj_j'])
+            if j < 0:
+                return 'STRONG_LONG'
+            elif j < 20:
+                return 'LONG'
+            elif j > 100:
+                return 'STRONG_SHORT'
+            elif j > 80:
+                return 'SHORT'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"KDJ signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_bb_signal(self, symbol: str, current_price: float) -> str:
+        """
+        Bollinger Band位置信号 (来自 technical_indicators_cache)
+        价格突破下轨: 超卖区域, 反转做多机会
+        价格突破上轨: 超买区域, 反转做空机会
+        数据来源: technical_indicators_cache (1h, 每小时更新)
+        Returns: 'BELOW_LOWER'|'NEAR_LOWER'|'ABOVE_UPPER'|'NEAR_UPPER'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT bb_upper, bb_lower, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s AND timeframe = '1h'
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row or row['bb_upper'] is None or row['bb_lower'] is None:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=3):
+                return 'NEUTRAL'
+            bb_upper = float(row['bb_upper'])
+            bb_lower = float(row['bb_lower'])
+            band_width = bb_upper - bb_lower
+            if band_width <= 0:
+                return 'NEUTRAL'
+            bb_pct = (current_price - bb_lower) / band_width
+            if bb_pct < 0:
+                return 'BELOW_LOWER'
+            elif bb_pct < 0.10:
+                return 'NEAR_LOWER'
+            elif bb_pct > 1.0:
+                return 'ABOVE_UPPER'
+            elif bb_pct > 0.90:
+                return 'NEAR_UPPER'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"BB signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_stoch_rsi_signal(self, klines_1h: list) -> str:
+        """
+        Stochastic RSI 超买超卖信号 (Section 37, 来自 klines_1h)
+        StochRSI 是 RSI 的归一化版本，比单纯 RSI 更灵敏，能更早捕捉超买超卖转折。
+
+        计算流程:
+          1. 从 klines_1h 计算 14 周期 RSI (需要 15 根 K 线)
+          2. 取最近 14 个 RSI 值，计算各自的 StochRSI:
+             stoch = (rsi - min(rsi_14)) / (max(rsi_14) - min(rsi_14))
+          3. %K = 当前 StochRSI（或 3 期 SMA 平滑）
+          4. %K < 0.20 → 超卖区 → OVERSOLD (LONG 信号)
+             %K > 0.80 → 超买区 → OVERBOUGHT (SHORT 信号)
+
+        需要至少 28 根 K 线 (14 for RSI + 14 for stoch window)
+
+        Returns: 'STRONG_OVERSOLD'|'OVERSOLD'|'STRONG_OVERBOUGHT'|'OVERBOUGHT'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 28:
+                return 'NEUTRAL'
+            closes = [float(k['close']) for k in klines_1h]
+
+            # Step 1: 计算 14 周期 RSI 序列
+            rsi_period = 14
+            rsi_values = []
+            for i in range(rsi_period, len(closes)):
+                window = closes[i - rsi_period: i + 1]
+                gains = [max(0.0, window[j] - window[j-1]) for j in range(1, len(window))]
+                losses = [max(0.0, window[j-1] - window[j]) for j in range(1, len(window))]
+                avg_gain = sum(gains) / rsi_period
+                avg_loss = sum(losses) / rsi_period
+                if avg_loss == 0:
+                    rsi_values.append(100.0)
+                else:
+                    rs = avg_gain / avg_loss
+                    rsi_values.append(100.0 - 100.0 / (1.0 + rs))
+
+            # Step 2: 计算最近 14 个 RSI 的 StochRSI
+            stoch_period = 14
+            if len(rsi_values) < stoch_period:
+                return 'NEUTRAL'
+            recent_rsi = rsi_values[-stoch_period:]
+            rsi_min = min(recent_rsi)
+            rsi_max = max(recent_rsi)
+            if rsi_max == rsi_min:
+                return 'NEUTRAL'
+            stoch_k = (recent_rsi[-1] - rsi_min) / (rsi_max - rsi_min)
+
+            # Step 3: 判断信号
+            if stoch_k < 0.10:
+                return 'STRONG_OVERSOLD'     # 极度超卖
+            if stoch_k < 0.20:
+                return 'OVERSOLD'            # 超卖
+            if stoch_k > 0.90:
+                return 'STRONG_OVERBOUGHT'   # 极度超买
+            if stoch_k > 0.80:
+                return 'OVERBOUGHT'          # 超买
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"StochRSI signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_close_chain_signal(self, klines_1h: list) -> str:
+        """
+        连续收盘方向信号 (Section 41, 来自 klines_1h)
+        最近 5 根 1H K 线中，如果收盘价连续 4 次向同一方向移动，
+        说明趋势动量强且持续，具有较强的方向性。
+
+        BEAR_CHAIN: 连续4次收盘价下行 (closes[i] < closes[i-1] for i in last 4 pairs)
+        BULL_CHAIN: 连续4次收盘价上行
+
+        选择性约 10-15%（随机情况下，4连跌/涨概率≈(0.5^4)×16 ≈ 12.5%）
+        需要与其他方向性信号配合，否则反转时可能已经过了最佳入场点
+
+        Returns: 'BEAR_CHAIN'|'BULL_CHAIN'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 6:
+                return 'NEUTRAL'
+            closes = [float(k['close']) for k in klines_1h[-6:]]
+            # 最后5根K线，形成4对相邻比较
+            all_down = all(closes[i] < closes[i-1] for i in range(1, 5))
+            all_up   = all(closes[i] > closes[i-1] for i in range(1, 5))
+            if all_down:
+                return 'BEAR_CHAIN'
+            if all_up:
+                return 'BULL_CHAIN'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Close chain signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_bb_squeeze_signal(self, klines_1h: list) -> str:
+        """
+        S43: BB 压缩后释放信号 (Bollinger Band Squeeze Release)
+        原理：BB宽度（(upper-lower)/middle）相对最近20根K线均值收窄>=50%（压缩）
+              最近1根K线BB宽度 >= 压缩期均值 * 1.3（释放），且有方向（价格在均线哪侧）
+
+        Returns: 'BULL_SQUEEZE_RELEASE'|'BEAR_SQUEEZE_RELEASE'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 30:
+                return 'NEUTRAL'
+            period = 20
+            # 计算每根K线的BB宽度
+            bb_widths = []
+            for i in range(period, len(klines_1h)):
+                window = [float(k['close']) for k in klines_1h[i - period: i + 1]]
+                mid = sum(window) / len(window)
+                std = (sum((x - mid) ** 2 for x in window) / len(window)) ** 0.5
+                width = (2 * std) / mid if mid > 0 else 0.0
+                bb_widths.append(width)
+
+            if len(bb_widths) < 10:
+                return 'NEUTRAL'
+
+            # 最近3根宽度均值作为"当前状态"，前7根均值作为"基准"
+            recent_widths = bb_widths[-3:]
+            base_widths = bb_widths[-10:-3]
+            recent_avg = sum(recent_widths) / len(recent_widths)
+            base_avg = sum(base_widths) / len(base_widths)
+            if base_avg <= 0:
+                return 'NEUTRAL'
+
+            squeeze_ratio = recent_avg / base_avg
+            # 触发条件：曾经压缩（ratio<0.6），且最新一根开始扩张
+            latest_width = bb_widths[-1]
+            prev_widths = bb_widths[-5:-1]
+            min_recent = min(prev_widths) if prev_widths else base_avg
+
+            if min_recent < base_avg * 0.6 and latest_width > min_recent * 1.3:
+                # 释放方向：价格在中线哪侧
+                current_price = float(klines_1h[-1]['close'])
+                window_close = [float(k['close']) for k in klines_1h[-period:]]
+                mid_now = sum(window_close) / len(window_close)
+                if current_price > mid_now:
+                    return 'BULL_SQUEEZE_RELEASE'
+                else:
+                    return 'BEAR_SQUEEZE_RELEASE'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"BB squeeze signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_ema_distance_signal(self, symbol: str, current_price: float) -> str:
+        """
+        S44: EMA 距离拉伸信号
+        价格相对短期 EMA（ema_short，通常20期）的偏离度。
+        偏离过大意味着短期超涨/超跌，均值回归概率高。
+        使用 technical_indicators_cache 中的 ema_short。
+
+        Returns: 'OVER_EXTENDED_BULL'|'OVER_EXTENDED_BEAR'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT ema_short, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s
+                    ORDER BY updated_at DESC LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row or not row['ema_short']:
+                return 'NEUTRAL'
+            if row['updated_at'] and (datetime.now() - row['updated_at']).total_seconds() > 7200:
+                return 'NEUTRAL'
+            ema = float(row['ema_short'])
+            if ema <= 0 or current_price <= 0:
+                return 'NEUTRAL'
+            deviation_pct = (current_price - ema) / ema * 100.0
+            # 超过 7% 偏离视为过度拉伸
+            if deviation_pct > 7.0:
+                return 'OVER_EXTENDED_BULL'   # 价格远高于EMA，空头回归
+            if deviation_pct < -7.0:
+                return 'OVER_EXTENDED_BEAR'   # 价格远低于EMA，多头回归
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"EMA distance signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_order_flow_spike_signal(self, klines_15m: list) -> str:
+        """
+        S45: 订单流突刺信号 (5M taker_buy 聚合 → 15M维度)
+        使用 klines_15m 的 taker_buy_base_volume / volume 比值，检测最近一根K线是否有
+        异常方向性资金涌入（taker_buy比率相比最近12根K线的均值突增/突减）。
+
+        逻辑：taker_buy_ratio = taker_buy_base_volume / volume
+          ratio > avg + 1.5*std 且 ratio > 0.65  → BUY_SPIKE（主动买盘突刺）
+          ratio < avg - 1.5*std 且 ratio < 0.35  → SELL_SPIKE（主动卖盘突刺）
+
+        Returns: 'BUY_SPIKE'|'SELL_SPIKE'|'NEUTRAL'
+        """
+        try:
+            if len(klines_15m) < 13:
+                return 'NEUTRAL'
+            ratios = []
+            for k in klines_15m:
+                vol = float(k.get('volume') or 0)
+                tbv = k.get('taker_buy_base_volume')
+                if tbv is None or vol <= 0:
+                    continue
+                ratios.append(float(tbv) / vol)
+            if len(ratios) < 6:
+                return 'NEUTRAL'
+            # 用倒数第二根作为"当前"（最新一根可能未完成）
+            historical = ratios[:-1]
+            current_ratio = ratios[-2] if len(ratios) >= 2 else ratios[-1]
+            avg = sum(historical) / len(historical)
+            variance = sum((r - avg) ** 2 for r in historical) / len(historical)
+            std = variance ** 0.5
+            if std == 0:
+                return 'NEUTRAL'
+            if current_ratio > avg + 1.5 * std and current_ratio > 0.65:
+                return 'BUY_SPIKE'
+            if current_ratio < avg - 1.5 * std and current_ratio < 0.35:
+                return 'SELL_SPIKE'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Order flow spike signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_vwap_deviation_signal(self, klines_1h: list) -> str:
+        """
+        24H VWAP 偏离信号 (Section 39, 来自 klines_1h)
+        VWAP (Volume-Weighted Average Price) = sum(typical_price × volume) / sum(volume)
+        typical_price = (high + low + close) / 3
+
+        价格相对 24H VWAP 的偏离度反映了超买/超卖程度:
+          偏离 > +5% → 价格明显超出 VWAP → 空头收缩机会 (SHORT 信号)
+          偏离 < -5% → 价格明显低于 VWAP → 多头回归机会 (LONG 信号)
+          偏离 +3~5% → 轻度超买 → SHORT 辅助
+          偏离 -3~-5% → 轻度超卖 → LONG 辅助
+
+        Returns: 'STRONG_ABOVE'|'ABOVE'|'STRONG_BELOW'|'BELOW'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 24:
+                return 'NEUTRAL'
+            # 使用最近 24 根 1H K 线计算 VWAP
+            recent = klines_1h[-24:]
+            total_vol = sum(float(k['volume']) for k in recent)
+            if total_vol <= 0:
+                return 'NEUTRAL'
+            vwap = sum(
+                (float(k['high']) + float(k['low']) + float(k['close'])) / 3.0 * float(k['volume'])
+                for k in recent
+            ) / total_vol
+            current_price = float(klines_1h[-1]['close'])
+            deviation_pct = (current_price - vwap) / vwap * 100.0
+            if deviation_pct > 5.0:
+                return 'STRONG_ABOVE'   # 明显超买 → SHORT
+            if deviation_pct > 3.0:
+                return 'ABOVE'          # 轻度超买 → SHORT (辅助)
+            if deviation_pct < -5.0:
+                return 'STRONG_BELOW'   # 明显超卖 → LONG
+            if deviation_pct < -3.0:
+                return 'BELOW'          # 轻度超卖 → LONG (辅助)
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"VWAP deviation signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_mtf_candle_resonance_signal(self, klines_1h: list, klines_15m: list) -> str:
+        """
+        多周期K线反转共振信号 (Section 38)
+        1H 出现反转形态（Hammer/Shooting Star/吞噬），同时 15M 同向确认反转已经启动。
+        两个时间框架共振 → 信号可靠性比单一周期高。
+
+        判断流程:
+          1. 检测 1H 当前 K 线是否为 Hammer / Shooting Star / 多头吞噬 / 空头吞噬
+          2. 检测最近 3 根 15M K 线中同向确认数（阳/阴线）
+          3. 同向确认 >= 2 根 → 输出 BULL/BEAR 共振信号
+
+        Returns: 'BULL_RESONANCE'|'BEAR_RESONANCE'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 5 or len(klines_15m) < 6:
+                return 'NEUTRAL'
+
+            # Step 1: 检测 1H 反转形态方向
+            h1_dir = 'NEUTRAL'
+            last = klines_1h[-1]
+            h = float(last['high']); l = float(last['low'])
+            o = float(last['open']); c = float(last['close'])
+            candle_range = h - l
+            if candle_range > 0:
+                body = abs(c - o)
+                upper_wick = h - max(c, o)
+                lower_wick = min(c, o) - l
+                prev3 = klines_1h[-4:-1]
+                bearish_prev = sum(1 for k in prev3 if float(k['close']) < float(k['open']))
+                bullish_prev = sum(1 for k in prev3 if float(k['close']) > float(k['open']))
+                # Hammer → 潜在 BULL
+                if (lower_wick >= 2 * body
+                        and lower_wick >= 1.5 * (upper_wick + 1e-9)
+                        and body <= candle_range * 0.40
+                        and bearish_prev >= 2):
+                    h1_dir = 'BULL'
+                # Shooting Star → 潜在 BEAR
+                elif (upper_wick >= 2 * body
+                        and upper_wick >= 1.5 * (lower_wick + 1e-9)
+                        and body <= candle_range * 0.40
+                        and bullish_prev >= 2):
+                    h1_dir = 'BEAR'
+                # 多头吞噬 → BULL
+                elif len(klines_1h) >= 3:
+                    prev = klines_1h[-2]
+                    prev_o = float(prev['open']); prev_c = float(prev['close'])
+                    if (c > o and prev_c < prev_o  # 当前阳线, 前根阴线
+                            and o < prev_c and c > prev_o  # 完全吞噬
+                            and body > abs(prev_c - prev_o) * 1.1  # 大10%以上
+                            and bearish_prev >= 2):
+                        h1_dir = 'BULL'
+                    elif (c < o and prev_c > prev_o  # 当前阴线, 前根阳线
+                            and o > prev_c and c < prev_o  # 完全吞噬
+                            and body > abs(prev_c - prev_o) * 1.1
+                            and bullish_prev >= 2):
+                        h1_dir = 'BEAR'
+
+            if h1_dir == 'NEUTRAL':
+                return 'NEUTRAL'
+
+            # Step 2: 用最近 3 根 15M K 线确认同向
+            recent_15m = klines_15m[-3:]
+            if h1_dir == 'BULL':
+                bull_confirm = sum(1 for k in recent_15m if float(k['close']) > float(k['open']))
+                if bull_confirm >= 2:
+                    return 'BULL_RESONANCE'
+            elif h1_dir == 'BEAR':
+                bear_confirm = sum(1 for k in recent_15m if float(k['close']) < float(k['open']))
+                if bear_confirm >= 2:
+                    return 'BEAR_RESONANCE'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"MTF candle resonance signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_range_breakout_signal(self, klines_1h: list) -> str:
+        """
+        价格区间突破+量能确认信号 (Section 36, 来自 klines_1h)
+        突破近期 N 小时高低点，且成交量显著放大，排除假突破
+
+        BULL_BREAKOUT: 当前收盘价 > 12H高点*1.005 AND 当前量 > 均量*1.5
+        BEAR_BREAKOUT: 当前收盘价 < 12H低点*0.995 AND 当前量 > 均量*1.5
+
+        - 与 position_24h_high/low 的区别: 后者是"处于区间边缘", 本信号是"已突破区间"
+        - 量能放大确认: 过滤低量假突破，真实突破需要资金介入
+
+        Returns: 'BULL_BREAKOUT'|'BEAR_BREAKOUT'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 14:
+                return 'NEUTRAL'
+            recent = klines_1h[-13:-1]   # 前12根（排除当前K线）
+            curr = klines_1h[-1]
+            range_high = max(k['high'] for k in recent)
+            range_low = min(k['low'] for k in recent)
+            avg_vol = sum(k['volume'] for k in recent) / len(recent)
+            curr_vol = float(curr['volume'])
+            curr_close = float(curr['close'])
+            if avg_vol <= 0:
+                return 'NEUTRAL'
+            vol_ratio = curr_vol / avg_vol
+            # 价格突破上轨 + 量能放大 → 多头突破
+            if curr_close > range_high * 1.005 and vol_ratio >= 1.5:
+                return 'BULL_BREAKOUT'
+            # 价格跌破下轨 + 量能放大 → 空头突破
+            if curr_close < range_low * 0.995 and vol_ratio >= 1.5:
+                return 'BEAR_BREAKOUT'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Range breakout signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_kdj_mtf_signal(self, symbol: str) -> str:
+        """
+        KDJ_J 多周期共振信号 (Section 34)
+        单独的1h KDJ在Section 9中已处理; 本信号要求1h AND 15m同时处于极端区域
+        以提高信号可靠性（两个时间框架共同确认）
+
+        J < 0  (极度超卖) 在1h, 且15m KDJ_J < 20 → EXTREME_BULL
+        J < 10 在1h AND J < 15 在15m → OVERSOLD_MTF
+        J > 100 (极度超买) 在1h, 且15m KDJ_J > 80 → EXTREME_BEAR
+        J > 90  在1h AND J > 85 在15m → OVERBOUGHT_MTF
+
+        数据来源: technical_indicators_cache (timeframe='1h'/'15m', 每小时更新)
+        Returns: 'EXTREME_BULL'|'OVERSOLD_MTF'|'EXTREME_BEAR'|'OVERBOUGHT_MTF'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT timeframe, kdj_j, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s AND timeframe IN ('1h', '15m')
+                    AND updated_at >= DATE_SUB(NOW(), INTERVAL 3 HOUR)
+                    ORDER BY timeframe, updated_at DESC
+                """, (symbol,))
+                rows = cursor.fetchall()
+            if not rows:
+                return 'NEUTRAL'
+            j_by_tf = {}
+            for row in rows:
+                tf = row['timeframe']
+                if tf not in j_by_tf and row['kdj_j'] is not None:
+                    j_by_tf[tf] = float(row['kdj_j'])
+            j_1h = j_by_tf.get('1h')
+            j_15m = j_by_tf.get('15m')
+            if j_1h is None or j_15m is None:
+                return 'NEUTRAL'
+            # Extreme oversold: 1h J < 0 AND 15m J < 20
+            if j_1h < 0 and j_15m < 20:
+                return 'EXTREME_BULL'
+            # Oversold MTF: 1h J < 10 AND 15m J < 15
+            if j_1h < 10 and j_15m < 15:
+                return 'OVERSOLD_MTF'
+            # Extreme overbought: 1h J > 100 AND 15m J > 80
+            if j_1h > 100 and j_15m > 80:
+                return 'EXTREME_BEAR'
+            # Overbought MTF: 1h J > 90 AND 15m J > 85
+            if j_1h > 90 and j_15m > 85:
+                return 'OVERBOUGHT_MTF'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"KDJ MTF signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_macd_mtf_signal(self, symbol: str) -> str:
+        """
+        MACD 多周期方向共振信号 (Section 35)
+        与Section 19(MACD零轴交叉)不同, 本信号持续检测1h和4h MACD柱状图方向
+        两个时间框架方向一致代表更可靠的趋势确认（非交叉事件, 而是持续方向）
+
+        1h histogram > 0 AND 4h histogram > 0 → BULL (双周期多头动量一致)
+        1h histogram < 0 AND 4h histogram < 0 → BEAR (双周期空头动量一致)
+        histogram > 0 意味着MACD在信号线上方, 动量为多头方向
+
+        数据来源: technical_indicators_cache (timeframe='1h'/'4h', 每小时更新)
+        Returns: 'BULL'|'BEAR'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT timeframe, macd_histogram, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s AND timeframe IN ('1h', '4h')
+                    AND updated_at >= DATE_SUB(NOW(), INTERVAL 5 HOUR)
+                    ORDER BY timeframe, updated_at DESC
+                """, (symbol,))
+                rows = cursor.fetchall()
+            if not rows:
+                return 'NEUTRAL'
+            hist_by_tf = {}
+            for row in rows:
+                tf = row['timeframe']
+                if tf not in hist_by_tf and row['macd_histogram'] is not None:
+                    hist_by_tf[tf] = float(row['macd_histogram'])
+            h_1h = hist_by_tf.get('1h')
+            h_4h = hist_by_tf.get('4h')
+            if h_1h is None or h_4h is None:
+                return 'NEUTRAL'
+            if h_1h > 0 and h_4h > 0:
+                return 'BULL'
+            if h_1h < 0 and h_4h < 0:
+                return 'BEAR'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"MACD MTF signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_vol_strength_signal(self, symbol: str) -> str:
+        """
+        成交量强度不对称信号 (来自 technical_signals_cache)
+        即使多头K线数量更多, 若空头单根K线均量 > 多头3倍, 说明空头力量压倒性更强
+        数据来源: technical_signals_cache (24h/1h窗口, 每小时更新)
+        Returns: 'BULL_DOMINANCE'|'BEAR_DOMINANCE'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT avg_bullish_strength, avg_bearish_strength, bullish_pct, updated_at
+                    FROM technical_signals_cache
+                    WHERE symbol = %s AND window_label = '24h' AND timeframe = '1h'
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=3):
+                return 'NEUTRAL'
+            bull_str = float(row['avg_bullish_strength'] or 0)
+            bear_str = float(row['avg_bearish_strength'] or 0)
+            bull_pct = float(row['bullish_pct'] or 50)
+            if bull_str <= 0 or bear_str <= 0:
+                return 'NEUTRAL'
+            bear_ratio = bear_str / bull_str
+            bull_ratio = bull_str / bear_str
+            # 空头单根均量 >= 3倍多头, 且非明显多头市场 -> 空头力量主导
+            if bear_ratio >= 3.0 and bull_pct < 60:
+                return 'BEAR_DOMINANCE'
+            # 多头单根均量 >= 3倍空头, 且非明显空头市场 -> 多头力量主导
+            if bull_ratio >= 3.0 and bull_pct > 40:
+                return 'BULL_DOMINANCE'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Vol strength signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_vol_4h_signal(self, symbol: str) -> str:
+        """
+        4H短周期成交量强度信号 (来自 technical_signals_cache 4h/15m窗口)
+        比24h/1h更敏感, 反映近4小时内的多空力量对比
+        Returns: 'BEAR_DOMINANCE'|'BULL_DOMINANCE'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT avg_bullish_strength, avg_bearish_strength, bullish_pct, updated_at
+                    FROM technical_signals_cache
+                    WHERE symbol = %s AND window_label = '4h' AND timeframe = '15m'
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=3):
+                return 'NEUTRAL'
+            bull_str = float(row['avg_bullish_strength'] or 0)
+            bear_str = float(row['avg_bearish_strength'] or 0)
+            bull_pct = float(row['bullish_pct'] or 50)
+            if bull_str <= 0 or bear_str <= 0:
+                return 'NEUTRAL'
+            bear_ratio = bear_str / bull_str
+            bull_ratio = bull_str / bear_str
+            # 空头4H均量 >= 2.5倍多头 (比24h信号阈值略低, 因为4H样本量更少)
+            if bear_ratio >= 2.5 and bull_pct < 65:
+                return 'BEAR_DOMINANCE'
+            if bull_ratio >= 2.5 and bull_pct > 35:
+                return 'BULL_DOMINANCE'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Vol 4h signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_micro_trend_signal(self, symbol: str) -> str:
+        """
+        1H微观趋势动量信号 (Section 40, 来自 technical_signals_cache 1h/5m窗口)
+        使用最近 1H 的 5M 数据（12根K线）判断极短期多空力量。
+        比 Section 25（4H/15M）时效性更强，适合捕捉近 1 小时内的方向性资金动向。
+
+        条件:
+          bear_ratio >= 2.0 AND bullish_pct < 45  → BEAR_DOMINANCE → micro_trend_bear
+          bull_ratio >= 2.0 AND bullish_pct > 55  → BULL_DOMINANCE → micro_trend_bull
+
+        阈值选 2.0x（比 Section 25 的 2.5x 低，因 1H/5M 样本量更少、噪声更大）
+
+        Returns: 'BEAR_DOMINANCE'|'BULL_DOMINANCE'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT avg_bullish_strength, avg_bearish_strength, bullish_pct, updated_at
+                    FROM technical_signals_cache
+                    WHERE symbol = %s AND window_label = '1h' AND timeframe = '5m'
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=2):
+                return 'NEUTRAL'
+            bull_str = float(row['avg_bullish_strength'] or 0)
+            bear_str = float(row['avg_bearish_strength'] or 0)
+            bull_pct = float(row['bullish_pct'] or 50)
+            if bull_str <= 0 or bear_str <= 0:
+                return 'NEUTRAL'
+            bear_ratio = bear_str / bull_str
+            bull_ratio = bull_str / bear_str
+            if bear_ratio >= 2.0 and bull_pct < 45:
+                return 'BEAR_DOMINANCE'
+            if bull_ratio >= 2.0 and bull_pct > 55:
+                return 'BULL_DOMINANCE'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Micro trend signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    # -----------------------------------------------------------------------
+    # OI 数据采集 + 信号
+    # -----------------------------------------------------------------------
+
+    def _collect_oi_for_symbol(self, symbol: str) -> bool:
+        """
+        采集单个交易对当前 Open Interest，写入 open_interest_history。
+        Binance FAPI: GET /fapi/v1/openInterest?symbol=BTCUSDT
+        symbol 格式: BTC/USDT -> BTCUSDT
+        """
+        try:
+            binance_symbol = symbol.replace('/', '')
+            url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={binance_symbol}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = _json.loads(resp.read())
+            oi_value = float(data.get('openInterest', 0))
+            if oi_value <= 0:
+                return False
+
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                # 计算15分钟变化率（和上一条比）
+                cursor.execute("""
+                    SELECT open_interest FROM open_interest_history
+                    WHERE symbol = %s
+                    ORDER BY collected_at DESC LIMIT 1
+                """, (symbol,))
+                prev = cursor.fetchone()
+                oi_change_15m = None
+                if prev and float(prev['open_interest']) > 0:
+                    oi_change_15m = round((oi_value - float(prev['open_interest'])) / float(prev['open_interest']) * 100, 4)
+
+                cursor.execute("""
+                    INSERT INTO open_interest_history (symbol, open_interest, oi_change_15m, collected_at)
+                    VALUES (%s, %s, %s, NOW())
+                """, (symbol, oi_value, oi_change_15m))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"OI collect failed for {symbol}: {e}")
+            return False
+
+    def _get_oi_signal(self, symbol: str) -> str:
+        """
+        S42: Open Interest 变化率信号
+        查最近1小时内的OI记录，计算累计变化率。
+        OI大幅增加 + 价格上涨 = 多头加仓（看涨）
+        OI大幅增加 + 价格下跌 = 空头加仓（看空）
+        OI大幅减少 = 平仓，趋势可能反转
+
+        Returns: 'LONG_BUILD'|'SHORT_BUILD'|'LIQUIDATION_BULL'|'LIQUIDATION_BEAR'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT open_interest, oi_change_15m, collected_at
+                    FROM open_interest_history
+                    WHERE symbol = %s
+                      AND collected_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                    ORDER BY collected_at ASC
+                """, (symbol,))
+                rows = cursor.fetchall()
+            if len(rows) < 2:
+                return 'NEUTRAL'
+
+            first_oi = float(rows[0]['open_interest'])
+            last_oi = float(rows[-1]['open_interest'])
+            if first_oi <= 0:
+                return 'NEUTRAL'
+            total_change_pct = (last_oi - first_oi) / first_oi * 100
+
+            if total_change_pct >= 3.0:
+                return 'OI_SURGE'      # OI大幅增加，结合价格判断
+            if total_change_pct <= -3.0:
+                return 'OI_DROP'       # OI大幅减少，持仓平仓
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"OI signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _run_oi_collection_round(self, symbols: list):
+        """采集所有交易对的OI，每15分钟调用一次（从主循环调度）"""
+        ok = 0
+        for sym in symbols:
+            if self._collect_oi_for_symbol(sym):
+                ok += 1
+        logger.debug(f"OI collection: {ok}/{len(symbols)} symbols updated")
+
+    def _get_momentum_accel_signal(self, klines_1h: list) -> str:
+        """
+        价格动量加速信号 (来自 klines_1h)
+        对比最近2H vs 前2H的价格变化率, 判断动量是否在加速
+        Returns: 'ACCEL_DOWN'|'ACCEL_UP'|'DECEL_DOWN'|'NEUTRAL'
+        - ACCEL_DOWN: 最近2H跌幅 > 前2H跌幅 * 1.5 → 空头加速
+        - ACCEL_UP:   最近2H涨幅 > 前2H涨幅 * 1.5 → 多头加速
+        - DECEL_DOWN: 前2H有较大跌幅, 最近2H明显减速 → 潜在反弹
+        """
+        try:
+            if len(klines_1h) < 5:
+                return 'NEUTRAL'
+            # 最近2根K线的价格变化
+            recent_close = klines_1h[-1]['close']
+            two_h_ago_close = klines_1h[-3]['close']  # 2H前
+            four_h_ago_close = klines_1h[-5]['close']  # 4H前
+            if two_h_ago_close <= 0 or four_h_ago_close <= 0:
+                return 'NEUTRAL'
+            recent_chg = (recent_close - two_h_ago_close) / two_h_ago_close * 100
+            prior_chg = (two_h_ago_close - four_h_ago_close) / four_h_ago_close * 100
+            # 两段变化量都太小则忽略
+            if abs(recent_chg) < 0.3 and abs(prior_chg) < 0.3:
+                return 'NEUTRAL'
+            # 空头加速: 两段都在跌, 且最近跌幅更大
+            if recent_chg < -0.5 and prior_chg < -0.3 and recent_chg < prior_chg * 1.5:
+                return 'ACCEL_DOWN'
+            # 多头加速: 两段都在涨, 且最近涨幅更大
+            if recent_chg > 0.5 and prior_chg > 0.3 and recent_chg > prior_chg * 1.5:
+                return 'ACCEL_UP'
+            # 空头减速: 前段有明显下跌, 最近明显减速 → 可能反弹
+            if prior_chg < -1.0 and recent_chg > prior_chg * 0.3:
+                return 'DECEL_DOWN'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Momentum accel signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_candle_quality_signal(self, klines_1h: list) -> str:
+        """
+        K线实体质量信号: 最近6根1H蜡烛实体占比 + 方向
+        高实体占比(>0.65)说明趋势方向明确, 无大影线表示无阻力
+        Returns: 'STRONG_BEAR'|'STRONG_BULL'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 6:
+                return 'NEUTRAL'
+            recent = klines_1h[-6:]
+            bear_quality = []
+            bull_quality = []
+            for k in recent:
+                high = k.get('high', 0)
+                low = k.get('low', 0)
+                open_p = k.get('open', 0)
+                close = k.get('close', 0)
+                total_range = high - low
+                if total_range <= 0:
+                    continue
+                body = abs(close - open_p)
+                body_ratio = body / total_range
+                if close < open_p:  # 阴线
+                    bear_quality.append(body_ratio)
+                else:  # 阳线
+                    bull_quality.append(body_ratio)
+            # 需要至少4根同向K线且平均实体占比高
+            if len(bear_quality) >= 4:
+                avg_bear_quality = sum(bear_quality) / len(bear_quality)
+                if avg_bear_quality >= 0.55:
+                    return 'STRONG_BEAR'
+            if len(bull_quality) >= 4:
+                avg_bull_quality = sum(bull_quality) / len(bull_quality)
+                if avg_bull_quality >= 0.55:
+                    return 'STRONG_BULL'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Candle quality signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_funding_trend_signal(self, symbol: str) -> str:
+        """
+        资金费率趋势信号 (来自 funding_rate_stats 的 trend 列)
+        基于费率趋势和市场情绪，识别多头过热或空头拥挤机会。
+        与 Section 12 的 _get_funding_rate_signal (极端值检测) 互补，
+        本方法利用 trend/market_sentiment 字段，门槛更低。
+        Returns:
+          'OVERHEATED'       - 多头过热(正费率>0.05%), SHORT候选
+          'BULLISH'          - 轻度多头偏向(正费率>0.02%), SHORT候选
+          'STRONGLY_BEARISH' - 空头过度拥挤(负费率<-0.05%), LONG候选(挤空)
+          'BEARISH'          - 轻度空头偏向(负费率<-0.03%), LONG候选
+          'NEUTRAL'          - 无明显信号
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT current_rate_pct, trend, updated_at
+                    FROM funding_rate_stats
+                    WHERE symbol = %s
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            if row.get('updated_at') and (datetime.now() - row['updated_at']) > timedelta(hours=4):
+                return 'NEUTRAL'
+            rate = float(row.get('current_rate_pct') or 0)
+            trend = row.get('trend', 'neutral') or 'neutral'
+            # 多头过热: 正费率高, 做多成本大, 潜在空头机会
+            if trend in ('strongly_bullish',) and rate >= 0.05:
+                return 'OVERHEATED'
+            if trend in ('bullish', 'strongly_bullish') and rate >= 0.02:
+                return 'BULLISH'
+            # 空头过度: 负费率深, 做空成本大, 潜在挤空机会
+            if trend in ('strongly_bearish',) and rate <= -0.05:
+                return 'STRONGLY_BEARISH'
+            if trend in ('bearish', 'strongly_bearish') and rate <= -0.03:
+                return 'BEARISH'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Funding trend signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_adx_signal(self, klines_1h: list) -> str:
+        """
+        ADX趋势强度信号 (从 klines_1h 实时计算, 14周期)
+        ADX衡量趋势强度, +DI/-DI判断方向。
+        Returns:
+          'STRONG_BEAR'  - ADX>25 且 -DI>+DI 且 -DI>25 (强下降趋势)
+          'STRONG_BULL'  - ADX>25 且 +DI>-DI 且 +DI>25 (强上升趋势)
+          'WEAK_TREND'   - ADX<20 (震荡市，趋势信号不可靠)
+          'NEUTRAL'      - 其他
+        """
+        try:
+            if len(klines_1h) < 20:
+                return 'NEUTRAL'
+            period = 14
+            needed = period * 2 + 1
+            klines = klines_1h[-min(needed, len(klines_1h)):]
+            if len(klines) < period + 1:
+                return 'NEUTRAL'
+            tr_list, plus_dm, minus_dm = [], [], []
+            for i in range(1, len(klines)):
+                h = klines[i]['high']
+                l = klines[i]['low']
+                prev_c = klines[i-1]['close']
+                prev_h = klines[i-1]['high']
+                prev_l = klines[i-1]['low']
+                tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+                tr_list.append(tr)
+                up_move = h - prev_h
+                down_move = prev_l - l
+                pdm = up_move if up_move > down_move and up_move > 0 else 0
+                ndm = down_move if down_move > up_move and down_move > 0 else 0
+                plus_dm.append(pdm)
+                minus_dm.append(ndm)
+            # Wilder smoothing
+            def wilder_smooth(data, n):
+                if len(data) < n:
+                    return []
+                result = [sum(data[:n])]
+                for i in range(n, len(data)):
+                    result.append(result[-1] - result[-1] / n + data[i])
+                return result
+            atr_s = wilder_smooth(tr_list, period)
+            pdi_s = wilder_smooth(plus_dm, period)
+            ndi_s = wilder_smooth(minus_dm, period)
+            if not atr_s:
+                return 'NEUTRAL'
+            dx_list = []
+            for i in range(len(atr_s)):
+                if atr_s[i] <= 0:
+                    continue
+                pdi = 100 * pdi_s[i] / atr_s[i]
+                ndi = 100 * ndi_s[i] / atr_s[i]
+                di_sum = pdi + ndi
+                if di_sum <= 0:
+                    continue
+                dx = 100 * abs(pdi - ndi) / di_sum
+                dx_list.append((dx, pdi, ndi))
+            if len(dx_list) < period:
+                return 'NEUTRAL'
+            adx = sum(d[0] for d in dx_list[-period:]) / period
+            last_pdi = dx_list[-1][1]
+            last_ndi = dx_list[-1][2]
+            if adx > 25 and last_ndi > last_pdi and last_ndi > 25:
+                return 'STRONG_BEAR'
+            if adx > 25 and last_pdi > last_ndi and last_pdi > 25:
+                return 'STRONG_BULL'
+            if adx < 20:
+                return 'WEAK_TREND'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"ADX signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_volume_divergence_signal(self, klines_1h: list) -> str:
+        """
+        量价背离信号 (来自 klines_1h)
+        价格创新低但成交量萎缩 → 空头动能减弱 → 潜在LONG
+        价格创新高但成交量萎缩 → 多头动能减弱 → 潜在SHORT
+        Returns: 'VOL_DIVERGE_BULL'|'VOL_DIVERGE_BEAR'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 10:
+                return 'NEUTRAL'
+            recent = klines_1h[-6:]
+            earlier = klines_1h[-10:-4]
+            recent_close_min = min(k['close'] for k in recent)
+            earlier_close_min = min(k['close'] for k in earlier)
+            recent_close_max = max(k['close'] for k in recent)
+            earlier_close_max = max(k['close'] for k in earlier)
+            recent_vol_avg = sum(k['volume'] for k in recent) / len(recent)
+            earlier_vol_avg = sum(k['volume'] for k in earlier) / len(earlier)
+            if earlier_vol_avg <= 0:
+                return 'NEUTRAL'
+            vol_ratio = recent_vol_avg / earlier_vol_avg
+            # 价格创新低但量能萎缩超过20%: 空头乏力, LONG机会
+            if recent_close_min < earlier_close_min * 0.995 and vol_ratio < 0.80:
+                return 'VOL_DIVERGE_BULL'
+            # 价格创新高但量能萎缩超过20%: 多头乏力, SHORT机会
+            if recent_close_max > earlier_close_max * 1.005 and vol_ratio < 0.80:
+                return 'VOL_DIVERGE_BEAR'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Volume divergence signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_candle_reversal_signal(self, klines_1h: list) -> str:
+        """
+        K线反转形态信号 (来自 klines_1h)
+        Hammer(锤线): 下影线长 >= 2倍实体 + 前3根偏空 → 空头衰竭, LONG机会
+        Shooting Star(射击之星): 上影线长 >= 2倍实体 + 前3根偏多 → 多头衰竭, SHORT机会
+        适用于已有主方向信号的辅助确认, 权重较低(辅助性)
+        Returns: 'HAMMER'|'SHOOTING_STAR'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 5:
+                return 'NEUTRAL'
+            last = klines_1h[-1]
+            h = float(last['high'])
+            l = float(last['low'])
+            o = float(last['open'])
+            c = float(last['close'])
+            candle_range = h - l
+            if candle_range <= 0:
+                return 'NEUTRAL'
+            body = abs(c - o)
+            upper_wick = h - max(c, o)
+            lower_wick = min(c, o) - l
+            # Hammer: 下影线 >= 2×实体, 下影线 >= 1.5×上影线, 实体不超过总range的40%
+            if (lower_wick >= 2 * body
+                    and lower_wick >= 1.5 * (upper_wick + 1e-9)
+                    and body <= candle_range * 0.40):
+                # 前3根至少2根是阴线 (之前处于下跌趋势才有反转意义)
+                prev3 = klines_1h[-4:-1]
+                bearish_prev = sum(1 for k in prev3 if k['close'] < k['open'])
+                if bearish_prev >= 2:
+                    return 'HAMMER'
+            # Shooting Star: 上影线 >= 2×实体, 上影线 >= 1.5×下影线, 实体不超过总range的40%
+            if (upper_wick >= 2 * body
+                    and upper_wick >= 1.5 * (lower_wick + 1e-9)
+                    and body <= candle_range * 0.40):
+                # 前3根至少2根是阳线 (之前处于上涨趋势才有反转意义)
+                prev3 = klines_1h[-4:-1]
+                bullish_prev = sum(1 for k in prev3 if k['close'] > k['open'])
+                if bullish_prev >= 2:
+                    return 'SHOOTING_STAR'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Candle reversal signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_price_structure_signal(self, klines_1h: list) -> str:
+        """
+        价格结构信号 (来自 klines_1h)
+        连续更高的低点 (Higher Lows): 下跌趋势内多头防守逐步上移, 空头压力减弱 → LONG
+        连续更低的高点 (Lower Highs): 上涨趋势内空头反扑逐步下移, 多头推力减弱 → SHORT
+        使用 Low 和 High 价格, 不依赖收盘方向
+        Returns: 'HIGHER_LOWS'|'LOWER_HIGHS'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 6:
+                return 'NEUTRAL'
+            recent = klines_1h[-5:]  # 最近5根K线
+            lows = [float(k['low']) for k in recent]
+            highs = [float(k['high']) for k in recent]
+            # 连续更高的低点: 至少4对连续满足条件 (5根K线中4对相邻对)
+            higher_lows = sum(1 for i in range(1, len(lows)) if lows[i] > lows[i-1])
+            lower_highs = sum(1 for i in range(1, len(highs)) if highs[i] < highs[i-1])
+            if higher_lows >= 4:
+                return 'HIGHER_LOWS'
+            if lower_highs >= 4:
+                return 'LOWER_HIGHS'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Price structure signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_engulfing_signal(self, klines_1h: list) -> str:
+        """
+        吞噬形态信号 (Engulfing Pattern, 来自 klines_1h)
+        多头吞噬: 当前阳线实体完全包住前一根阴线实体, 且前3根偏空 → 强力反转信号 LONG
+        空头吞噬: 当前阴线实体完全包住前一根阳线实体, 且前3根偏多 → 强力反转信号 SHORT
+        比锤线/射击之星更可靠的反转确认形态
+        Returns: 'BULL_ENGULF'|'BEAR_ENGULF'|'NEUTRAL'
+        """
+        try:
+            if len(klines_1h) < 5:
+                return 'NEUTRAL'
+            curr = klines_1h[-1]
+            prev = klines_1h[-2]
+            curr_body_low = min(float(curr['close']), float(curr['open']))
+            curr_body_high = max(float(curr['close']), float(curr['open']))
+            prev_body_low = min(float(prev['close']), float(prev['open']))
+            prev_body_high = max(float(prev['close']), float(prev['open']))
+            prev_body_size = prev_body_high - prev_body_low
+            curr_body_size = curr_body_high - curr_body_low
+            # 实体太小则无意义 (doji不算)
+            if prev_body_size < 1e-9 or curr_body_size < 1e-9:
+                return 'NEUTRAL'
+            prev3 = klines_1h[-4:-1]
+            # 多头吞噬: 当前为阳线, 实体完全包住前根阴线实体
+            if (float(curr['close']) > float(curr['open'])  # 当前阳线
+                    and float(prev['close']) < float(prev['open'])  # 前根阴线
+                    and curr_body_low <= prev_body_low
+                    and curr_body_high >= prev_body_high
+                    and curr_body_size >= prev_body_size * 1.1):  # 当前实体至少比前根大10%
+                bearish_prev = sum(1 for k in prev3 if k['close'] < k['open'])
+                if bearish_prev >= 2:
+                    return 'BULL_ENGULF'
+            # 空头吞噬: 当前为阴线, 实体完全包住前根阳线实体
+            if (float(curr['close']) < float(curr['open'])  # 当前阴线
+                    and float(prev['close']) > float(prev['open'])  # 前根阳线
+                    and curr_body_low <= prev_body_low
+                    and curr_body_high >= prev_body_high
+                    and curr_body_size >= prev_body_size * 1.1):  # 当前实体至少比前根大10%
+                bullish_prev = sum(1 for k in prev3 if k['close'] > k['open'])
+                if bullish_prev >= 2:
+                    return 'BEAR_ENGULF'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"Engulfing signal failed: {e}")
+            return 'NEUTRAL'
+
+    def _get_rsi_mtf_signal(self, symbol: str) -> str:
+        """
+        多周期RSI共振信号 (来自 technical_indicators_cache)
+        1h和15m RSI同时超卖/超买, 共振确认, 信号强度更高
+        数据来源: technical_indicators_cache (每小时更新)
+        Returns: 'STRONG_LONG'|'STRONG_SHORT'|'LONG'|'SHORT'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT timeframe, rsi_value, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s AND timeframe IN ('1h', '15m')
+                    AND rsi_value IS NOT NULL
+                    ORDER BY updated_at DESC
+                    LIMIT 4
+                """, (symbol,))
+                rows = cursor.fetchall()
+            if not rows:
+                return 'NEUTRAL'
+            from datetime import datetime, timedelta
+            rsi_map = {}
+            for r in rows:
+                tf = r['timeframe']
+                if tf not in rsi_map:
+                    if r['updated_at'] and (datetime.now() - r['updated_at']) <= timedelta(hours=3):
+                        rsi_map[tf] = float(r['rsi_value'])
+            rsi_1h  = rsi_map.get('1h')
+            rsi_15m = rsi_map.get('15m')
+            if rsi_1h is None or rsi_15m is None:
+                return 'NEUTRAL'
+            # 双周期同时超卖: 强多头共振
+            if rsi_1h < 25 and rsi_15m < 25:
+                return 'STRONG_LONG'
+            # 双周期同时超买: 强空头共振
+            if rsi_1h > 75 and rsi_15m > 75:
+                return 'STRONG_SHORT'
+            # 单周期超卖
+            if rsi_1h < 30 and rsi_15m < 35:
+                return 'LONG'
+            if rsi_1h < 35 and rsi_15m < 30:
+                return 'LONG'
+            # 单周期超买
+            if rsi_1h > 70 and rsi_15m > 65:
+                return 'SHORT'
+            if rsi_1h > 65 and rsi_15m > 70:
+                return 'SHORT'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"RSI MTF signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_relative_strength_signal(self, symbol: str) -> str:
+        """
+        相对强弱信号 (vs BTC)
+        币种24H涨跌幅与BTC比较: 弱于BTC→空头; 强于BTC→多头
+        极端弱势（跌幅远超BTC）: STRONG_SHORT
+        极端强势（涨幅远超BTC）: STRONG_LONG
+        数据来源: price_stats_24h (每15分钟更新)
+        Returns: 'VERY_WEAK'|'WEAK'|'STRONG'|'VERY_STRONG'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT p.change_24h as coin_change,
+                           b.change_24h as btc_change
+                    FROM price_stats_24h p
+                    JOIN price_stats_24h b ON b.symbol = 'BTC/USDT'
+                    WHERE p.symbol = %s
+                    AND p.updated_at > DATE_SUB(NOW(), INTERVAL 2 HOUR)
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+            if not row or row['btc_change'] is None or row['coin_change'] is None:
+                return 'NEUTRAL'
+            diff = float(row['coin_change']) - float(row['btc_change'])
+            if diff <= -10:
+                return 'VERY_WEAK'
+            elif diff <= -5:
+                return 'WEAK'
+            elif diff >= 10:
+                return 'VERY_STRONG'
+            elif diff >= 5:
+                return 'STRONG'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"RS signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_ema_mtf_signal(self, symbol: str) -> str:
+        """
+        多周期EMA趋势共振信号 (来自 technical_indicators_cache)
+        15m + 1h + 4h EMA全部同向: 强趋势共振信号
+        三周期全部向上: 极少见,强多头 (牛市中逆势强势股)
+        三周期全部向下: 熊市中普遍,中等空头确认
+        数据来源: technical_indicators_cache (每小时更新)
+        Returns: 'TRIPLE_BULL'|'TRIPLE_BEAR'|'PARTIAL_BULL'|'PARTIAL_BEAR'|'NEUTRAL'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT timeframe, ema_trend, updated_at
+                    FROM technical_indicators_cache
+                    WHERE symbol = %s AND timeframe IN ('15m', '1h', '4h')
+                    AND updated_at > DATE_SUB(NOW(), INTERVAL 3 HOUR)
+                    ORDER BY updated_at DESC
+                    LIMIT 6
+                """, (symbol,))
+                rows = cursor.fetchall()
+            if not rows:
+                return 'NEUTRAL'
+            ema_map = {}
+            for r in rows:
+                tf = r['timeframe']
+                if tf not in ema_map and r['ema_trend']:
+                    ema_map[tf] = r['ema_trend']
+            t15m = ema_map.get('15m')
+            t1h  = ema_map.get('1h')
+            t4h  = ema_map.get('4h')
+            if None in (t15m, t1h, t4h):
+                return 'NEUTRAL'
+            if t15m == 'up' and t1h == 'up' and t4h == 'up':
+                return 'TRIPLE_BULL'
+            if t15m == 'down' and t1h == 'down' and t4h == 'down':
+                return 'TRIPLE_BEAR'
+            # 两个周期对齐
+            if t1h == 'up' and t4h == 'up':
+                return 'PARTIAL_BULL'
+            if t1h == 'down' and t4h == 'down':
+                return 'PARTIAL_BEAR'
+            return 'NEUTRAL'
+        except Exception as e:
+            logger.debug(f"EMA MTF signal failed for {symbol}: {e}")
+            return 'NEUTRAL'
+
+    def _get_funding_rate_signal(self, symbol: str) -> tuple:
+        """
+        读取资金费率，返回信号方向及强度
+        Returns: (signal, rate_pct)
+          signal: 'STRONG_LONG'|'LONG'|'STRONG_SHORT'|'SHORT'|'NEUTRAL'
+          rate_pct: 当前费率（百分比，如 -0.22）
+        - 负费率极端 → 空头挤爆预警 → LONG 机会
+        - 正费率极端 → 多头过热预警 → SHORT 机会
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT current_rate_pct, updated_at
+                    FROM funding_rate_stats
+                    WHERE symbol = %s
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+
+            if not row or row['current_rate_pct'] is None:
+                return ('NEUTRAL', 0.0)
+
+            from datetime import datetime, timedelta
+            if row['updated_at'] and (datetime.now() - row['updated_at']) > timedelta(hours=2):
+                return ('NEUTRAL', 0.0)
+
+            rate_pct = float(row['current_rate_pct'])
+            # 极端负费率（空头在付钱）→ LONG 做多机会
+            if rate_pct <= -0.15:
+                return ('STRONG_LONG', rate_pct)
+            elif rate_pct <= -0.08:
+                return ('LONG', rate_pct)
+            # 极端正费率（多头在付钱）→ SHORT 做空机会
+            elif rate_pct >= 0.15:
+                return ('STRONG_SHORT', rate_pct)
+            elif rate_pct >= 0.08:
+                return ('SHORT', rate_pct)
+            else:
+                return ('NEUTRAL', rate_pct)
+        except Exception as e:
+            logger.debug(f"Funding rate signal query failed for {symbol}: {e}")
+            return ('NEUTRAL', 0.0)
+
     def check_anti_fomo_filter(self, symbol: str, current_price: float, side: str) -> tuple:
         """
         防追高/防杀跌过滤器（V5.2重新启用 - 2026-03-22）
@@ -419,7 +2061,7 @@ class SmartDecisionBrain:
         query = """
             SELECT open_price as open, high_price as high,
                    low_price as low, close_price as close,
-                   volume
+                   volume, taker_buy_base_volume
             FROM kline_data
             WHERE symbol = %s AND timeframe = %s AND exchange = 'binance_futures'
             AND open_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 60 DAY)) * 1000
@@ -436,6 +2078,8 @@ class SmartDecisionBrain:
             k['low'] = float(k['low'])
             k['close'] = float(k['close'])
             k['volume'] = float(k['volume'])
+            if k.get('taker_buy_base_volume') is not None:
+                k['taker_buy_base_volume'] = float(k['taker_buy_base_volume'])
 
         return klines
 
@@ -701,8 +2345,18 @@ class SmartDecisionBrain:
                     short_score += weight['short']
                     signal_components['volume_power_12x_bear'] = weight['short']
 
-            # 8. 突破追涨信号: 已禁用 (历史数据: 85笔, 28.2%胜率, -$600亏损)
-            # 禁用原因: 追高风险大，胜率低，容易买在顶部
+            # 8. 高位突破追涨信号: position_high + 双重多头量能 + Big4非强空
+            # 重启条件：原版无Big4过滤导致熊市追涨；现加 STRONG_BEARISH 拦截
+            if position_pct > 70 and net_power_1h >= 2 and net_power_15m >= 2:
+                big4_is_strong_bear = (big4_result and
+                                       big4_result.get('overall_signal') == 'STRONG_BEARISH' and
+                                       big4_result.get('signal_strength', 0) >= 50)
+                if not big4_is_strong_bear:
+                    weight = self.scoring_weights.get('breakout_long', {'long': 0, 'short': 0})
+                    long_score += weight['long']
+                    if weight['long'] > 0:
+                        signal_components['breakout_long'] = weight['long']
+                        logger.info(f"{symbol} 高位突破: position={position_pct:.1f}%, 1H净力量={net_power_1h}, 15M净力量={net_power_15m}")
 
             # 9. 破位追空信号: position_low + 强力量能空头 → 可以做空
             # 历史数据验证: 643笔订单, 55.8%胜率, $5736盈利 (最赚钱的信号之一)
@@ -726,9 +2380,791 @@ class SmartDecisionBrain:
                     signal_components['big4_strong_bull_cont'] = weight['long']
                     logger.info(f"{symbol} Big4强力牛市延续: signal_strength={big4_result.get('signal_strength',0):.0f}, gain_24h={gain_24h:.2f}%")
 
+            # 11. 量价高潮信号 (volume_climax)
+            # 原理: 连续阴线+量能递增 = 多杀多高潮，价格超卖，空头动能衰竭 → LONG
+            #       连续阳线+量能递增 = 多头高潮，价格超买，买盘枯竭  → SHORT
+            vc_signal = self._detect_volume_climax(klines_1h)
+            if vc_signal == 'BULLISH_CLIMAX':
+                weight = self.scoring_weights.get('volume_climax_bull', {'long': 20, 'short': 0})
+                if weight['long'] > 0:
+                    long_score += weight['long']
+                    signal_components['volume_climax_bull'] = weight['long']
+                    logger.info(f"{symbol} 空头量价高潮(LONG信号): 连续阴线+量递增")
+            elif vc_signal == 'BEARISH_CLIMAX':
+                weight = self.scoring_weights.get('volume_climax_bear', {'long': 0, 'short': 20})
+                if weight['short'] > 0:
+                    short_score += weight['short']
+                    signal_components['volume_climax_bear'] = weight['short']
+                    logger.info(f"{symbol} 多头量价高潮(SHORT信号): 连续阳线+量递增")
+
+            # 12. Hyperliquid 鲸鱼资金流向信号 (whale_flow)
+            # 数据来源: hyperliquid_symbol_aggregation (每小时更新)
+            # 原理: Hyperliquid 上聪明钱的多空比和净流向 → 领先指标
+            hl_signal, hl_ls_ratio, hl_net_flow, hl_vol = self._get_hl_whale_signal(symbol)
+            if hl_signal == 'STRONG_BULLISH':
+                weight = self.scoring_weights.get('whale_flow_long', {'long': 25, 'short': 0})
+                if weight['long'] > 0:
+                    long_score += weight['long']
+                    signal_components['whale_flow_long'] = weight['long']
+                    logger.info(f"{symbol} HL鲸鱼做多: signal={hl_signal} L/S={hl_ls_ratio:.2f} net={hl_net_flow:+.0f} vol={hl_vol:.0f}")
+            elif hl_signal == 'BULLISH':
+                weight = self.scoring_weights.get('whale_flow_long', {'long': 25, 'short': 0})
+                pts = max(1, int(weight['long'] * 0.72))  # 72% weight for regular BULLISH
+                if pts > 0:
+                    long_score += pts
+                    signal_components['whale_flow_long'] = pts
+                    logger.info(f"{symbol} HL鲸鱼做多(弱): signal={hl_signal} L/S={hl_ls_ratio:.2f} net={hl_net_flow:+.0f} vol={hl_vol:.0f}")
+            elif hl_signal == 'STRONG_BEARISH':
+                weight = self.scoring_weights.get('whale_flow_short', {'long': 0, 'short': 25})
+                if weight['short'] > 0:
+                    short_score += weight['short']
+                    signal_components['whale_flow_short'] = weight['short']
+                    logger.info(f"{symbol} HL鲸鱼做空: signal={hl_signal} L/S={hl_ls_ratio:.2f} net={hl_net_flow:+.0f} vol={hl_vol:.0f}")
+            elif hl_signal == 'BEARISH':
+                weight = self.scoring_weights.get('whale_flow_short', {'long': 0, 'short': 25})
+                pts = max(1, int(weight['short'] * 0.72))
+                if pts > 0:
+                    short_score += pts
+                    signal_components['whale_flow_short'] = pts
+                    logger.info(f"{symbol} HL鲸鱼做空(弱): signal={hl_signal} L/S={hl_ls_ratio:.2f} net={hl_net_flow:+.0f} vol={hl_vol:.0f}")
+
+            # 12. 资金费率极端信号 (funding_rate_extreme)
+            # 原理: 费率极负 = 空头在付钱 = 空头过拥挤 = LONG 反弹机会
+            #       费率极正 = 多头在付钱 = 多头过拥挤 = SHORT 反转机会
+            # 注: 与防追高/多空禁令过滤层独立；提供补充确认分
+            fr_signal, fr_rate = self._get_funding_rate_signal(symbol)
+            if fr_signal == 'STRONG_LONG':
+                weight = self.scoring_weights.get('funding_rate_extreme_long', {'long': 22, 'short': 0})
+                if weight['long'] > 0:
+                    long_score += weight['long']
+                    signal_components['funding_rate_extreme_long'] = weight['long']
+                    logger.info(f"{symbol} 资金费率极负LONG: {fr_rate:.3f}%")
+            elif fr_signal == 'LONG':
+                weight = self.scoring_weights.get('funding_rate_extreme_long', {'long': 22, 'short': 0})
+                pts = max(1, int(weight['long'] * 0.64))
+                if pts > 0:
+                    long_score += pts
+                    signal_components['funding_rate_extreme_long'] = pts
+                    logger.info(f"{symbol} 资金费率偏负LONG: {fr_rate:.3f}%")
+            elif fr_signal == 'STRONG_SHORT':
+                weight = self.scoring_weights.get('funding_rate_extreme_short', {'long': 0, 'short': 22})
+                if weight['short'] > 0:
+                    short_score += weight['short']
+                    signal_components['funding_rate_extreme_short'] = weight['short']
+                    logger.info(f"{symbol} 资金费率极正SHORT: {fr_rate:.3f}%")
+            elif fr_signal == 'SHORT':
+                weight = self.scoring_weights.get('funding_rate_extreme_short', {'long': 0, 'short': 22})
+                pts = max(1, int(weight['short'] * 0.64))
+                if pts > 0:
+                    short_score += pts
+                    signal_components['funding_rate_extreme_short'] = pts
+                    logger.info(f"{symbol} 资金费率偏正SHORT: {fr_rate:.3f}%")
+
+            # 14. 多时间框架共振信号 (mf_confluence)
+            # 数据: technical_signals_cache (每小时更新，基于5m/15m/1h K线)
+            # 原理: 1H[24h] + 15M[4h] 同方向 → 趋势可信度更高
+            mf_signal = self._get_mf_confluence_signal(symbol)
+            if mf_signal in ('BULLISH', 'STRONG_BULLISH'):
+                weight = self.scoring_weights.get('mf_confluence_bull', {'long': 15, 'short': 0})
+                pts = weight['long'] if mf_signal == 'STRONG_BULLISH' else max(1, int(weight['long'] * 0.8))
+                if pts > 0:
+                    long_score += pts
+                    signal_components['mf_confluence_bull'] = pts
+                    logger.debug(f"{symbol} 多时框共振多头: {mf_signal}")
+            elif mf_signal in ('BEARISH', 'STRONG_BEARISH'):
+                weight = self.scoring_weights.get('mf_confluence_bear', {'long': 0, 'short': 15})
+                pts = weight['short'] if mf_signal == 'STRONG_BEARISH' else max(1, int(weight['short'] * 0.8))
+                if pts > 0:
+                    short_score += pts
+                    signal_components['mf_confluence_bear'] = pts
+                    logger.debug(f"{symbol} 多时框共振空头: {mf_signal}")
+
+            # 15. RSI背离信号 (rsi_divergence)
+            # 原理: 价格和RSI方向背离说明动量衰竭，预示趋势反转
+            # 多头背离: 价格创新低但RSI底部抬高 → 卖压耗尽 → LONG
+            # 空头背离: 价格创新高但RSI顶部降低 → 买力枯竭 → SHORT
+            rsi_div_signal = self._detect_rsi_divergence(klines_1h)
+            if rsi_div_signal == 'BULLISH_DIVERGENCE':
+                weight = self.scoring_weights.get('rsi_divergence_bull', {'long': 18, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['rsi_divergence_bull'] = pts
+                    logger.debug(f"{symbol} RSI多头背离: 价格新低但RSI底部抬高")
+            elif rsi_div_signal == 'BEARISH_DIVERGENCE':
+                weight = self.scoring_weights.get('rsi_divergence_bear', {'long': 0, 'short': 18})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['rsi_divergence_bear'] = pts
+                    logger.debug(f"{symbol} RSI空头背离: 价格新高但RSI顶部降低")
+
+            # 16. RSI绝对位置信号 (rsi_level) - 超卖/超买
+            # 原理: RSI极端水平代表价格偏离均衡的程度，历史均值回归倾向
+            # 与RSI背离互补：背离=动量变化，位置=绝对水平
+            rsi_level_signal = self._get_rsi_level_signal(klines_1h)
+            if rsi_level_signal in ('STRONG_LONG', 'LONG'):
+                weight = self.scoring_weights.get('rsi_level_bull', {'long': 20, 'short': 0})
+                pts = weight['long'] if rsi_level_signal == 'STRONG_LONG' else max(1, int(weight['long'] * 0.7))
+                if pts > 0:
+                    long_score += pts
+                    signal_components['rsi_level_bull'] = pts
+                    logger.debug(f"{symbol} RSI超卖: {rsi_level_signal}")
+            elif rsi_level_signal in ('STRONG_SHORT', 'SHORT'):
+                weight = self.scoring_weights.get('rsi_level_bear', {'long': 0, 'short': 20})
+                pts = weight['short'] if rsi_level_signal == 'STRONG_SHORT' else max(1, int(weight['short'] * 0.7))
+                if pts > 0:
+                    short_score += pts
+                    signal_components['rsi_level_bear'] = pts
+                    logger.debug(f"{symbol} RSI超买: {rsi_level_signal}")
+
+            # 17. KDJ指标信号 (kdj) - 比RSI更敏感的超买超卖信号
+            # 原理: KDJ J值 = 3K - 2D，可超越0-100边界，极端J值表示极度背离
+            # J<0 → 价格超越均衡下限（恐慌性抛售），均值回归更确定 → LONG
+            # J>100 → 价格超越均衡上限（贪婪追涨），回调更确定 → SHORT
+            # 数据源: technical_indicators_cache (1H，每小时更新)
+            kdj_signal = self._get_kdj_signal(symbol)
+            if kdj_signal in ('STRONG_LONG', 'LONG'):
+                weight = self.scoring_weights.get('kdj_bull', {'long': 22, 'short': 0})
+                pts = weight['long'] if kdj_signal == 'STRONG_LONG' else max(1, int(weight['long'] * 0.65))
+                if pts > 0:
+                    long_score += pts
+                    signal_components['kdj_bull'] = pts
+                    logger.debug(f"{symbol} KDJ超卖: {kdj_signal}")
+            elif kdj_signal in ('STRONG_SHORT', 'SHORT'):
+                weight = self.scoring_weights.get('kdj_bear', {'long': 0, 'short': 22})
+                pts = weight['short'] if kdj_signal == 'STRONG_SHORT' else max(1, int(weight['short'] * 0.65))
+                if pts > 0:
+                    short_score += pts
+                    signal_components['kdj_bear'] = pts
+                    logger.debug(f"{symbol} KDJ超买: {kdj_signal}")
+
+            # 18. 主动买入比例信号 (taker_buy)
+            # 原理: 主动买入量/总量反映市场参与者的攻击性方向
+            # 吸筹: 前3根低买盘→最近2根买盘突增 = 大资金承接 → LONG
+            # 施压: 连续4根极低买盘 = 空方持续主导 → SHORT
+            taker_signal = self._detect_taker_buy_signal(klines_1h)
+            if taker_signal == 'BULLISH_ABSORPTION':
+                weight = self.scoring_weights.get('taker_buy_bull', {'long': 20, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['taker_buy_bull'] = pts
+                    logger.debug(f"{symbol} 主动买盘吸筹: 前低后高买盘比")
+            elif taker_signal == 'BEARISH_PRESSURE':
+                weight = self.scoring_weights.get('taker_buy_bear', {'long': 0, 'short': 20})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['taker_buy_bear'] = pts
+                    logger.debug(f"{symbol} 主动卖盘施压: 持续低买盘比")
+
+            # 19. MACD柱状图零轴交叉信号 (macd_cross)
+            # 原理: MACD柱状图从负转正/正转负代表动量切换，是方向变化的领先指标
+            # 全市场同时只有少数(3-10个)币种出现交叉，信号选择性极高
+            macd_cross_signal = self._detect_macd_crossover(klines_1h)
+            if macd_cross_signal == 'BULLISH_CROSS':
+                weight = self.scoring_weights.get('macd_cross_bull', {'long': 25, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['macd_cross_bull'] = pts
+                    logger.debug(f"{symbol} MACD多头交叉: 柱状图由负转正")
+            elif macd_cross_signal == 'BEARISH_CROSS':
+                weight = self.scoring_weights.get('macd_cross_bear', {'long': 0, 'short': 25})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['macd_cross_bear'] = pts
+                    logger.debug(f"{symbol} MACD空头交叉: 柱状图由正转负")
+
+            # 20. Bollinger Band位置信号 (bb_band)
+            # 原理: 价格突破BB下轨代表极度超卖（可能反弹）; 突破上轨代表极度超买（可能回调）
+            # 数据来源: technical_indicators_cache (1h, 每小时更新)
+            bb_signal = self._get_bb_signal(symbol, current)
+            if bb_signal == 'BELOW_LOWER':
+                weight = self.scoring_weights.get('bb_below_lower', {'long': 20, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['bb_below_lower'] = pts
+                    logger.debug(f"{symbol} BB下轨突破: 价格低于BB下轨,超卖区域")
+            elif bb_signal == 'NEAR_LOWER':
+                weight = self.scoring_weights.get('bb_near_lower', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['bb_near_lower'] = pts
+                    logger.debug(f"{symbol} BB下轨附近: 价格临近BB下轨")
+            elif bb_signal == 'ABOVE_UPPER':
+                weight = self.scoring_weights.get('bb_above_upper', {'long': 0, 'short': 20})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['bb_above_upper'] = pts
+                    logger.debug(f"{symbol} BB上轨突破: 价格高于BB上轨,超买区域")
+            elif bb_signal == 'NEAR_UPPER':
+                weight = self.scoring_weights.get('bb_near_upper', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['bb_near_upper'] = pts
+                    logger.debug(f"{symbol} BB上轨附近: 价格临近BB上轨")
+
+            # 21. 成交量强度不对称信号 (vol_strength)
+            # 原理: 即使阳线数量多, 若空头单根均量>>多头, 说明实际力量偏空
+            # 数据来源: technical_signals_cache (24h/1h, 每小时更新)
+            vol_str_signal = self._get_vol_strength_signal(symbol)
+            if vol_str_signal == 'BEAR_DOMINANCE':
+                weight = self.scoring_weights.get('vol_strength_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['vol_strength_bear'] = pts
+                    logger.debug(f"{symbol} 成交量空头主导: 空头单根均量是多头的3倍以上")
+            elif vol_str_signal == 'BULL_DOMINANCE':
+                weight = self.scoring_weights.get('vol_strength_bull', {'long': 15, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['vol_strength_bull'] = pts
+                    logger.debug(f"{symbol} 成交量多头主导: 多头单根均量是空头的3倍以上")
+
+            # 22. 多周期RSI共振信号 (rsi_mtf)
+            # 原理: 1h和15m RSI同时超卖/超买, 比单周期信号更可靠
+            # 数据来源: technical_indicators_cache (高精度计算, 每小时更新)
+            rsi_mtf_signal = self._get_rsi_mtf_signal(symbol)
+            if rsi_mtf_signal == 'STRONG_LONG':
+                weight = self.scoring_weights.get('rsi_mtf_strong_bull', {'long': 25, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['rsi_mtf_strong_bull'] = pts
+                    logger.debug(f"{symbol} RSI双周期超卖共振: 1h+15m RSI均<25")
+            elif rsi_mtf_signal == 'STRONG_SHORT':
+                weight = self.scoring_weights.get('rsi_mtf_strong_bear', {'long': 0, 'short': 25})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['rsi_mtf_strong_bear'] = pts
+                    logger.debug(f"{symbol} RSI双周期超买共振: 1h+15m RSI均>75")
+            elif rsi_mtf_signal == 'LONG':
+                weight = self.scoring_weights.get('rsi_mtf_bull', {'long': 15, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['rsi_mtf_bull'] = pts
+                    logger.debug(f"{symbol} RSI双周期超卖: 1h+15m RSI接近超卖区")
+            elif rsi_mtf_signal == 'SHORT':
+                weight = self.scoring_weights.get('rsi_mtf_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['rsi_mtf_bear'] = pts
+                    logger.debug(f"{symbol} RSI双周期超买: 1h+15m RSI接近超买区")
+
+            # 23. 相对强弱信号 (rs_vs_btc)
+            # 原理: 强于BTC的币种在牛市涨更多; 弱于BTC的币种在熊市跌更多
+            # 极端弱势(跌幅远超BTC): 空头强信号; 极端强势: 多头强信号
+            # 数据来源: price_stats_24h (每15分钟更新)
+            rs_signal = self._get_relative_strength_signal(symbol)
+            if rs_signal == 'VERY_WEAK':
+                weight = self.scoring_weights.get('rs_very_weak', {'long': 0, 'short': 20})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['rs_very_weak'] = pts
+                    logger.debug(f"{symbol} 极端弱势: 24H跌幅比BTC低10%以上")
+            elif rs_signal == 'WEAK':
+                weight = self.scoring_weights.get('rs_weak', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['rs_weak'] = pts
+                    logger.debug(f"{symbol} 相对弱势: 24H跌幅比BTC低5-10%")
+            elif rs_signal == 'VERY_STRONG':
+                weight = self.scoring_weights.get('rs_very_strong', {'long': 20, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['rs_very_strong'] = pts
+                    logger.debug(f"{symbol} 极端强势: 24H涨幅比BTC高10%以上")
+            elif rs_signal == 'STRONG':
+                weight = self.scoring_weights.get('rs_strong', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['rs_strong'] = pts
+                    logger.debug(f"{symbol} 相对强势: 24H涨幅比BTC高5-10%")
+
+            # 24. 多周期EMA趋势共振 (ema_mtf)
+            # 原理: 15m+1h+4h三个周期EMA同向代表强趋势确认,反转风险低
+            # Triple BULL (全部向上): 极少见,熊市中的强势逆市多头
+            # Triple BEAR (全部向下): 当前熊市中常见,但当其他信号共振时意义更强
+            # 数据来源: technical_indicators_cache (每小时更新)
+            ema_mtf_signal = self._get_ema_mtf_signal(symbol)
+            if ema_mtf_signal == 'TRIPLE_BULL':
+                weight = self.scoring_weights.get('ema_triple_bull', {'long': 25, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['ema_triple_bull'] = pts
+                    logger.debug(f"{symbol} EMA三周期多头共振: 15m+1h+4h全部向上")
+            elif ema_mtf_signal == 'TRIPLE_BEAR':
+                weight = self.scoring_weights.get('ema_triple_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['ema_triple_bear'] = pts
+                    logger.debug(f"{symbol} EMA三周期空头共振: 15m+1h+4h全部向下")
+            elif ema_mtf_signal == 'PARTIAL_BULL':
+                weight = self.scoring_weights.get('ema_partial_bull', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['ema_partial_bull'] = pts
+                    logger.debug(f"{symbol} EMA双周期多头对齐: 1h+4h向上")
+            elif ema_mtf_signal == 'PARTIAL_BEAR':
+                weight = self.scoring_weights.get('ema_partial_bear', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['ema_partial_bear'] = pts
+                    logger.debug(f"{symbol} EMA双周期空头对齐: 1h+4h向下")
+
+            # 25. 4H短周期成交量强度信号 (vol_4h)
+            # 原理: 4h/15m窗口比24h/1h更敏感, 捕捉近4小时的空多力量变化
+            # 数据来源: technical_signals_cache (4h/15m, 每小时更新)
+            vol_4h_signal = self._get_vol_4h_signal(symbol)
+            if vol_4h_signal == 'BEAR_DOMINANCE':
+                weight = self.scoring_weights.get('vol_4h_bear', {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['vol_4h_bear'] = pts
+                    logger.debug(f"{symbol} 4H空头量能主导: 近4H空头单根均量是多头2.5倍以上")
+            elif vol_4h_signal == 'BULL_DOMINANCE':
+                weight = self.scoring_weights.get('vol_4h_bull', {'long': 12, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['vol_4h_bull'] = pts
+                    logger.debug(f"{symbol} 4H多头量能主导: 近4H多头单根均量是空头2.5倍以上")
+
+            # 26. 价格动量加速信号 (momentum_accel)
+            # 原理: 对比最近2H vs 前2H价格变化率，判断趋势是否在加速或减速
+            # 数据来源: klines_1h (实时K线)
+            ma_signal = self._get_momentum_accel_signal(klines_1h)
+            if ma_signal == 'ACCEL_DOWN':
+                weight = self.scoring_weights.get('momentum_accel_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['momentum_accel_bear'] = pts
+                    logger.debug(f"{symbol} 空头动量加速: 最近2H跌幅>前2H * 1.5倍")
+            elif ma_signal == 'ACCEL_UP':
+                weight = self.scoring_weights.get('momentum_accel_bull', {'long': 15, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['momentum_accel_bull'] = pts
+                    logger.debug(f"{symbol} 多头动量加速: 最近2H涨幅>前2H * 1.5倍")
+            elif ma_signal == 'DECEL_DOWN':
+                weight = self.scoring_weights.get('momentum_decel_bull', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['momentum_decel_bull'] = pts
+                    logger.debug(f"{symbol} 空头减速反弹: 前2H大跌但最近2H明显减速")
+
+            # 27. K线实体质量信号 (candle_quality)
+            # 原理: 最近6根1H蜡烛中4根以上同向且实体占比>=62%, 说明趋势方向明确无犹豫
+            # 数据来源: klines_1h (实时K线)
+            cq_signal = self._get_candle_quality_signal(klines_1h)
+            if cq_signal == 'STRONG_BEAR':
+                weight = self.scoring_weights.get('candle_quality_bear', {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['candle_quality_bear'] = pts
+                    logger.debug(f"{symbol} K线空头质量高: 6根中4+根阴线实体占比>=62%")
+            elif cq_signal == 'STRONG_BULL':
+                weight = self.scoring_weights.get('candle_quality_bull', {'long': 12, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['candle_quality_bull'] = pts
+                    logger.debug(f"{symbol} K线多头质量高: 6根中4+根阳线实体占比>=62%")
+
+            # 28. 资金费率趋势信号 (funding_trend, 与Section12的极端值信号互补)
+            # 正费率高=多头过热=SHORT机会; 负费率深=空头拥挤=LONG机会(挤空)
+            fr_signal = self._get_funding_trend_signal(symbol)
+            if fr_signal == 'OVERHEATED':
+                weight = self.scoring_weights.get('funding_overheated', {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['funding_overheated'] = pts
+                    logger.debug(f"{symbol} 资金费率多头过热: SHORT+{pts}pt")
+            elif fr_signal == 'BULLISH':
+                weight = self.scoring_weights.get('funding_bullish', {'long': 0, 'short': 8})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['funding_bullish'] = pts
+                    logger.debug(f"{symbol} 资金费率轻度多头: SHORT+{pts}pt")
+            elif fr_signal == 'STRONGLY_BEARISH':
+                weight = self.scoring_weights.get('funding_strongly_bearish', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['funding_strongly_bearish'] = pts
+                    logger.debug(f"{symbol} 资金费率空头拥挤: LONG+{pts}pt (挤空)")
+            elif fr_signal == 'BEARISH':
+                weight = self.scoring_weights.get('funding_bearish', {'long': 6, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['funding_bearish'] = pts
+                    logger.debug(f"{symbol} 资金费率轻度空头: LONG+{pts}pt")
+
+            # 29. ADX趋势强度信号 (从klines_1h计算)
+            # ADX>25 + 方向性: 确认有效趋势; WEAK_TREND(<20): 趋势信号需谨慎
+            adx_signal = self._get_adx_signal(klines_1h)
+            if adx_signal == 'STRONG_BEAR':
+                weight = self.scoring_weights.get('adx_strong_bear', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['adx_strong_bear'] = pts
+                    logger.debug(f"{symbol} ADX强下降趋势: SHORT+{pts}pt")
+            elif adx_signal == 'STRONG_BULL':
+                weight = self.scoring_weights.get('adx_strong_bull', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['adx_strong_bull'] = pts
+                    logger.debug(f"{symbol} ADX强上升趋势: LONG+{pts}pt")
+
+            # 30. 量价背离信号 (从klines_1h计算)
+            # 价格创新低但量能萎缩 → 空头乏力 → LONG; 价格创新高但量能萎缩 → 多头乏力 → SHORT
+            vd_signal = self._get_volume_divergence_signal(klines_1h)
+            if vd_signal == 'VOL_DIVERGE_BULL':
+                weight = self.scoring_weights.get('vol_diverge_bull', {'long': 12, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['vol_diverge_bull'] = pts
+                    logger.debug(f"{symbol} 量价背离(多): 价格新低但量能萎缩, LONG+{pts}pt")
+            elif vd_signal == 'VOL_DIVERGE_BEAR':
+                weight = self.scoring_weights.get('vol_diverge_bear', {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['vol_diverge_bear'] = pts
+                    logger.debug(f"{symbol} 量价背离(空): 价格新高但量能萎缩, SHORT+{pts}pt")
+
+            # 31. K线反转形态信号 (candle_reversal)
+            # Hammer(锤线): 前3根偏空 + 最后一根下影线>=2倍实体 → 空头衰竭, LONG
+            # Shooting Star(射击之星): 前3根偏多 + 最后一根上影线>=2倍实体 → 多头衰竭, SHORT
+            cr_signal = self._get_candle_reversal_signal(klines_1h)
+            if cr_signal == 'HAMMER':
+                weight = self.scoring_weights.get('candle_reversal_bull', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['candle_reversal_bull'] = pts
+                    logger.debug(f"{symbol} 锤线反转形态: 空头衰竭信号, LONG+{pts}pt")
+            elif cr_signal == 'SHOOTING_STAR':
+                weight = self.scoring_weights.get('candle_reversal_bear', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['candle_reversal_bear'] = pts
+                    logger.debug(f"{symbol} 射击之星反转形态: 多头衰竭信号, SHORT+{pts}pt")
+
+            # 32. 吞噬形态信号 (engulfing) - 比锤线更强的反转确认
+            # 多头吞噬: 阳线实体完全包住前根阴线 + 前3根偏空 → 空头被彻底覆盖, LONG
+            # 空头吞噬: 阴线实体完全包住前根阳线 + 前3根偏多 → 多头被彻底覆盖, SHORT
+            eng_signal = self._get_engulfing_signal(klines_1h)
+            if eng_signal == 'BULL_ENGULF':
+                weight = self.scoring_weights.get('engulfing_bull', {'long': 15, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['engulfing_bull'] = pts
+                    logger.debug(f"{symbol} 多头吞噬形态: 阳线完全覆盖前阴线, LONG+{pts}pt")
+            elif eng_signal == 'BEAR_ENGULF':
+                weight = self.scoring_weights.get('engulfing_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['engulfing_bear'] = pts
+                    logger.debug(f"{symbol} 空头吞噬形态: 阴线完全覆盖前阳线, SHORT+{pts}pt")
+
+            # 33. 价格结构信号 (price_structure)
+            # 连续更高低点(Higher Lows): 买方支撑在上移, 下跌趋势内的多头机会
+            # 连续更低高点(Lower Highs): 卖方压力在下移, 上涨趋势内的空头机会
+            ps_signal = self._get_price_structure_signal(klines_1h)
+            if ps_signal == 'HIGHER_LOWS':
+                weight = self.scoring_weights.get('higher_lows', {'long': 12, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['higher_lows'] = pts
+                    logger.debug(f"{symbol} 连续更高低点: 多头支撑上移, LONG+{pts}pt")
+            elif ps_signal == 'LOWER_HIGHS':
+                weight = self.scoring_weights.get('lower_highs', {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['lower_highs'] = pts
+                    logger.debug(f"{symbol} 连续更低高点: 空头压制下移, SHORT+{pts}pt")
+
+            # 34. KDJ_J 多周期共振信号 (kdj_mtf)
+            # 与Section 9不同, 要求1h AND 15m同时满足极端区域条件
+            # EXTREME_BULL: 1h J<0 AND 15m J<20 (两周期均极度超卖)
+            # OVERSOLD_MTF: 1h J<10 AND 15m J<15 (两周期均在超卖区)
+            # EXTREME_BEAR: 1h J>100 AND 15m J>80 (两周期均极度超买)
+            # OVERBOUGHT_MTF: 1h J>90 AND 15m J>85
+            kdj_mtf_signal = self._get_kdj_mtf_signal(symbol)
+            if kdj_mtf_signal in ('EXTREME_BULL', 'OVERSOLD_MTF'):
+                sig_name = 'kdj_j_mtf_bull'
+                weight = self.scoring_weights.get(sig_name, {'long': 15, 'short': 0})
+                pts = weight['long'] if kdj_mtf_signal == 'EXTREME_BULL' else max(1, int(weight['long'] * 0.7))
+                if pts > 0:
+                    long_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} KDJ_J多周期超卖共振: {kdj_mtf_signal}, LONG+{pts}pt")
+            elif kdj_mtf_signal in ('EXTREME_BEAR', 'OVERBOUGHT_MTF'):
+                sig_name = 'kdj_j_mtf_bear'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 15})
+                pts = weight['short'] if kdj_mtf_signal == 'EXTREME_BEAR' else max(1, int(weight['short'] * 0.7))
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} KDJ_J多周期超买共振: {kdj_mtf_signal}, SHORT+{pts}pt")
+
+            # 35. MACD 多周期方向共振信号 (macd_mtf)
+            # 与Section 19(零轴交叉事件)不同: 持续检测1h和4h histogram方向
+            # 两个周期histogram同为正 → 多头动量共振(BULL); 同为负 → 空头动量共振(BEAR)
+            macd_mtf_signal = self._get_macd_mtf_signal(symbol)
+            if macd_mtf_signal == 'BULL':
+                weight = self.scoring_weights.get('macd_hist_align_bull', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['macd_hist_align_bull'] = pts
+                    logger.debug(f"{symbol} MACD 1H+4H直方图同为正: 多头动量共振, LONG+{pts}pt")
+            elif macd_mtf_signal == 'BEAR':
+                weight = self.scoring_weights.get('macd_hist_align_bear', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['macd_hist_align_bear'] = pts
+                    logger.debug(f"{symbol} MACD 1H+4H直方图同为负: 空头动量共振, SHORT+{pts}pt")
+
+            # 36. 价格区间突破+量能确认信号 (range_breakout)
+            # 突破近12H最高/最低价 + 成交量放大1.5x → 过滤假突破，确认真实方向性资金介入
+            rb_signal = self._get_range_breakout_signal(klines_1h)
+            if rb_signal == 'BULL_BREAKOUT':
+                weight = self.scoring_weights.get('range_breakout_bull', {'long': 15, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['range_breakout_bull'] = pts
+                    logger.debug(f"{symbol} 价格突破12H高点+量能放大: 多头确认突破, LONG+{pts}pt")
+            elif rb_signal == 'BEAR_BREAKOUT':
+                weight = self.scoring_weights.get('range_breakout_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['range_breakout_bear'] = pts
+                    logger.debug(f"{symbol} 价格跌破12H低点+量能放大: 空头确认突破, SHORT+{pts}pt")
+
+            # 37. Stochastic RSI 超买超卖信号 (stoch_rsi)
+            # 基于1H K线实时计算，比单纯RSI更灵敏，能更早捕捉超买超卖转折
+            stoch_rsi_signal = self._get_stoch_rsi_signal(klines_1h)
+            if stoch_rsi_signal in ('STRONG_OVERSOLD', 'OVERSOLD'):
+                sig_name = 'stoch_rsi_bull'
+                weight = self.scoring_weights.get(sig_name, {'long': 12, 'short': 0})
+                pts = weight['long'] if stoch_rsi_signal == 'STRONG_OVERSOLD' else max(1, int(weight['long'] * 0.7))
+                if pts > 0:
+                    long_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} StochRSI超卖区间 ({stoch_rsi_signal}): 潜在反弹, LONG+{pts}pt")
+            elif stoch_rsi_signal in ('STRONG_OVERBOUGHT', 'OVERBOUGHT'):
+                sig_name = 'stoch_rsi_bear'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 12})
+                pts = weight['short'] if stoch_rsi_signal == 'STRONG_OVERBOUGHT' else max(1, int(weight['short'] * 0.7))
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} StochRSI超买区间 ({stoch_rsi_signal}): 潜在回落, SHORT+{pts}pt")
+
+            # 38. 多周期K线反转共振信号 (mtf_candle_resonance)
+            # 1H反转形态（Hammer/Shooting Star/吞噬）+ 15M同向确认 → 共振强化
+            mtf_candle_signal = self._get_mtf_candle_resonance_signal(klines_1h, klines_15m)
+            if mtf_candle_signal == 'BULL_RESONANCE':
+                weight = self.scoring_weights.get('mtf_candle_bull', {'long': 15, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['mtf_candle_bull'] = pts
+                    logger.debug(f"{symbol} 1H反转形态+15M同向确认: 多周期共振, LONG+{pts}pt")
+            elif mtf_candle_signal == 'BEAR_RESONANCE':
+                weight = self.scoring_weights.get('mtf_candle_bear', {'long': 0, 'short': 15})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['mtf_candle_bear'] = pts
+                    logger.debug(f"{symbol} 1H反转形态+15M同向确认: 多周期共振, SHORT+{pts}pt")
+
+            # 41. 连续收盘方向信号 (close_chain)
+            # 最近5根K线连续4次同向收盘 → 强动量信号
+            close_chain_signal = self._get_close_chain_signal(klines_1h)
+            if close_chain_signal == 'BULL_CHAIN':
+                weight = self.scoring_weights.get('close_chain_bull', {'long': 12, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['close_chain_bull'] = pts
+                    logger.debug(f"{symbol} 连续4根1H阳线收盘: 强多头趋势, LONG+{pts}pt")
+            elif close_chain_signal == 'BEAR_CHAIN':
+                weight = self.scoring_weights.get('close_chain_bear', {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['close_chain_bear'] = pts
+                    logger.debug(f"{symbol} 连续4根1H阴线收盘: 强空头趋势, SHORT+{pts}pt")
+
+            # 40. 1H微观趋势动量信号 (micro_trend)
+            # 使用 1H/5M 窗口（12根5M K线）的多空力量对比，捕捉最近1小时的方向性资金动向
+            micro_signal = self._get_micro_trend_signal(symbol)
+            if micro_signal == 'BULL_DOMINANCE':
+                weight = self.scoring_weights.get('micro_trend_bull', {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components['micro_trend_bull'] = pts
+                    logger.debug(f"{symbol} 1H/5M微观趋势: 空/多均量比>=2.0x, 多头动量, LONG+{pts}pt")
+            elif micro_signal == 'BEAR_DOMINANCE':
+                weight = self.scoring_weights.get('micro_trend_bear', {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components['micro_trend_bear'] = pts
+                    logger.debug(f"{symbol} 1H/5M微观趋势: 空/多均量比>=2.0x, 空头动量, SHORT+{pts}pt")
+
+            # 39. 24H VWAP 偏离信号 (vwap_deviation)
+            # VWAP 偏离 > +5% → 价格超出近24H均价 → SHORT；偏离 < -5% → 价格低于均价 → LONG
+            vwap_signal = self._get_vwap_deviation_signal(klines_1h)
+            if vwap_signal in ('STRONG_BELOW', 'BELOW'):
+                sig_name = 'vwap_bull'
+                weight = self.scoring_weights.get(sig_name, {'long': 12, 'short': 0})
+                pts = weight['long'] if vwap_signal == 'STRONG_BELOW' else max(1, int(weight['long'] * 0.6))
+                if pts > 0:
+                    long_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} 价格低于24H VWAP ({vwap_signal}): 潜在均值回归, LONG+{pts}pt")
+            elif vwap_signal in ('STRONG_ABOVE', 'ABOVE'):
+                sig_name = 'vwap_bear'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 12})
+                pts = weight['short'] if vwap_signal == 'STRONG_ABOVE' else max(1, int(weight['short'] * 0.6))
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} 价格高于24H VWAP ({vwap_signal}): 潜在均值回归, SHORT+{pts}pt")
+
+            # 42. Open Interest 变化率信号 (oi_surge)
+            oi_signal = self._get_oi_signal(symbol)
+            if oi_signal == 'OI_SURGE':
+                # OI 暴增 + 价格位置决定方向
+                current_close = float(klines_1h[-1]['close']) if klines_1h else 0
+                vwap_ref = self._get_vwap_deviation_signal(klines_1h) if klines_1h else 'NEUTRAL'
+                if vwap_ref in ('STRONG_BELOW', 'BELOW'):  # 价格偏低 + OI增 = 空头建仓后可能逼空
+                    sig_name = 'oi_surge_bull'
+                    weight = self.scoring_weights.get(sig_name, {'long': 10, 'short': 0})
+                    pts = weight['long']
+                    if pts > 0:
+                        long_score += pts
+                        signal_components[sig_name] = pts
+                elif vwap_ref in ('STRONG_ABOVE', 'ABOVE'):  # 价格偏高 + OI增 = 多头追涨
+                    sig_name = 'oi_surge_bear'
+                    weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 10})
+                    pts = weight['short']
+                    if pts > 0:
+                        short_score += pts
+                        signal_components[sig_name] = pts
+            elif oi_signal == 'OI_DROP':
+                # OI 暴减 = 大量持仓平仓，趋势反转风险
+                sig_name = 'oi_drop_reversal'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 8})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+
+            # 43. BB 压缩后释放信号 (bb_squeeze)
+            bb_squeeze_signal = self._get_bb_squeeze_signal(klines_1h)
+            if bb_squeeze_signal == 'BULL_SQUEEZE_RELEASE':
+                sig_name = 'bb_squeeze_bull'
+                weight = self.scoring_weights.get(sig_name, {'long': 14, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} BB压缩后向上释放, LONG+{pts}pt")
+            elif bb_squeeze_signal == 'BEAR_SQUEEZE_RELEASE':
+                sig_name = 'bb_squeeze_bear'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 14})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} BB压缩后向下释放, SHORT+{pts}pt")
+
+            # 44. EMA 距离拉伸信号 (ema_distance)
+            current_px = float(klines_1h[-1]['close']) if klines_1h else 0.0
+            ema_dist_signal = self._get_ema_distance_signal(symbol, current_px) if current_px > 0 else 'NEUTRAL'
+            if ema_dist_signal == 'OVER_EXTENDED_BEAR':
+                sig_name = 'ema_dist_bull'
+                weight = self.scoring_weights.get(sig_name, {'long': 10, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} 价格过度低于EMA, 均值回归LONG+{pts}pt")
+            elif ema_dist_signal == 'OVER_EXTENDED_BULL':
+                sig_name = 'ema_dist_bear'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 10})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} 价格过度高于EMA, 均值回归SHORT+{pts}pt")
+
+            # 45. 订单流突刺信号 (order_flow_spike)
+            of_spike = self._get_order_flow_spike_signal(klines_15m) if klines_15m else 'NEUTRAL'
+            if of_spike == 'BUY_SPIKE':
+                sig_name = 'order_flow_bull'
+                weight = self.scoring_weights.get(sig_name, {'long': 12, 'short': 0})
+                pts = weight['long']
+                if pts > 0:
+                    long_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} 15M taker_buy突刺, LONG+{pts}pt")
+            elif of_spike == 'SELL_SPIKE':
+                sig_name = 'order_flow_bear'
+                weight = self.scoring_weights.get(sig_name, {'long': 0, 'short': 12})
+                pts = weight['short']
+                if pts > 0:
+                    short_score += pts
+                    signal_components[sig_name] = pts
+                    logger.debug(f"{symbol} 15M taker_sell突刺, SHORT+{pts}pt")
+
             # ========== 移除EMA评分 (已有Big4市场趋势判断) ==========
-            # 已移除: ema_bull, ema_bear
-            # Big4 (BTC/ETH/BNB/SOL) 市场趋势判断已足够,EMA评分多余
+            # 此注释保留历史说明: 旧版EMA评分已移除,新版多周期EMA共振(ema_mtf)已加入
 
             # ========== 移除1D信号 (4小时持仓不需要1D趋势) ==========
             # 已移除: trend_1d_bull, trend_1d_bear
@@ -740,212 +3176,6 @@ class SmartDecisionBrain:
             # BULLISH/BEARISH            : 单币>=9阳/阴+0.5%  且总权重>60%
             # NEUTRAL                    : 不满足上述条件
             _b4_signal = big4_result.get('overall_signal', 'NEUTRAL') if big4_result else 'NEUTRAL'
-
-            # ========== 开仓资格判断：由 Big4 overall_signal 驱动 ==========
-            # STRONG_BULLISH : 信号确认多头，long_score >= threshold
-            # BULLISH        : 趋势跟随多头，long_score >= 20
-            # STRONG_BEARISH : 信号确认空头，short_score >= threshold
-            # BEARISH        : 趋势跟随空头，short_score >= 20
-            # NEUTRAL        : 不开仓
-            trend_long_ok    = False
-            trend_short_ok   = False
-            confirm_long_ok  = False
-            confirm_short_ok = False
-
-            if _b4_signal == 'STRONG_BULLISH':
-                if self.signal_confirmation_enabled:
-                    confirm_long_ok = (long_score >= self.threshold)
-                    logger.debug(f"[SC-LONG] {symbol} Big4=STRONG_BULLISH long_score={long_score} threshold={self.threshold}")
-                else:
-                    logger.debug(f"[SC-SKIP] {symbol} Big4=STRONG_BULLISH 信号确认已禁用")
-            elif _b4_signal == 'BULLISH':
-                if self.trend_following_enabled:
-                    trend_long_ok = (long_score >= 20)
-                    logger.debug(f"[TF-LONG] {symbol} Big4=BULLISH long_score={long_score} 趋势跟随LONG")
-                else:
-                    logger.debug(f"[TF-SKIP] {symbol} Big4=BULLISH 趋势跟随已禁用")
-            elif _b4_signal == 'STRONG_BEARISH':
-                if self.signal_confirmation_enabled:
-                    confirm_short_ok = (short_score >= self.threshold)
-                    logger.debug(f"[SC-SHORT] {symbol} Big4=STRONG_BEARISH short_score={short_score} threshold={self.threshold}")
-                else:
-                    logger.debug(f"[SC-SKIP] {symbol} Big4=STRONG_BEARISH 信号确认已禁用")
-            elif _b4_signal == 'BEARISH':
-                if self.trend_following_enabled:
-                    trend_short_ok = (short_score >= 20)
-                    logger.debug(f"[TF-SHORT] {symbol} Big4=BEARISH short_score={short_score} 趋势跟随SHORT")
-                else:
-                    logger.debug(f"[TF-SKIP] {symbol} Big4=BEARISH 趋势跟随已禁用")
-            else:
-                logger.debug(f"[NEUTRAL] {symbol} Big4=NEUTRAL，不开仓")
-
-            # 两种策略取并集：趋势跟随 OR 信号确认，任一满足即可开仓
-            long_qualified  = trend_long_ok  or confirm_long_ok
-            short_qualified = trend_short_ok or confirm_short_ok
-            if long_qualified or short_qualified:
-                # 优先选择两个方向都满足各自阈值时评分更高的方向
-                # 若只有一个方向满足，选该方向；两个都满足，选分更高的
-                if long_qualified and short_qualified:
-                    side = 'LONG' if long_score >= short_score else 'SHORT'
-                elif long_qualified:
-                    side = 'LONG'
-                else:
-                    side = 'SHORT'
-                score = long_score if side == 'LONG' else short_score
-
-                # 确定策略模式：信号确认(STRONG) vs 趋势跟随(BULLISH/BEARISH)
-                if side == 'LONG':
-                    strategy_mode = 'signal_confirm' if confirm_long_ok else 'trend_follow'
-                else:
-                    strategy_mode = 'signal_confirm' if confirm_short_ok else 'trend_follow'
-
-                # 🔥 新增：拒绝过高评分的信号（数据显示150+分的信号胜率32.8%，平均亏损-4.82U/单）
-                if score > self.max_threshold:
-                    logger.warning(f"{symbol} 评分{score}过高(>{self.max_threshold})，历史数据显示高分信号易追涨杀跌，跳过")
-                    return None
-
-                # 🔥 关键修复: 清理signal_components,只保留与最终方向一致的信号
-                # 定义多头和空头信号 (已移除1D信号和EMA信号)
-                # 🔥 修复 (2026-02-11): position_low应该是多头信号, position_high应该是空头信号
-                bullish_signals = {
-                    'position_low', 'breakout_long', 'volume_power_bull', 'volume_power_1h_bull',
-                    'trend_1h_bull', 'momentum_up_3pct', 'consecutive_bull', 'big4_strong_bull_cont',
-                    'position_24h_low', 'volume_power_12x_bull',
-                }
-                bearish_signals = {
-                    'position_high', 'breakdown_short', 'volume_power_bear', 'volume_power_1h_bear',
-                    'trend_1h_bear', 'momentum_down_3pct', 'consecutive_bear',
-                    'position_24h_high', 'volume_power_12x_bear',
-                }
-                neutral_signals = {'position_mid', 'volatility_high'}  # 中性信号可以在任何方向
-
-                # 🧠 确认偏误防御：统计反向信号数量（在清洗之前计算，此时signal_components含全部信号）
-                if side == 'LONG':
-                    counter_signal_count = sum(1 for sig in signal_components if sig in bearish_signals)
-                else:
-                    counter_signal_count = sum(1 for sig in signal_components if sig in bullish_signals)
-
-                # 过滤掉与方向相反的信号
-                cleaned_components = {}
-                for sig, val in signal_components.items():
-                    if sig in neutral_signals:
-                        cleaned_components[sig] = val  # 中性信号保留
-                    elif side == 'LONG' and sig in bullish_signals:
-                        cleaned_components[sig] = val  # 做多保留多头信号
-                    elif side == 'SHORT' and sig in bearish_signals:
-                        cleaned_components[sig] = val  # 做空保留空头信号
-                    # 其他信号(方向不一致的)丢弃
-
-                signal_components = cleaned_components  # 替换为清理后的信号
-
-                # 🔥 强制验证: 至少需要2个信号组合 (2026-02-11)
-                if len(signal_components) < 2:
-                    logger.warning(f"🚫 {symbol} 信号不足: 只有{len(signal_components)}个信号 "
-                                   f"[{', '.join(signal_components.keys())}], 得分{score}分, 方向{side}, 拒绝开仓")
-                    return None
-
-                # 🔥 特殊验证: position_mid信号需要至少3个信号配合
-                if 'position_mid' in signal_components and len(signal_components) < 3:
-                    logger.warning(f"🚫 {symbol} 中位信号需要更多佐证: 只有{len(signal_components)}个信号, 拒绝开仓")
-                    return None
-
-                # 生成信号组合键用于黑名单检查
-                if signal_components:
-                    sorted_signals = sorted(signal_components.keys())
-                    signal_combination_key = " + ".join(sorted_signals)
-                else:
-                    signal_combination_key = "unknown"
-
-                # 检查信号黑名单 (使用动态黑名单检查器)
-                is_blacklisted, blacklist_reason = self.blacklist_checker.is_blacklisted(signal_combination_key, side)
-                if is_blacklisted:
-                    logger.info(f"🚫 {symbol} 信号 [{signal_combination_key}] {side} 在黑名单中，跳过（{blacklist_reason}）")
-                    return None
-
-                # 🔥 新增: 检查信号方向矛盾（防止逻辑错误）
-                is_valid, contradiction_reason = self._validate_signal_direction(signal_components, side)
-                if not is_valid:
-                    logger.error(f"🚫 {symbol} 信号方向矛盾: {contradiction_reason} | 信号:{signal_combination_key} | 方向:{side}")
-                    return None
-
-                # 🔥 V2协同过滤：方向一致性检查 + 强度验证
-                v2_direction = 'N/A'
-                v2_score = 0
-                v2_passed = '未启用'
-
-                if self.score_v2_service:
-                    v2_result = self.score_v2_service.check_score_filter(symbol, side)
-
-                    # 提取V2数据
-                    if v2_result.get('coin_score'):
-                        coin = v2_result['coin_score']
-                        v2_direction = '多' if coin.get('direction') == 'LONG' else '空' if coin.get('direction') == 'SHORT' else '中性'
-                        v2_score = coin.get('total_score', 0)
-
-                    v2_passed = '✅通过' if v2_result['passed'] else f"❌不通过({v2_result['reason']})"
-
-                    # 打印合并日志：V1评分 + V2趋势 + 协同过滤
-                    signal_names = ', '.join(signal_components.keys()) if signal_components else '无'
-                    logger.info(f"📊 {symbol:<12} V1评分 多【{long_score}分】空【{short_score}分】信号【{signal_names}】，V2 趋势【{v2_direction}】分数：{v2_score:+d}，协同过滤 【{v2_passed}】")
-
-                    if not v2_result['passed']:
-                        # 🔥 修复：软阻断（原硬阻断在趋势转折点误杀高置信信号）
-                        # V2方向冲突时要求V1分数高出当前阈值25分才允许通过（趋势转折期V2滞后5-15分钟）
-                        # signal_confirm模式阈值=self.threshold(55)，trend_follow模式阈值=20
-                        current_threshold = self.threshold if strategy_mode == 'signal_confirm' else 20
-                        v2_conflict_threshold = current_threshold + 25
-                        # 仅方向冲突时允许软阻断，强度不足仍然拒绝
-                        is_direction_conflict = v2_result.get('details', {}).get('direction_mismatch', False)
-                        if is_direction_conflict and score >= v2_conflict_threshold:
-                            logger.warning(
-                                f"🔶 [V2_OVERRIDE] {symbol} {side} V2方向冲突但V1得分{score}≥{v2_conflict_threshold}分"
-                                f"（阈值{current_threshold}+25），趋势转折期谨慎放行"
-                            )
-                            # 继续执行（不return None）
-                        else:
-                            return None
-                else:
-                    # 没有V2服务，只打印V1
-                    signal_names = ', '.join(signal_components.keys()) if signal_components else '无'
-                    logger.info(f"📊 {symbol:<12} V1评分 多【{long_score}分】空【{short_score}分】信号【{signal_names}】，V2趋势【未启用】")
-
-                # 🔥 新增: 禁止高风险位置交易（代码层面强制）
-                if side == 'LONG' and 'position_high' in signal_components:
-                    logger.warning(f"🚫 {symbol} 拒绝高位做多: position_high在{position_pct:.1f}%位置,容易买在顶部")
-                    return None
-
-                if side == 'SHORT' and 'position_low' in signal_components:
-                    logger.warning(f"🚫 {symbol} 拒绝低位做空: position_low在{position_pct:.1f}%位置,容易遇到反弹")
-                    return None
-
-                # 🔥 Big4方向过滤：Big4强势时禁止逆势交易（仅Big4过滤器开启时生效）
-                # Big4 BULLISH（强度>=40）→ 禁止做空；Big4 BEARISH（强度>=40）→ 禁止做多
-                # 过滤器关闭时跳过，软调整模式下仅靠阈值限制
-                if big4_result and getattr(self, 'big4_filter_enabled', True):
-                    _b4_signal = big4_result.get('overall_signal', 'NEUTRAL')
-                    _b4_strength = big4_result.get('signal_strength', 0)
-                    # 修复：同时处理 STRONG_BULLISH / STRONG_BEARISH
-                    if _b4_signal in ('BULLISH', 'STRONG_BULLISH') and _b4_strength >= 40 and side == 'SHORT':
-                        logger.info(f"🚫 {symbol} Big4看多{_b4_signal}(强度{_b4_strength:.0f}≥40)，禁止逆势做空")
-                        return None
-                    if _b4_signal in ('BEARISH', 'STRONG_BEARISH') and _b4_strength >= 40 and side == 'LONG':
-                        logger.info(f"🚫 {symbol} Big4看空{_b4_signal}(强度{_b4_strength:.0f}≥40)，禁止逆势做多")
-                        return None
-
-                # 生成signal_type用于模式匹配
-                signal_type = f"TREND_{signal_combination_key}_{side}_{int(score)}"
-
-                return {
-                    'symbol': symbol,
-                    'side': side,
-                    'score': score,
-                    'current_price': current,
-                    'signal_components': signal_components,  # 添加信号组成
-                    'signal_type': signal_type,  # 添加信号类型，用于模式过滤
-                    'signal_time': datetime.now(),  # 🔥 关键修复：记录信号产生的时间
-                    'counter_signals': counter_signal_count,  # 🧠 确认偏误防御：反向信号数量
-                    'strategy_mode': strategy_mode,  # 策略模式：signal_confirm / trend_follow
-                }
 
             return None
 
@@ -959,20 +3189,33 @@ class SmartDecisionBrain:
         Args:
             big4_result: Big4趋势结果 (由SmartTraderService传入，仅用于日志显示)
         """
+        # 时间封锁：下午1点~5点不开新仓（市场恐慌抛压窗口）
+        _now_hour = datetime.now().hour + datetime.now().minute / 60
+        if 13.0 <= _now_hour < 17.0:
+            logger.info(f"[BLACKOUT] 当前 {datetime.now().strftime('%H:%M')}，13:00~17:00 封锁开仓，跳过扫描")
+            return []
+
         # 每次扫描前重新加载黑名单,确保运行时添加的黑名单立即生效
         self._reload_blacklist()
 
         # K线数据新鲜度检查：防止采集服务崩溃时基于过时数据开仓
         try:
             _stale_conn = self._get_connection()
+            # commit() 重置 REPEATABLE READ 快照，确保读到最新数据
+            try:
+                _stale_conn.commit()
+            except Exception:
+                pass
             _stale_cur = _stale_conn.cursor()
             _stale_cur.execute(
                 "SELECT MAX(open_time) FROM kline_data WHERE timeframe='1h' AND exchange='binance_futures'"
             )
             _stale_row = _stale_cur.fetchone()
             _stale_cur.close()
-            if _stale_row and _stale_row[0]:
-                _age_hours = (time.time() * 1000 - _stale_row[0]) / 3600000
+            # DictCursor returns dict — use column alias to access value
+            _stale_val = _stale_row.get('MAX(open_time)') if isinstance(_stale_row, dict) else (_stale_row[0] if _stale_row else None)
+            if _stale_row and _stale_val:
+                _age_hours = (time.time() * 1000 - _stale_val) / 3600000
                 if _age_hours > 2:
                     logger.error(
                         f"[STALE_DATA] ⚠️ K线数据已 {_age_hours:.1f}h 未更新！"
@@ -994,9 +3237,10 @@ class SmartDecisionBrain:
             _adx_rows = list(reversed(_adx_cur.fetchall()))
             _adx_cur.close()
             if len(_adx_rows) >= 16:
-                _highs  = [float(r[0]) for r in _adx_rows]
-                _lows   = [float(r[1]) for r in _adx_rows]
-                _closes = [float(r[2]) for r in _adx_rows]
+                # DictCursor returns dicts — use column names
+                _highs  = [float(r['high_price'])  for r in _adx_rows]
+                _lows   = [float(r['low_price'])   for r in _adx_rows]
+                _closes = [float(r['close_price']) for r in _adx_rows]
                 _tr_list, _plus_dm_list, _minus_dm_list = [], [], []
                 for _i in range(1, len(_closes)):
                     _tr = max(_highs[_i]-_lows[_i], abs(_highs[_i]-_closes[_i-1]), abs(_lows[_i]-_closes[_i-1]))
@@ -1169,12 +3413,12 @@ class SmartTraderService:
         self.account_id = 2
         self.position_size_usdt = 400  # 默认仓位
         self.blacklist_position_size_usdt = 100  # 黑名单交易对使用小仓位
+        self.connection = None  # 必须在 _load_max_positions() 之前初始化
         self.max_positions = self._load_max_positions()
-        self.leverage = 5
-        self.scan_interval = 300
+        self.leverage = 10
+        self.scan_interval = 60  # Reduced to 60s for higher trade frequency
 
         self.brain = SmartDecisionBrain(self.db_config)
-        self.connection = None
         self._load_trading_mode_flags_from_db()
         self.running = True
         self.event_loop = None  # 事件循环引用，在async_main中设置
@@ -1422,21 +3666,21 @@ class SmartTraderService:
         """
         # 每 check_interval_hours 小时检测一次，避免每次扫描都查询
         last_check = getattr(self, '_profit_guard_last_check', None)
-        if last_check and (datetime.utcnow() - last_check).total_seconds() < check_interval_hours * 3600:
+        if last_check and (datetime.now() - last_check).total_seconds() < check_interval_hours * 3600:
             return False
-        self._profit_guard_last_check = datetime.utcnow()
+        self._profit_guard_last_check = datetime.now()
 
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            since = datetime.utcnow() - timedelta(hours=window_hours)
+            # 使用MySQL NOW()而非Python UTC时间，避免时区不一致导致窗口计算错误
             cursor.execute("""
                 SELECT COALESCE(SUM(realized_pnl), 0)
                 FROM futures_positions
                 WHERE status = 'closed' AND account_id = %s
-                  AND close_time >= %s
-            """, (self.account_id, since))
+                  AND close_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+            """, (self.account_id, window_hours))
             pnl_6h = float(cursor.fetchone()[0])
 
             logger.info(f"[PROFIT-GUARD] 过去{window_hours}h盈利: {pnl_6h:+.2f}U | 熔断阈值: {profit_threshold}U")
@@ -1456,7 +3700,7 @@ class SmartTraderService:
                 )
                 _last_notified = getattr(self, '_profit_guard_notified_at', None)
                 _cooldown_ok = (_last_notified is None or
-                                (datetime.utcnow() - _last_notified).total_seconds() >= 300)
+                                (datetime.now() - _last_notified).total_seconds() >= 300)
                 if _cooldown_ok and hasattr(self, 'telegram_notifier') and self.telegram_notifier:
                     try:
                         self.telegram_notifier.send_message(
@@ -1465,7 +3709,7 @@ class SmartTraderService:
                             f"阈值: {profit_threshold}U\n"
                             f"U本位交易已自动停止，请手动重新开启"
                         )
-                        self._profit_guard_notified_at = datetime.utcnow()
+                        self._profit_guard_notified_at = datetime.now()
                     except Exception:
                         pass
                 return True
@@ -1478,35 +3722,35 @@ class SmartTraderService:
             logger.error(f"[PROFIT-GUARD] 盈利熔断检查失败: {e}")
             return False
 
-    def _check_loss_and_auto_disable(self, loss_threshold=300.0, window_hours=3, check_interval_hours=3) -> bool:
+    def _check_loss_and_auto_disable(self, loss_threshold=2000.0, window_hours=3, check_interval_hours=3) -> bool:
         """
         亏损熔断：统计窗口内总亏损超过阈值后自动禁止开仓
 
         逻辑：
         - 每 check_interval_hours 小时检测一次（默认3小时）
         - 检查最近 window_hours 小时已平仓PNL总和（默认3小时）
-        - 若亏损超过 loss_threshold（默认300U），自动禁止开仓
+        - 若亏损超过 loss_threshold（默认2000U），自动禁止开仓
         - 立即将 u_futures_trading_enabled 设为 0，由用户手动重新开启
 
         Returns:
             True = 已触发熔断（调用方应停止本轮开仓）
         """
         last_check = getattr(self, '_loss_guard_last_check', None)
-        if last_check and (datetime.utcnow() - last_check).total_seconds() < check_interval_hours * 3600:
+        if last_check and (datetime.now() - last_check).total_seconds() < check_interval_hours * 3600:
             return False
-        self._loss_guard_last_check = datetime.utcnow()
+        self._loss_guard_last_check = datetime.now()
 
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            since = datetime.utcnow() - timedelta(hours=window_hours)
+            # 使用MySQL NOW()而非Python UTC时间，避免时区不一致导致窗口计算错误
             cursor.execute("""
                 SELECT COALESCE(SUM(realized_pnl), 0)
                 FROM futures_positions
                 WHERE status = 'closed' AND account_id = %s
-                  AND close_time >= %s
-            """, (self.account_id, since))
+                  AND close_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+            """, (self.account_id, window_hours))
             pnl = float(cursor.fetchone()[0])
 
             logger.info(f"[LOSS-GUARD] 过去{window_hours}h盈亏: {pnl:+.2f}U | 亏损熔断阈值: -{loss_threshold}U")
@@ -1526,7 +3770,7 @@ class SmartTraderService:
                 )
                 _last_notified = getattr(self, '_loss_guard_notified_at', None)
                 _cooldown_ok = (_last_notified is None or
-                                (datetime.utcnow() - _last_notified).total_seconds() >= 300)
+                                (datetime.now() - _last_notified).total_seconds() >= 300)
                 if _cooldown_ok and hasattr(self, 'telegram_notifier') and self.telegram_notifier:
                     try:
                         self.telegram_notifier.send_message(
@@ -1535,7 +3779,7 @@ class SmartTraderService:
                             f"阈值: -{loss_threshold}U\n"
                             f"U本位交易已自动停止，请手动重新开启"
                         )
-                        self._loss_guard_notified_at = datetime.utcnow()
+                        self._loss_guard_notified_at = datetime.now()
                     except Exception:
                         pass
                 return True
@@ -1581,52 +3825,17 @@ class SmartTraderService:
             }
 
     def get_current_price(self, symbol: str):
-        """获取当前价格 - 优先WebSocket实时价,回退到5m K线"""
+        """获取当前价格 - 仅使用WebSocket实时价，无可用价格时返回None拒绝开仓"""
         try:
-            # 优先从WebSocket获取实时价格(与SmartExitOptimizer检查止盈时用同一价格源,避免止盈缩水)
             if self.ws_service:
                 ws_price = self.ws_service.get_price(symbol)
                 if ws_price and ws_price > 0:
                     logger.debug(f"[PRICE] {symbol} 使用WebSocket实时价: {ws_price}")
                     return ws_price
-                else:
-                    logger.debug(f"[PRICE] {symbol} WebSocket价格无效,回退到K线")
-
-            # 回退到5分钟K线
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT close_price, open_time
-                FROM kline_data
-                WHERE symbol = %s AND timeframe = '5m'
-                ORDER BY open_time DESC LIMIT 1
-            """, (symbol,))
-            result = cursor.fetchone()
-            cursor.close()
-
-            if not result:
-                logger.warning(f"[PRICE] {symbol} K线数据不存在")
-                return None
-
-            close_price, open_time = result
-
-            # 检查数据新鲜度: 5m K线数据不能超过15分钟前
-            import time
-            current_timestamp_ms = int(time.time() * 1000)
-            data_age_minutes = (current_timestamp_ms - open_time) / 1000 / 60
-
-            if data_age_minutes > 15:
-                logger.warning(
-                    f"[DATA_STALE] {symbol} K线数据过时! "
-                    f"最新K线时间: {data_age_minutes:.1f}分钟前, 拒绝使用"
-                )
-                return None
-
-            logger.debug(f"[PRICE] {symbol} 使用K线价格: {close_price} (数据年龄: {data_age_minutes:.1f}分钟)")
-            return float(close_price)
+            logger.warning(f"[PRICE] {symbol} WebSocket价格不可用，拒绝返回价格")
         except Exception as e:
             logger.error(f"[ERROR] 获取{symbol}价格失败: {e}")
-            return None
+        return None
 
     def get_open_positions_count(self):
         try:
@@ -1634,15 +3843,17 @@ class SmartTraderService:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM futures_positions
-                WHERE status = 'OPEN' AND account_id = %s
+                WHERE status IN ('open', 'building') AND account_id = %s
             """, (self.account_id,))
             result = cursor.fetchone()
             cursor.close()
-            db_count = result[0] if result else 0
+            # DictCursor returns dict, plain cursor returns tuple
+            db_count = (list(result.values())[0] if isinstance(result, dict) else result[0]) if result else 0
             # 加上后台采样中尚未写入DB的任务数，防止超限
-            return db_count + self._pending_entry_count
-        except:
-            return 0
+            return int(db_count) + self._pending_entry_count
+        except Exception as e:
+            logger.warning(f"[POS-COUNT] 读取持仓数失败，仅返回pending计数: {e}")
+            return self._pending_entry_count
 
     def has_position(self, symbol: str, side: str = None):
         """
@@ -1669,7 +3880,8 @@ class SmartTraderService:
 
             result = cursor.fetchone()
             cursor.close()
-            return result[0] > 0 if result else False
+            cnt = (list(result.values())[0] if isinstance(result, dict) else result[0]) if result else 0
+            return int(cnt) > 0
         except:
             return False
 
@@ -1699,30 +3911,75 @@ class SmartTraderService:
 
             result = cursor.fetchone()
             cursor.close()
-            return result[0] if result else 0
+            cnt = (list(result.values())[0] if isinstance(result, dict) else result[0]) if result else 0
+            return int(cnt)
         except:
             return 0
 
-    def _get_margin_per_batch(self, symbol: str) -> float:
+    def _get_account_available_balance(self) -> float:
+        """从DB读取账户可用余额"""
+        try:
+            conn = self._get_connection()
+            cur = conn.cursor(pymysql.cursors.DictCursor)
+            cur.execute(
+                "SELECT current_balance, frozen_balance FROM futures_trading_accounts WHERE id=%s",
+                (self.account_id,)
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                return float(row['current_balance']) - float(row['frozen_balance'] or 0)
+        except Exception as e:
+            logger.warning(f"[BALANCE] 读取余额失败，使用默认值: {e}")
+        return 10000.0  # 安全兜底
+
+    def _get_margin_per_batch(self, symbol: str, score: float = 75) -> float:
         """
-        根据评级等级获取每批固定保证金
-
-        Args:
-            symbol: 交易对
-
-        Returns:
-            每批保证金金额（USDT）
+        动态仓位计算：基于账户余额 + 信号评分
+        base_pct 从 system_settings.position_size_pct 读取（默认 3%）
+        score 65→1.0x 倍率，score 120→1.5x 倍率
+        rating_level 1 → 50%，level 2 → 25%，level 3 → 禁止
         """
         rating_level = self.opt_config.get_symbol_rating_level(symbol)
+        if rating_level >= 3:
+            return 0.0
 
-        if rating_level == 0:
-            return 400.0  # 白名单/默认
-        elif rating_level == 1:
-            return 100.0  # 黑名单1级
+        # 从 system_settings 读取 base percentage（默认 3%）
+        try:
+            conn = self._get_connection()
+            cur = conn.cursor(pymysql.cursors.DictCursor)
+            cur.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key='position_size_pct'",
+            )
+            row = cur.fetchone()
+            cur.close()
+            base_pct = float(row['setting_value']) if row else 0.03
+        except Exception:
+            base_pct = 0.03
+
+        available = self._get_account_available_balance()
+
+        # score 倍率：score=65 → 1.0x，score=120 → 1.5x（线性插值，上限1.5）
+        score_mult = 1.0 + min(0.5, max(0.0, (score - 65) / 110))
+
+        size = available * base_pct * score_mult
+
+        # 绝对上下限
+        min_size = 300.0
+        max_size = available * 0.06  # 单笔不超过可用余额 6%
+        size = max(min_size, min(max_size, size))
+
+        # 评级折减
+        if rating_level == 1:
+            size *= 0.50
         elif rating_level == 2:
-            return 50.0   # 黑名单2级
-        else:
-            return 0.0    # 黑名单3级 - 禁止交易
+            size *= 0.25
+
+        logger.debug(
+            f"[SIZING] {symbol} score={score:.0f} available={available:.0f} "
+            f"base_pct={base_pct:.1%} mult={score_mult:.2f} size={size:.0f} level={rating_level}"
+        )
+        return round(size, 2)
 
     def validate_signal_timeframe(self, signal_components: dict, side: str, symbol: str) -> tuple:
         """
@@ -1771,11 +4028,11 @@ class SmartTraderService:
             rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
             cur.close()
             sl = float(rows.get('stop_loss_pct', 0.02))
-            tp = float(rows.get('take_profit_pct', 0.05))
+            tp = float(rows.get('take_profit_pct', 0.03))
             return sl, tp
         except Exception as e:
             logger.warning(f"[SL/TP] 读取system_settings失败，使用默认值: {e}")
-            return 0.02, 0.05
+            return 0.02, 0.03
 
     def calculate_volatility_adjusted_stop_loss(self, signal_components: dict, base_stop_loss_pct: float) -> float:
         """
@@ -2030,14 +4287,14 @@ class SmartTraderService:
             # 优先从 WebSocket 获取实时价格
             current_price = self.ws_service.get_price(symbol)
 
-            # 如果 WebSocket 价格不可用，回退到数据库价格
+            # 如果 WebSocket 价格不可用，回退到 Binance REST API 实时价
             if not current_price or current_price <= 0:
-                logger.warning(f"[WS_FALLBACK] {symbol} WebSocket价格不可用，回退到数据库价格")
+                logger.warning(f"[WS_FALLBACK] {symbol} WebSocket价格不可用，回退到Binance REST API")
                 current_price = self.get_current_price(symbol)
                 if not current_price:
                     logger.error(f"{symbol} 无法获取价格")
                     return False
-                price_source = "DB"
+                price_source = "REST"
             else:
                 price_source = "WS"
 
@@ -2062,9 +4319,9 @@ class SmartTraderService:
                 rating_level = self.opt_config.get_symbol_rating_level(symbol)
 
             if not is_reversal or 'original_margin' not in opp:
-                # 正常开仓流程
-                # 使用固定保证金金额替代倍数逻辑
-                margin_per_batch = self._get_margin_per_batch(symbol)
+                # 正常开仓流程：动态仓位，基于余额 + 信号评分
+                _entry_score_for_sizing = float(opp.get('score', 75))
+                margin_per_batch = self._get_margin_per_batch(symbol, score=_entry_score_for_sizing)
 
                 # Level 3 = 永久禁止
                 if margin_per_batch == 0:
@@ -2225,7 +4482,7 @@ class SmartTraderService:
                 base_timeout_minutes = _mh_hours * 60
 
             # 计算超时时间点 (UTC时间)
-            timeout_at = datetime.utcnow() + timedelta(minutes=base_timeout_minutes)
+            timeout_at = datetime.now() + timedelta(minutes=base_timeout_minutes)
 
             # 准备entry_reason
             entry_reason = opp.get('reason', '')
@@ -2540,7 +4797,7 @@ class SmartTraderService:
                                 current_price, long_pos['quantity'], long_pos['quantity'],
                                 notional_value, notional_value,
                                 fee, 0.0004,
-                                current_price, datetime.utcnow(),
+                                current_price, datetime.now(),
                                 long_pos['realized_pnl'], long_pos['pnl_pct'], '对冲止损平仓'
                             ))
 
@@ -2561,7 +4818,7 @@ class SmartTraderService:
                                 trade_id, long_pos['id'], self.account_id, symbol, 'CLOSE_LONG',
                                 current_price, long_pos['quantity'], notional_value, leverage, margin,
                                 fee, long_pos['realized_pnl'], long_pos['pnl_pct'], roi, long_pos['entry_price'],
-                                current_price, f"HEDGE-{long_pos['id']}", datetime.utcnow(), datetime.utcnow()
+                                current_price, f"HEDGE-{long_pos['id']}", datetime.now(), datetime.now()
                             ))
 
                             # 🔥 账户统计改为定时计算，避免并发更新死锁
@@ -2625,7 +4882,7 @@ class SmartTraderService:
                                 current_price, short_pos['quantity'], short_pos['quantity'],
                                 notional_value, notional_value,
                                 fee, 0.0004,
-                                current_price, datetime.utcnow(),
+                                current_price, datetime.now(),
                                 short_pos['realized_pnl'], short_pos['pnl_pct']
                             ))
 
@@ -2646,7 +4903,7 @@ class SmartTraderService:
                                 trade_id, short_pos['id'], self.account_id, symbol, 'CLOSE_SHORT',
                                 current_price, short_pos['quantity'], notional_value, leverage, margin,
                                 fee, short_pos['realized_pnl'], short_pos['pnl_pct'], roi, short_pos['entry_price'],
-                                current_price, order_id, datetime.utcnow(), datetime.utcnow()
+                                current_price, order_id, datetime.now(), datetime.now()
                             ))
 
                             # 🔥 账户统计改为定时计算，避免并发更新死锁
@@ -2910,7 +5167,7 @@ class SmartTraderService:
                     current_price, quantity, quantity,
                     notional_value, notional_value,
                     fee, 0.0004,
-                    current_price, datetime.utcnow(),
+                    current_price, datetime.now(),
                     realized_pnl, pnl_pct, reason
                 ))
 
@@ -2931,7 +5188,7 @@ class SmartTraderService:
                     trade_id, pos['id'], self.account_id, symbol, close_side,
                     current_price, quantity, notional_value, leverage, margin,
                     fee, realized_pnl, pnl_pct, roi, entry_price,
-                    current_price, order_id, datetime.utcnow(), datetime.utcnow()
+                    current_price, order_id, datetime.now(), datetime.now()
                 ))
 
                 # 🔥 账户统计改为定时计算，避免并发更新死锁
@@ -3211,7 +5468,7 @@ class SmartTraderService:
     def check_and_run_daily_optimization(self):
         """检查是否需要运行每日优化 (凌晨2点)"""
         try:
-            now = datetime.utcnow()
+            now = datetime.now()
             current_date = now.date()
 
             # 检查是否是凌晨2点且今天还没运行过
@@ -3501,14 +5758,23 @@ class SmartTraderService:
         last_config_reload = datetime.now()
         last_regime_check = datetime.now()  # 市场状态机检测（每小时一次）
         last_reconcile = datetime.now()     # 实盘持仓对账（每5分钟）
+        last_oi_collection = datetime.now() - timedelta(minutes=20)  # OI采集（每15分钟）
 
         while self.running:
             try:
                 # 0. 检查是否需要运行每日自适应优化 (凌晨2点)
                 self.check_and_run_daily_optimization()
 
-                # 0.5. 定期重新加载黑名单 (每5分钟)
+                # 0.4. OI 数据采集（每15分钟）
                 now = datetime.now()
+                if (now - last_oi_collection).total_seconds() >= 900:
+                    try:
+                        self._run_oi_collection_round(self.symbols)
+                    except Exception as e:
+                        logger.debug(f"OI collection round failed: {e}")
+                    last_oi_collection = now
+
+                # 0.5. 定期重新加载黑名单 (每5分钟)
                 if (now - last_blacklist_reload).total_seconds() >= 300:  # 5分钟
                     self.brain._reload_blacklist()
                     last_blacklist_reload = now
@@ -3640,8 +5906,8 @@ class SmartTraderService:
                     time.sleep(self.scan_interval)
                     continue
 
-                # 5.5.1 亏损熔断检查：每30分钟检测一次，过去3小时亏损超300U则自动禁止开仓
-                if self._check_loss_and_auto_disable(loss_threshold=300.0, window_hours=3, check_interval_hours=0.5):
+                # 5.5.1 亏损熔断检查：每30分钟检测一次，过去3小时亏损超2000U则自动禁止开仓
+                if self._check_loss_and_auto_disable(loss_threshold=2000.0, window_hours=3, check_interval_hours=0.5):
                     logger.warning("[LOSS-GUARD] 亏损熔断已触发，停止本轮开仓，请检查后手动重新开启交易")
                     time.sleep(self.scan_interval)
                     continue
@@ -3762,6 +6028,22 @@ class SmartTraderService:
 
                     logger.info(f"{'='*100}\n")
 
+                # 读取 allow_long / allow_short 开关（每轮刷新）
+                try:
+                    _sw_conn = self._get_connection()
+                    _sw_cur = _sw_conn.cursor()
+                    _sw_cur.execute(
+                        "SELECT setting_key, setting_value FROM system_settings "
+                        "WHERE setting_key IN ('allow_long','allow_short')"
+                    )
+                    _sw_rows = {r[0]: r[1] for r in _sw_cur.fetchall()}
+                    _sw_cur.close(); _sw_conn.close()
+                    _allow_long  = str(_sw_rows.get('allow_long',  '1')) in ('1', 'true', 'True')
+                    _allow_short = str(_sw_rows.get('allow_short', '1')) in ('1', 'true', 'True')
+                except Exception:
+                    _allow_long = True
+                    _allow_short = True
+
                 for opp in opportunities:
                     if self.get_open_positions_count() >= self.max_positions:
                         break
@@ -3770,6 +6052,14 @@ class SmartTraderService:
                     new_side = opp['side']
                     new_score = opp['score']
                     opposite_side = 'SHORT' if new_side == 'LONG' else 'LONG'
+
+                    # allow_long / allow_short 开关检查
+                    if new_side == 'LONG' and not _allow_long:
+                        logger.debug(f"[SWITCH] {symbol} LONG 被 allow_long=0 拦截")
+                        continue
+                    if new_side == 'SHORT' and not _allow_short:
+                        logger.debug(f"[SWITCH] {symbol} SHORT 被 allow_short=0 拦截")
+                        continue
 
                     # 🔥 获取Big4状态（用于后续判断）
                     try:
@@ -3785,17 +6075,30 @@ class SmartTraderService:
                             big4_strength = big4_result.get('signal_strength', 0)
                             logger.info(f"[BIG4] {symbol} Big4: {big4_signal}({big4_strength:.1f})")
                             # 强度 < 20 时市场方向完全不明确，禁止开仓
+                            # 例外：NEUTRAL市场下高确信信号(score>=threshold)允许通过
+                            _exec_threshold = self.brain.threshold
                             if big4_strength < 20:
-                                logger.warning(f"[BIG4-WEAK] {symbol} Big4强度过低({big4_strength:.1f}<20), 禁止开仓")
-                                continue
+                                if big4_signal == 'NEUTRAL' and new_score >= _exec_threshold:
+                                    logger.info(f"[NEUTRAL-PASS] {symbol} Big4强度低({big4_strength:.1f})但NEUTRAL高确信({new_score}), 允许开仓")
+                                else:
+                                    logger.warning(f"[BIG4-WEAK] {symbol} Big4强度过低({big4_strength:.1f}<20), 禁止开仓")
+                                    continue
                             # 执行层安全网：net_weighted_score 封死反向单
+                            # 例外：NEUTRAL市场下高确信信号允许跨方向（Big4信号弱，单币信号强）
                             _exec_net_ws = big4_result.get('net_weighted_score', 0)
+                            _neutral_high_conf = (big4_signal == 'NEUTRAL' and new_score >= _exec_threshold)
                             if _exec_net_ws > 0 and new_side == 'SHORT':
-                                logger.warning(f"[DIR-BLOCK] {symbol} net_ws={_exec_net_ws:.1f}>0, 封死空单")
-                                continue
+                                if _neutral_high_conf:
+                                    logger.info(f"[DIR-PASS] {symbol} net_ws={_exec_net_ws:.1f}>0 但NEUTRAL高确信空头({new_score}), 放行")
+                                else:
+                                    logger.warning(f"[DIR-BLOCK] {symbol} net_ws={_exec_net_ws:.1f}>0, 封死空单")
+                                    continue
                             if _exec_net_ws < 0 and new_side == 'LONG':
-                                logger.warning(f"[DIR-BLOCK] {symbol} net_ws={_exec_net_ws:.1f}<0, 封死多单")
-                                continue
+                                if _neutral_high_conf:
+                                    logger.info(f"[DIR-PASS] {symbol} net_ws={_exec_net_ws:.1f}<0 但NEUTRAL高确信多头({new_score}), 放行")
+                                else:
+                                    logger.warning(f"[DIR-BLOCK] {symbol} net_ws={_exec_net_ws:.1f}<0, 封死多单")
+                                    continue
                         else:
                             logger.warning(f"[BIG4-ERROR] {symbol} Big4数据不可用, 跳过开仓")
                             continue
@@ -4005,7 +6308,8 @@ class SmartTraderService:
                 self.running = False
                 break
             except Exception as e:
-                logger.error(f"[ERROR] 主循环异常: {e}")
+                import traceback
+                logger.error(f"[ERROR] 主循环异常: {e}\n{traceback.format_exc()}")
                 time.sleep(60)
 
         logger.info("[STOP] 服务已停止")

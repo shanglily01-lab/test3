@@ -1,0 +1,87 @@
+{
+  "timestamp": "2026-04-14 06:25 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 10450,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ZKP/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.07,
+          "high": 0.071
+        },
+        "stop_loss": 0.069,
+        "target1": 0.076,
+        "target2": 0.079,
+        "win_rate_pct": 60,
+        "risk_reward": 3.66,
+        "confidence": 6,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "Price action shows clear bounce off $0.07 support zone on 1h timeframe, ideally with increasing volume.",
+        "invalidation": "1h candle close below $0.069 or sustained break below $0.07 pivot zone.",
+        "confluence_signals": [
+          "4h positive returns (+2.08%)",
+          "Bullish EMA alignment (price above 3/3 EMAs)",
+          "Open Interest rising with price (healthy trend continuation)",
+          "Funding Rate positive (longs paying shorts, bullish sentiment)",
+          "ATR_24h_expected_range suggests upside to $0.08"
+        ],
+        "win_rate_basis": "Multiple bullish signals (positive returns, EMA alignment, OI, funding) support a long bias. However, 1h RSI is overbought, volume is low, and the long/short ratio shows a high long bias (potential for a flush), reducing the win rate from higher estimates. The ambiguity in key price levels also adds to risk."
+      },
+      {
+        "symbol": "ZRO/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Conflicting L/S ratio interpretation vs. value",
+          "Conflicting Funding Velocity interpretation vs. Funding Rate value",
+          "MACD bearish expanding vs. bullish EMA alignment",
+          "Hyperliquid Smart Money mixed signals with 0% win rate"
+        ],
+        "win_rate_basis": "The market data for ZRO/USDT presents too many direct contradictions between quantitative values and their interpretations, as well as conflicting momentum and sentiment signals. A clear, high-conviction trade plan cannot be formulated under such conditions."
+      },
+      {
+        "symbol": "ZRX/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.103,
+          "high": 0.105
+        },
+        "stop_loss": 0.099,
+        "target1": 0.11,
+        "target2": 0.115,
+        "win_rate_pct": 68,
+        "risk_reward": 1.75,
+        "confidence": 7,
+        "time_window": "enter within 4-8h, hold 12-24h",
+        "entry_trigger": "Price shows consolidation around $0.103-$0.105 or a clear bounce from the $0.10 support level on a 1h timeframe.",
+        "invalidation": "1h candle close below $0.099, indicating a break of the $0.10 support.",
+        "confluence_signals": [
+          "4h positive returns (+1.92%)",
+          "Bullish EMA alignment (price above 2/3 EMAs, 1h alignment bullish)",
+          "MACD 1h bullish contracting",
+          "Open Interest rising with price (healthy trend continuation)",
+          "Funding Rate negative (shorts paying longs, bullish for price)",
+          "Funding Velocity accelerating negative (shorts paying more, increased short pressure is bullish for price)"
+        ],
+        "win_rate_basis": "A strong confluence of bullish signals, including positive momentum (returns, EMA, MACD), healthy OI buildup, and a funding environment indicating shorts are under pressure. This outweighs cautionary signals like low volume and price-volume divergence, leading to a higher win rate estimate (4+ signals aligned)."
+      }
+    ],
+    "market_regime": "trending_up",
+    "cross_asset_insight": "ZKP and ZRX show a strong positive correlation (0.61), suggesting co-movement. The broader market's 'Extreme Fear' sentiment (F&G Index 12) could act as a contrarian buy signal, potentially supporting bounces in these altcoins despite individual asset divergences.",
+    "highest_conviction_trade": "ZRX/USDT"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": ["Shell(**)", "Read(**)", "Write(**)", "StrReplace(**)", "Grep(**)", "Glob(**)", "SemanticSearch(**)", "Task(**)"],
+    "deny": []
+  },
+  "approvalMode": "unrestricted"
+}

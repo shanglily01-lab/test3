@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-04-14 05:11 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17898,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SPACE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Conflicting signals between weak buying volume (bearish) and extreme bearish positioning (contrarian bullish potential short squeeze).",
+        "confluence_signals": [],
+        "win_rate_basis": "N/A"
+      }
+    ]
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "timestamp": "2026-04-14 02:02 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17283,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ESP/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Conflicting signals between extreme short crowd L/S ratio (contrarian bullish) and accelerating negative funding velocity (bearish long flush building). Price action is sideways with low volume, indicating a lack of clear direction. Therefore, no actionable trade plan can be formulated with high conviction.",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals lead to low win rate potential."
+      },
+      {
+        "symbol": "ETC/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "Despite an extreme short crowd L/S ratio (contrarian bullish), price is rising with weak volume (price-volume divergence) and 1h RSI is near overbought. Funding velocity also indicates a long flush building. These conflicting indicators create an unclear setup. Therefore, no actionable trade plan can be formulated with high conviction.",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals lead to low win rate potential."
+      },
+      {
+        "symbol": "ETH/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 2380.0,
+          "high": 2395.0
+        },
+        "stop_loss": 2405.0,
+        "target1": 2277.12,
+        "target2": 2174.48,
+        "win_rate_pct": 68,
+        "risk_reward": 6.31,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price entering $2380-$2395 zone, or 1h close below $2370 after rejection from $2395.85 resistance.",
+        "invalidation": "1h close above $2405",
+        "confluence_signals": [
+          "RSI_1h overbought (83.62)",
+          "Price-volume divergence (price rising with LOW volume)",
+          "EXTREME bullish funding rate (long squeeze risk)",
+          "Hyperliquid Smart Money STRONG_BEARISH (high conviction shorts)",
+          "Price near 7d high / resistance"
+        ],
+        "win_rate_basis": "Strong confluence of bearish indicators including overbought RSI, weak buying volume, extreme funding rates indicating crowded longs, and particularly the STRONG_BEARISH signal from Hyperliquid Smart Money, which is a leading indicator for distribution. This combination points to a high probability of a short-term pullback or reversal, despite the contrarian bullish L/S ratio."
+      },
+      {
+        "symbol": "ETHFI/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.42,
+          "high": 0.425
+        },
+        "stop_loss": 0.395,
+        "target1": 0.45,
+        "target2": 0.47,
+        "win_rate_pct": 70,
+        "risk_reward": 1.22,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price entering $0.42-$0.425 zone (pullback entry).",
+        "invalidation": "1h close below $0.395",
+        "confluence_signals": [
+          "EXTREME short crowd L/S ratio (contrarian bullish)",
+          "Funding velocity accelerating positive (short squeeze building)",
+          "MACD_1h bullish, EXPANDING",
+          "OI rising with price (healthy trend continuation)",
+          "Price low in 7d/30d range (room to run)"
+        ],
+        "win_rate_basis": "Strong confluence of bullish indicators including extreme short positioning, accelerating positive funding velocity suggesting a short squeeze is imminent, expanding bullish MACD, and healthy rising OI with price. While RSI is overbought and volume is low, the strong short squeeze potential provides a high probability for further upside."
+      }
+    ]
+  }
+}

@@ -128,14 +128,14 @@ class HyperliquidDB:
                     """UPDATE hyperliquid_traders
                        SET display_name = %s, last_updated = %s
                        WHERE id = %s""",
-                    (display_name, datetime.utcnow(), trader_id)
+                    (display_name, datetime.now(), trader_id)
                 )
                 self.conn.commit()
 
             return trader_id
         else:
             # 创建新记录
-            now = datetime.utcnow()
+            now = datetime.now()
             self.cursor.execute(
                 """INSERT INTO hyperliquid_traders
                    (address, display_name, first_seen, last_updated)
@@ -173,7 +173,7 @@ class HyperliquidDB:
         )
         existing = self.cursor.fetchone()
 
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if existing:
             # 更新现有记录
@@ -218,7 +218,7 @@ class HyperliquidDB:
         )
         existing = self.cursor.fetchone()
 
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if existing:
             # 更新现有快照
@@ -387,7 +387,7 @@ class HyperliquidDB:
         )
         existing = self.cursor.fetchone()
 
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if existing:
             # 如果已存在，更新为监控状态
@@ -464,7 +464,7 @@ class HyperliquidDB:
         """
         # 计算截止日期
         from datetime import timedelta
-        cutoff_date = datetime.utcnow() - timedelta(days=days_active)
+        cutoff_date = datetime.now() - timedelta(days=days_active)
 
         query = """
             SELECT mw.*, t.display_name
@@ -493,7 +493,7 @@ class HyperliquidDB:
             trader_id: 交易者ID
             last_trade_time: 最后交易时间
         """
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if last_trade_time:
             self.cursor.execute(
@@ -576,7 +576,7 @@ class HyperliquidDB:
                     trade_data.get('notional_usd', 0),
                     trade_data.get('closed_pnl', 0),
                     trade_time if trade_time else trade_data.get('trade_time'),
-                    datetime.utcnow(),
+                    datetime.now(),
                     json.dumps(trade_data.get('raw_data', {}))
                 )
             )
@@ -667,7 +667,7 @@ class HyperliquidDB:
         Returns:
             交易列表
         """
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+        cutoff_time = datetime.now() - timedelta(hours=hours)
 
         self.cursor.execute(
             """SELECT * FROM hyperliquid_wallet_trades
@@ -714,7 +714,7 @@ class HyperliquidDB:
         Args:
             address: 钱包地址
         """
-        now = datetime.utcnow()
+        now = datetime.now()
 
         self.cursor.execute(
             """UPDATE hyperliquid_monitored_wallets

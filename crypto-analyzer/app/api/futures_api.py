@@ -89,6 +89,7 @@ class OpenPositionRequest(BaseModel):
     take_profit_price: Optional[float] = Field(None, description="止盈价格")
     source: str = Field(default='manual', description="来源: manual, signal, auto")
     signal_id: Optional[int] = Field(None, description="信号ID")
+    max_hold_minutes: Optional[int] = Field(None, description="最大持仓分钟数，到期自动平仓")
 
 
 class UpdateStopLossTakeProfitRequest(BaseModel):
@@ -479,6 +480,26 @@ async def open_position(request: OpenPositionRequest):
         )
 
         if result.get('success'):
+            # 如果请求携带 max_hold_minutes，回写 planned_close_time / timeout_at
+            if request.max_hold_minutes and request.max_hold_minutes > 0:
+                pos_id = result.get('position_id') or result.get('id')
+                if pos_id:
+                    try:
+                        conn = get_db_connection()
+                        cur = conn.cursor()
+                        cur.execute(
+                            "UPDATE futures_positions "
+                            "SET planned_close_time = DATE_ADD(NOW(), INTERVAL %s MINUTE), "
+                            "    timeout_at         = DATE_ADD(NOW(), INTERVAL %s MINUTE), "
+                            "    max_hold_minutes   = %s "
+                            "WHERE id = %s",
+                            (request.max_hold_minutes, request.max_hold_minutes, request.max_hold_minutes, pos_id)
+                        )
+                        conn.commit()
+                        cur.close()
+                        logger.info(f"Set planned_close_time +{request.max_hold_minutes}min for pos {pos_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to set planned_close_time for pos {pos_id}: {e}")
             return {
                 'success': True,
                 'message': 'Position opened successfully',
@@ -1184,16 +1205,16 @@ async def get_futures_price(symbol: str):
     try:
         import aiohttp
         from aiohttp import ClientTimeout
-        
+
         # 标准化交易对格式（处理URL编码的斜杠）
         symbol_clean = symbol.replace('/', '').replace('%2F', '').upper()
-        
+
         price = None
         source = None
-        
+
         # 使用较短的超时时间，快速失败并回退
         quick_timeout = ClientTimeout(total=2)  # 2秒快速超时
-        
+
         # 1. 优先从Binance合约API获取（快速）
         try:
             async with aiohttp.ClientSession(timeout=quick_timeout) as session:
@@ -1349,87 +1370,72 @@ async def get_futures_prices_batch(symbols: List[str] = Body(..., embed=True)):
 @router.get('/trades')
 async def get_trades(account_id: int = 2, limit: int = 50, page: int = 1, page_size: int = 10):
     """
-    获取交易历史记录
-
-    - **account_id**: 账户ID（默认2）
-    - **limit**: 返回记录数（默认50，用于兼容旧代码）
-    - **page**: 页码（默认1）
-    - **page_size**: 每页记录数（默认10）
+    获取交易历史记录（从 futures_positions 已平仓记录读取）
     """
     try:
         connection = get_db_connection()
         cursor = connection.cursor(pymysql.cursors.DictCursor)
 
-        # 先获取总数（只统计平仓交易）
-        count_sql = """
-        SELECT COUNT(*) as total
-        FROM futures_trades t
-        WHERE t.account_id = %s AND t.side IN ('CLOSE_LONG', 'CLOSE_SHORT')
-        """
-        cursor.execute(count_sql, (account_id,))
+        # 总数
+        cursor.execute(
+            "SELECT COUNT(*) as total FROM futures_positions WHERE account_id=%s AND status='closed'",
+            (account_id,)
+        )
         total_count = cursor.fetchone()['total']
 
-        # 计算分页
+        # 分页
         if page_size > 0:
             offset = (page - 1) * page_size
             actual_limit = page_size
         else:
-            # 兼容旧代码，使用limit参数
             offset = 0
             actual_limit = limit
 
         sql = """
         SELECT
-            t.id,
-            t.trade_id,
-            t.position_id,
-            t.order_id,
-            t.symbol,
-            t.side,
-            t.price,
-            t.quantity,
-            t.notional_value,
-            t.leverage,
-            t.margin,
-            t.fee,
-            t.realized_pnl,
-            t.pnl_pct,
-            t.roi,
-            t.entry_price,
-            t.trade_time,
-            COALESCE(o.order_source, 'manual') as order_source,
-            o.notes as close_reason,
-            p.notes as entry_reason,
-            p.source as entry_source,
-            p.stop_loss_price,
-            p.take_profit_price,
-            p.open_time,
-            p.close_time
-        FROM futures_trades t
-        LEFT JOIN futures_orders o ON t.order_id = o.order_id
-        LEFT JOIN futures_positions p ON t.position_id = p.id
-        WHERE t.account_id = %s AND t.side IN ('CLOSE_LONG', 'CLOSE_SHORT')
-        ORDER BY t.trade_time DESC
+            id,
+            symbol,
+            CASE WHEN position_side='LONG' THEN 'CLOSE_LONG' ELSE 'CLOSE_SHORT' END AS side,
+            mark_price        AS price,
+            quantity,
+            notional_value,
+            leverage,
+            margin,
+            ROUND(
+                (COALESCE(avg_entry_price, entry_price) * quantity + mark_price * quantity) * 0.0004,
+                4
+            )                 AS fee,
+            realized_pnl,
+            realized_pnl / NULLIF(margin, 0) * 100 AS pnl_pct,
+            realized_pnl / NULLIF(margin, 0) * 100 AS roi,
+            COALESCE(avg_entry_price, entry_price) AS entry_price,
+            close_time        AS trade_time,
+            source            AS entry_source,
+            entry_reason,
+            notes             AS close_reason,
+            stop_loss_price,
+            take_profit_price,
+            open_time,
+            close_time,
+            entry_score,
+            max_profit_pct
+        FROM futures_positions
+        WHERE account_id = %s AND status = 'closed'
+        ORDER BY close_time DESC
         LIMIT %s OFFSET %s
         """
 
         cursor.execute(sql, (account_id, actual_limit, offset))
         trades = cursor.fetchall()
         cursor.close()
-        # connection.close()  # 复用连接，不关闭
 
-        # 转换 Decimal 为 float，datetime 为字符串
         for trade in trades:
             for key, value in trade.items():
                 if isinstance(value, Decimal):
                     trade[key] = float(value)
                 elif isinstance(value, datetime):
-                    # 将 datetime 转换为字符串（本地时间格式）
-                    # 如果数据库存储的是UTC时间，需要转换为本地时间（UTC+8）
-                    # 假设数据库存储的是本地时间（UTC+8），直接格式化
                     trade[key] = value.strftime('%Y-%m-%d %H:%M:%S')
 
-        # 计算总页数
         total_pages = (total_count + page_size - 1) // page_size if page_size > 0 else 1
 
         return {

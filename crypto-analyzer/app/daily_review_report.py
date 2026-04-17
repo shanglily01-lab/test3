@@ -66,7 +66,7 @@ class DailyReviewReport:
     def __init__(self, period_start: Optional[datetime] = None, period_end: Optional[datetime] = None):
         self.db_cfg = _db_config()
         # 默认：昨天 00:00 ~ 今天 00:00 UTC
-        now = datetime.utcnow()
+        now = datetime.now()
         self.period_end   = period_end   or now.replace(hour=0, minute=0, second=0, microsecond=0)
         self.period_start = period_start or (self.period_end - timedelta(days=1))
         self.date_label   = self.period_end.strftime('%Y-%m-%d')
@@ -710,7 +710,7 @@ class DailyReviewReport:
     # 主入口
     # ──────────────────────────────────────────────────────────────────────────
     def run(self):
-        print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] 每日复盘报告开始生成...")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC] 每日复盘报告开始生成...")
 
         # Step 1: 开单分析（先拿交易过的 symbols）
         trades = self.analyze_our_trades()

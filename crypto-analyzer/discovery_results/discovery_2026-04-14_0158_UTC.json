@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-04-14 01:58 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18639,
+  "results": {
+    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"BAT/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 0.095,\n        \"high\": 0.096\n      },\n      \"stop_loss\": 0.089,\n      \"target1\": 0.1,\n      \"target2\": 0.103,\n      \"win_rate_pct\": 70,\n      \"risk_reward\": 0.69,\n      \"confidence\": 7,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"Price retests $0.0950 - $0.0960 zone or 1h candle closes bullish above $0.0970\",\n      \"invalidation\": \"Price closes below $0.0890 on 1h timeframe\",\n      \"confluence_signals\": [\n        \"24h/4h positive returns\",\n        \"OI falling + price rising (short covering)\",\n        \"Extreme short crowd L/S ratio (contrarian bullish)\",\n        \"MACD 1h bullish trend\",\n        \"Fear & Greed Index: Extreme Fear (contrarian buy)\"\n      ],\n      \"win_rate_basis\": \"5 aligned",
+    "parse_error": "JSON extraction failed"
+  }
+}

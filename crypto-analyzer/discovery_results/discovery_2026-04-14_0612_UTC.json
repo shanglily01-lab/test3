@@ -1,0 +1,102 @@
+{
+  "timestamp": "2026-04-14 06:12 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12732,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "POWR/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.061,
+          "high": 0.063
+        },
+        "stop_loss": 0.059,
+        "target1": 0.07,
+        "target2": 0.072,
+        "win_rate_pct": 60,
+        "risk_reward": 2.67,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests $0.061-$0.063 zone and shows signs of bounce (e.g., 1h candle close above entry zone)",
+        "invalidation": "1h close below $0.059",
+        "confluence_signals": [
+          "Extreme bearish funding (3rd percentile) - contrarian bullish",
+          "OI rising with price - trend continuation",
+          "Extreme Fear Index (12) - contrarian bullish"
+        ],
+        "win_rate_basis": "Three contrarian/continuation signals align, suggesting a potential short squeeze. However, weak buying volume and bearish MACD on 1h reduce the overall win rate estimate."
+      },
+      {
+        "symbol": "PROM/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.35,
+          "high": 1.38
+        },
+        "stop_loss": 1.29,
+        "target1": 1.45,
+        "target2": 1.48,
+        "win_rate_pct": 72,
+        "risk_reward": 1.28,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests $1.35-$1.38 zone (near EMA20) and shows signs of bounce (e.g., 1h candle close above entry zone)",
+        "invalidation": "1h close below $1.29",
+        "confluence_signals": [
+          "Extreme bearish funding (6th percentile) - contrarian bullish",
+          "Extreme short crowd (2nd percentile L/S ratio) - contrarian bullish",
+          "OI rising with price - trend continuation",
+          "Strong price action and price above all EMAs - bullish trend",
+          "Extreme Fear Index (12) - contrarian bullish"
+        ],
+        "win_rate_basis": "Five strong bullish signals, including multiple extreme contrarian indicators and healthy trend continuation. Despite low volume and bearish MACD, the overwhelming contrarian pressure from shorts makes this a high-conviction long."
+      },
+      {
+        "symbol": "PUMP/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Crucial price level data (resistance, support, EMAs, 24h range) is reported as $0.00, making it impossible to define precise entry, stop loss, and profit targets as required by the trading plan rules."
+      },
+      {
+        "symbol": "QNT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 74.5,
+          "high": 75.0
+        },
+        "stop_loss": 73.5,
+        "target1": 77.76,
+        "target2": 79.94,
+        "win_rate_pct": 60,
+        "risk_reward": 2.27,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests $74.50-$75.00 zone (near $75.05 support) and shows signs of bounce (e.g., 1h candle close above entry zone)",
+        "invalidation": "1h close below $73.50",
+        "confluence_signals": [
+          "Extreme short crowd (6th percentile L/S ratio) - contrarian bullish",
+          "Extreme Fear Index (12) - contrarian bullish",
+          "1h Taker buy aggressive (>55%) - bullish sentiment"
+        ],
+        "win_rate_basis": "Three contrarian/bullish signals are present, but price is below EMAs, volume is low, and OI is decreasing, which reduces the overall conviction and win rate estimate."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear' (F&G Index=12), suggesting a contrarian buy signal across the board. This reinforces individual token contrarian long setups, particularly those with extreme bearish positioning indicators.",
+    "highest_conviction_trade": "PROM/USDT"
+  }
+}

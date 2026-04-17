@@ -1,0 +1,109 @@
+{
+  "timestamp": "2026-04-14 06:16 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 13185,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "SKY/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.07,
+          "high": 0.071
+        },
+        "stop_loss": 0.069,
+        "target1": 0.078,
+        "target2": 0.08,
+        "win_rate_pct": 65,
+        "risk_reward": 3.5,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price consolidates near $0.07 support, 1h close above $0.0705",
+        "invalidation": "1h close below $0.069",
+        "confluence_signals": [
+          "Extreme negative funding rate (0th percentile)",
+          "Fear and Greed Index: Extreme Fear",
+          "Price at strong support zone ($0.07)"
+        ],
+        "win_rate_basis": "Extreme negative funding rate and market-wide extreme fear often precede contrarian bounces, especially when price is at a clear support level. However, bearish momentum and weak buying volume temper the upside potential, making it a short-term bounce play."
+      },
+      {
+        "symbol": "SNX/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.29,
+          "high": 0.292
+        },
+        "stop_loss": 0.288,
+        "target1": 0.298,
+        "target2": 0.305,
+        "win_rate_pct": 72,
+        "risk_reward": 2.33,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds above EMA20 ($0.29), 1h close above $0.291",
+        "invalidation": "1h close below $0.288",
+        "confluence_signals": [
+          "Rising Open Interest with rising price (healthy trend continuation)",
+          "Funding Velocity accelerating positive (short squeeze building)",
+          "Bullish Price-Volume Divergence (price falling with low volume)",
+          "Perp premium in 94th percentile (demand for longs)",
+          "Price above 3/3 EMAs on 1h timeframe"
+        ],
+        "win_rate_basis": "A strong confluence of bullish signals including healthy OI growth, accelerating positive funding velocity, and bullish price-volume divergence indicates strong upward pressure and potential for a short squeeze, supporting a high win rate for a long position."
+      },
+      {
+        "symbol": "SOLV/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.0044,
+          "high": 0.0045
+        },
+        "stop_loss": 0.0046,
+        "target1": 0.0042,
+        "target2": 0.004,
+        "win_rate_pct": 70,
+        "risk_reward": 3.0,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price rejects $0.0045 or 1h close below $0.0044",
+        "invalidation": "1h close above $0.0046",
+        "confluence_signals": [
+          "RSI 1h Overbought (>70)",
+          "Price-Volume Divergence (price rising with low volume, weak buying)",
+          "Falling Open Interest with rising price (short covering exhaustion)",
+          "Funding Velocity accelerating negative (long flush building)",
+          "Low Perp Premium (demand for shorts)",
+          "Volatility compressed (spring tension for potential downside move)"
+        ],
+        "win_rate_basis": "Multiple strong bearish signals, including an overbought RSI, unsustainable price rise on low volume, and indicators of long flush building, suggest a high probability of a downside reversal. The inferred price levels introduce slight uncertainty but the overall signal strength is high."
+      },
+      {
+        "symbol": "SPACE/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.005,
+          "high": 0.0051
+        },
+        "stop_loss": 0.0049,
+        "target1": 0.0055,
+        "target2": 0.006,
+        "win_rate_pct": 65,
+        "risk_reward": 2.0,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds above $0.0050, 1h close above $0.0051",
+        "invalidation": "1h close below $0.0049",
+        "confluence_signals": [
+          "Price low in 7d/30d range (potential for bounce)",
+          "Extreme Bearish Funding Rate (interpretation suggests short squeeze fuel)",
+          "Fear and Greed Index: Extreme Fear (market-wide contrarian buy)"
+        ],
+        "win_rate_basis": "The asset is at a very low point in its recent range, combined with extreme bearish funding sentiment and market-wide fear, which often sets up for contrarian bounces or short squeezes. However, bearish momentum and volume divergence indicate this may be a tactical bounce rather than a sustained trend reversal."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The overall market is in 'Extreme Fear' (F&G Index = 12), suggesting a contrarian buying opportunity, especially for assets showing signs of short squeeze potential or price at strong support levels.",
+    "highest_conviction_trade": "SNX/USDT"
+  }
+}

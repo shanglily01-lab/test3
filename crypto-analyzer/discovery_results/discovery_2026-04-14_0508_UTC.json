@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-04-14 05:08 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17579,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "PROVE/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.228,
+          "high": 0.229
+        },
+        "stop_loss": 0.232,
+        "target1": 0.225,
+        "target2": 0.222,
+        "win_rate_pct": 70,
+        "risk_reward": 2.33,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price rejection at $0.23 resistance or 1h close below $0.229, confirming weakness.",
+        "invalidation": "Price holds above $0.23 or 1h close above $0.232.",
+        "confluence_signals": [
+          "Price at resistance ($0.23)",
+          "RSI_1h overbought (72.31)",
+          "Price rising with LOW volume (weak buying divergence)",
+          "EXTREME long crowd (contrarian bearish signal)"
+        ],
+        "win_rate_basis": "Multiple bearish signals align: price at a key resistance level, short-term momentum is overbought, and volume analysis indicates a lack of conviction in the recent price rise. Furthermore, the extreme long positioning of the crowd suggests a contrarian short opportunity. These four aligned signals provide a high probability setup."
+      },
+      {
+        "symbol": "PUMP/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Missing key price levels (resistance, support, EMA, ATR range all reported as $0.00)"
+        ],
+        "win_rate_basis": "The essential key price levels (support, resistance, EMA, ATR range) are reported as $0.00, making it impossible to define precise entry, stop loss, and profit targets based on the provided data. Therefore, no actionable trade plan can be formulated."
+      }
+    ]
+  }
+}

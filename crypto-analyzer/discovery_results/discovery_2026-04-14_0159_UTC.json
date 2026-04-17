@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-04-14 01:59 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18520,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BREV/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.122,
+          "high": 0.124
+        },
+        "stop_loss": 0.118,
+        "target1": 0.13,
+        "target2": 0.135,
+        "win_rate_pct": 70,
+        "risk_reward": 1.4,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price holds above $0.122 or finds support on EMA20",
+        "invalidation": "1h close below $0.118",
+        "confluence_signals": [
+          "EMA 1h bullish alignment (price above 3/3 EMAs)",
+          "1d channel up structure",
+          "Extreme bearish funding rate (contrarian bullish / short squeeze fuel)",
+          "Price above EMA20, EMA50, EMA200"
+        ],
+        "win_rate_basis": "Multiple bullish momentum signals combined with an extreme contrarian funding rate suggest a high probability of continued upward movement or a short squeeze."
+      }
+    ]
+  }
+}

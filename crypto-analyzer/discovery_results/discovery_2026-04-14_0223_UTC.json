@@ -1,0 +1,118 @@
+{
+  "timestamp": "2026-04-14 02:23 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 15209,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ZK/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals (extreme short crowd bullish vs. weak buying volume and negative funding velocity acceleration). Additionally, key price level data for this symbol is inconsistent, making precise plan formulation unreliable."
+      },
+      {
+        "symbol": "ZKC/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals between short-term overbought RSI and price-volume divergence (bearish) versus rising Open Interest with rising price (bullish trend continuation). Key price level data is also inconsistent."
+      },
+      {
+        "symbol": "ZKP/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.073,
+          "high": 0.074
+        },
+        "stop_loss": 0.076,
+        "target1": 0.07,
+        "target2": 0.068,
+        "win_rate_pct": 65,
+        "risk_reward": 1.4,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters entry zone ($0.073-$0.074) and 1h RSI remains above 70 or begins to turn down.",
+        "invalidation": "1h candle close above $0.076 resistance level.",
+        "confluence_signals": [
+          "RSI 1h overbought (79.59)",
+          "Price rising with LOW volume (weak buying/bearish divergence)",
+          "EXTREME long crowd L/S ratio (contrarian bearish)",
+          "MACD 1h bullish but contracting (weakening momentum)"
+        ],
+        "win_rate_basis": "Four bearish signals (overbought RSI, price-volume divergence, extreme long crowd, contracting MACD) indicate a high probability of short-term reversal. This is moderately offset by rising OI (trend continuation), reducing the win rate from a higher potential."
+      },
+      {
+        "symbol": "ZRO/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals between bullish Open Interest and EMA alignment (trend continuation) versus weak buying volume (price-volume divergence), negative funding velocity acceleration, and contracting MACD (bearish reversal signs)."
+      },
+      {
+        "symbol": "ZRX/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.109,
+          "high": 0.111
+        },
+        "stop_loss": 0.113,
+        "target1": 0.1,
+        "target2": 0.098,
+        "win_rate_pct": 68,
+        "risk_reward": 3.33,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters entry zone ($0.109-$0.111) near resistance and shows signs of rejection (e.g., 1h candle close below $0.11).",
+        "invalidation": "1h candle close above $0.113 resistance level.",
+        "confluence_signals": [
+          "Price rising with LOW volume (weak buying/bearish divergence)",
+          "Funding velocity accelerating negative (longs paying more, flush building)",
+          "MACD 1h bullish but contracting (weakening momentum)",
+          "Price approaching key resistance at $0.11",
+          "Elevated volatility suggests potential for sharp moves"
+        ],
+        "win_rate_basis": "Four strong bearish signals (price-volume divergence, negative funding velocity acceleration, contracting MACD, resistance proximity, elevated volatility) suggest a high probability of reversal or pullback. This is moderately offset by rising OI (trend continuation), but the risk/reward is favorable for a short."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in 'Extreme Fear' (F&G Index=12), which often precedes bounces. However, the current positive 24h returns across Z-coins are largely on weak volume, indicating a fragile bounce. High correlations among ZK, ZKC, ZKP, ZRX suggest synchronized movement, increasing cascade risk on reversals.",
+    "highest_conviction_trade": "ZRX/USDT"
+  }
+}

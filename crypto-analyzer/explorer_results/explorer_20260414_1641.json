@@ -1,0 +1,235 @@
+[
+  {
+    "round": 4,
+    "name": "AccelerationDivergence",
+    "mode": "mtf_self",
+    "hypothesis": "价格梯度在加速（短周期梯度>长周期），但买压flux却在减速（短周期flux<长周期），这种二阶梯度的背离揭示了价格在靠惯性而非真实资金流上升。",
+    "code": "def sig(cs1h, cs4h=None):\n    if not cs1h or not cs4h or len(cs1h) < 10:\n        return None\n    \n    # 价格在加速上涨\n    price_accel = gradient(cs1h, 2) > gradient(cs1h, 5) > 0\n    # 买压在减速\n    flux_decel = flux(cs1h, 2) < flux(cs1h, 5)\n    \n    if price_accel and flux_decel and gradient(cs4h, 4) < 0:\n        # 且最新买压已经转弱\n        if flux(cs1h, 2) < 0.51:\n            return \"SHORT\"\n    return None",
+    "stage1": {
+      "n": 15,
+      "wr": 0.7333333333333333,
+      "ev": 1.020771366236611
+    },
+    "stage2": {
+      "n": 48,
+      "wr": 0.6041666666666666,
+      "ev": 0.37254837935288365
+    },
+    "stage3": {
+      "n": 445,
+      "wr": 0.6584269662921348,
+      "ev": 0.48217382856323004
+    },
+    "stage4_test": {
+      "n": 140,
+      "wr": 0.5714285714285714,
+      "ev": 0.1716497964835752,
+      "verdict": "border"
+    },
+    "top_symbols_train": [
+      [
+        "TAO/USDT",
+        1.0,
+        6
+      ],
+      [
+        "DOT/USDT",
+        1.0,
+        4
+      ],
+      [
+        "NEAR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "TON/USDT",
+        1.0,
+        5
+      ],
+      [
+        "XLM/USDT",
+        1.0,
+        5
+      ],
+      [
+        "JTO/USDT",
+        1.0,
+        5
+      ],
+      [
+        "DRIFT/USDT",
+        1.0,
+        5
+      ],
+      [
+        "CAKE/USDT",
+        1.0,
+        4
+      ],
+      [
+        "SNX/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        4
+      ],
+      [
+        "FLOW/USDT",
+        1.0,
+        5
+      ],
+      [
+        "ICP/USDT",
+        0.875,
+        8
+      ],
+      [
+        "CHZ/USDT",
+        0.875,
+        8
+      ],
+      [
+        "HBAR/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ETC/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "SOL/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "1000FLOKI/USDT",
+        0.8333,
+        6
+      ],
+      [
+        "ENA/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ETHFI/USDT",
+        0.8,
+        5
+      ],
+      [
+        "ID/USDT",
+        0.8,
+        5
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "NEAR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ETHFI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "COMP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ID/USDT",
+        1.0,
+        3
+      ],
+      [
+        "AXS/USDT",
+        0.75,
+        4
+      ],
+      [
+        "ENJ/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "OP/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "JTO/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "ORDI/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "CFX/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "THETA/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "IOTA/USDT",
+        0.6667,
+        3
+      ],
+      [
+        "RENDER/USDT",
+        0.5,
+        4
+      ],
+      [
+        "ETH/USDT",
+        0.3333,
+        3
+      ],
+      [
+        "SUI/USDT",
+        0.3333,
+        3
+      ],
+      [
+        "AAVE/USDT",
+        0.3333,
+        3
+      ],
+      [
+        "LTC/USDT",
+        0.3333,
+        3
+      ],
+      [
+        "ATOM/USDT",
+        0.3333,
+        3
+      ],
+      [
+        "BOME/USDT",
+        0.3333,
+        3
+      ],
+      [
+        "XVG/USDT",
+        0.3333,
+        3
+      ]
+    ],
+    "ts": "2026-04-14T16:41:14.081953"
+  }
+]

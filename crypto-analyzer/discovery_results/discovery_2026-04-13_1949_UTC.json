@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-04-13 19:49 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 6132,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "BTC",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 73400.0,
+          "high": 73700.0
+        },
+        "stop_loss": 73900.0,
+        "target1": 71382.1,
+        "target2": 70566.5,
+        "win_rate_pct": 65,
+        "risk_reward": 6.19,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone ($73,400 - $73,700) and shows signs of rejection from the $73,773.40 resistance on a 15m or 1h timeframe.",
+        "invalidation": "1h candle close above $73,900.",
+        "confluence_signals": [
+          "Hyperliquid Smart Money: STRONG_BEARISH (net outflow, high conviction shorts)",
+          "RSI 1h: Overbought (77.48)",
+          "Price approaching key 7d high resistance ($73,773.40)",
+          "Negative Funding Rate (-0.0054%): Longs paying shorts, indicating bearish sentiment in derivatives market or over-leveraged longs",
+          "Low Account L/S Ratio (0.981): Potential for reversal to trap new longs if price drops"
+        ],
+        "win_rate_basis": "The win rate is estimated at 65% due to the strong bearish signal from Hyperliquid Smart Money (a leading indicator), combined with the 1h RSI being overbought and price at significant resistance. The negative funding rate further suggests bearish sentiment in the derivatives market, potentially indicating exhaustion or a trap for longs. However, the strong underlying spot momentum (bullish EMA alignment, rising OI) introduces conflicting bullish pressure, preventing a higher win rate estimate."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "No specific cross-asset insights are available in the provided data.",
+    "highest_conviction_trade": "BTC"
+  }
+}

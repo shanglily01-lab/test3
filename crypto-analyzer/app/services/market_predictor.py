@@ -1,7 +1,8 @@
 """
-市场走势预测器
-对每个交易对做72H K线分析（1H + 15M），预测未来3~4小时走势
-每3小时由 app/main.py 调度运行一次
+均值回归预测器（重构版）
+核心逻辑：RSI极值 + 资金费率极端 + EMA50偏离 + 成交量背离
+触发条件：评分 >= 65（至少2个信号叠加）
+每3小时由 app/main.py 调度运行一次，每次最多新开 5 仓，总持仓上限 8
 """
 import pymysql
 import pymysql.cursors
@@ -31,6 +32,63 @@ class MarketPredictor:
             return 4
         except Exception:
             return 4
+
+    def _get_trade_switches(self) -> dict:
+        """读取 allow_long / allow_short / predictor_max_positions"""
+        defaults = {'allow_long': True, 'allow_short': True, 'predictor_max_positions': 15}
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT setting_key, setting_value FROM system_settings "
+                "WHERE setting_key IN ('allow_long','allow_short','predictor_max_positions')"
+            )
+            rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
+            cur.close(); conn.close()
+            defaults['allow_long'] = str(rows.get('allow_long', '1')) in ('1', 'true', 'True')
+            defaults['allow_short'] = str(rows.get('allow_short', '1')) in ('1', 'true', 'True')
+            defaults['predictor_max_positions'] = int(rows.get('predictor_max_positions', 15))
+        except Exception as e:
+            logger.warning(f"[预测器] 读取开关失败，使用默认值: {e}")
+        return defaults
+
+    def _get_btc_direction(self, cursor) -> str:
+        """
+        获取 BTC 宏观方向（基于 1H K线）。
+        返回: 'BULLISH' / 'BEARISH' / 'NEUTRAL'
+        用于门控山寨币信号方向。
+        """
+        try:
+            k1h = self._fetch_klines(cursor, 'BTC/USDT', '1h', 48)
+            if len(k1h) < 26:
+                return 'NEUTRAL'
+            closes = [float(k['close_price']) for k in k1h]
+            highs  = [float(k['high_price'])  for k in k1h]
+            lows   = [float(k['low_price'])   for k in k1h]
+
+            ema9  = self._calc_ema(closes, 9)
+            ema26 = self._calc_ema(closes, 26)
+            rsi   = self._calc_rsi(closes, 14)
+            adx   = self._calc_adx(highs, lows, closes, 14)
+            macd_hist = self._calc_macd_hist(closes, 8, 21, 5)
+
+            ema_bull = ema9[-1] > ema26[-1] if ema9 and ema26 else False
+            ema_bear = ema9[-1] < ema26[-1] if ema9 and ema26 else False
+            macd_bull = len(macd_hist) >= 2 and macd_hist[-1] > 0 and macd_hist[-1] >= macd_hist[-2]
+            macd_bear = len(macd_hist) >= 2 and macd_hist[-1] < 0 and macd_hist[-1] <= macd_hist[-2]
+
+            # 趋势强度要求：ADX > 18
+            trend_ok = adx > 18
+
+            if ema_bull and macd_bull and trend_ok and rsi > 45:
+                return 'BULLISH'
+            elif ema_bear and macd_bear and trend_ok and rsi < 55:
+                return 'BEARISH'
+            else:
+                return 'NEUTRAL'
+        except Exception as e:
+            logger.warning(f"[预测器] BTC方向获取失败: {e}")
+            return 'NEUTRAL'
 
     # ──────────────────────────────────────────
     # 指标计算（参考 market_regime_detector.py）
@@ -112,155 +170,171 @@ class MarketPredictor:
         rows = cursor.fetchall()
         return list(reversed(rows))  # 时间从旧到新
 
+    def _get_funding_rate(self, symbol: str, cursor=None) -> Optional[float]:
+        """获取最新资金费率（funding_rate_data 表）"""
+        try:
+            _own_conn = None
+            if cursor is None:
+                _own_conn = self._get_conn()
+                cursor = _own_conn.cursor()
+            # 同时匹配 BTC/USDT 和 BTCUSDT 两种格式
+            sym2 = symbol.replace('/', '')
+            cursor.execute(
+                "SELECT funding_rate FROM funding_rate_data "
+                "WHERE symbol IN (%s, %s) ORDER BY timestamp DESC LIMIT 1",
+                (symbol, sym2)
+            )
+            row = cursor.fetchone()
+            if _own_conn:
+                cursor.close(); _own_conn.close()
+            return float(row['funding_rate']) if row else None
+        except Exception:
+            return None
+
     # ──────────────────────────────────────────
-    # 单币分析
+    # 单币分析（均值回归）
     # ──────────────────────────────────────────
 
     def analyze(self, symbol: str, cursor=None) -> Optional[Dict]:
-        """分析单币走势。cursor 由外部传入时复用连接，否则自行开连接。"""
+        """
+        均值回归分析：
+          信号1  RSI 1H  极值（>72超买/< 28超卖）
+          信号2  RSI 15M 极值
+          信号3  资金费率极端（>0.08% SHORT / <-0.08% LONG）
+          信号4  EMA50 偏离度（>6% SHORT / <-6% LONG）
+          信号5  高位/低位量萎缩（成交量背离）
+          信号6  RSI 转向确认
+        评分 >= 65 且至少2个信号触发才开仓
+        """
         _own_conn = None
         try:
             if cursor is None:
                 _own_conn = self._get_conn()
                 cursor = _own_conn.cursor()
 
-            # 1H 数据（72根）
-            k1h = self._fetch_klines(cursor, symbol, '1h', 72)
-            # 15M 数据（96根 = 24H）
+            k1h  = self._fetch_klines(cursor, symbol, '1h', 100)
             k15m = self._fetch_klines(cursor, symbol, '15m', 96)
+            funding = self._get_funding_rate(symbol, cursor)
 
             if _own_conn:
-                cursor.close()
-                _own_conn.close()
-                cursor = None
+                cursor.close(); _own_conn.close(); cursor = None
 
-            if len(k1h) < 30 or len(k15m) < 20:
-                logger.debug(f"[预测] {symbol} K线数据不足，跳过")
+            if len(k1h) < 52 or len(k15m) < 20:
                 return None
 
-            # 提取序列
-            h1_c  = [float(k['close_price']) for k in k1h]
-            h1_h  = [float(k['high_price'])  for k in k1h]
-            h1_l  = [float(k['low_price'])   for k in k1h]
-            h1_v  = [float(k['volume'])      for k in k1h]
-
+            h1_c = [float(k['close_price']) for k in k1h]
+            h1_v = [float(k['volume'])      for k in k1h]
             m15_c = [float(k['close_price']) for k in k15m]
-            m15_v = [float(k['volume'])      for k in k15m]
 
-            # ── 1H 指标 ──
-            ema9  = self._calc_ema(h1_c, 9)
-            ema26 = self._calc_ema(h1_c, 26)
-            rsi1h = self._calc_rsi(h1_c, 14)
-            adx1h = self._calc_adx(h1_h, h1_l, h1_c, 14)
-            macd_hist = self._calc_macd_hist(h1_c, 8, 21, 5)
+            rsi_1h  = self._calc_rsi(h1_c, 14)
+            rsi_15m = self._calc_rsi(m15_c, 14)
+            ema50   = self._calc_ema(h1_c, 50)
+            current = h1_c[-1]
 
-            ema9_now  = ema9[-1]  if ema9  else h1_c[-1]
-            ema26_now = ema26[-1] if ema26 else h1_c[-1]
-            ema_bullish = ema9_now > ema26_now
-            ema_bearish = ema9_now < ema26_now
+            score_long:  int = 0
+            score_short: int = 0
+            hits_long:   int = 0   # 触发的独立信号数
+            hits_short:  int = 0
+            rl: List[str] = []
+            rs: List[str] = []
 
-            macd_bullish = (len(macd_hist) >= 3 and
-                            macd_hist[-1] > 0 and
-                            macd_hist[-1] >= macd_hist[-2])
-            macd_bearish = (len(macd_hist) >= 3 and
-                            macd_hist[-1] < 0 and
-                            macd_hist[-1] <= macd_hist[-2])
+            # ── 信号1：RSI 1H ──
+            if rsi_1h < 20:
+                score_long += 50; hits_long += 1; rl.append(f"RSI1H={rsi_1h:.0f}极度超卖")
+            elif rsi_1h < 28:
+                score_long += 35; hits_long += 1; rl.append(f"RSI1H={rsi_1h:.0f}超卖")
+            elif rsi_1h > 80:
+                score_short += 50; hits_short += 1; rs.append(f"RSI1H={rsi_1h:.0f}极度超买")
+            elif rsi_1h > 72:
+                score_short += 35; hits_short += 1; rs.append(f"RSI1H={rsi_1h:.0f}超买")
 
-            trend_1h_bull = ema_bullish and macd_bullish
-            trend_1h_bear = ema_bearish and macd_bearish
+            # ── 信号2：RSI 15M ──
+            if rsi_15m < 20:
+                score_long += 25; hits_long += 1; rl.append(f"RSI15M={rsi_15m:.0f}极度超卖")
+            elif rsi_15m < 28:
+                score_long += 15; hits_long += 1; rl.append(f"RSI15M={rsi_15m:.0f}超卖")
+            elif rsi_15m > 80:
+                score_short += 25; hits_short += 1; rs.append(f"RSI15M={rsi_15m:.0f}极度超买")
+            elif rsi_15m > 72:
+                score_short += 15; hits_short += 1; rs.append(f"RSI15M={rsi_15m:.0f}超买")
 
-            # ── 15M 指标 ──
-            last8 = m15_c[-8:]
-            bull_bars = sum(1 for i in range(1, len(last8)) if last8[i] > last8[i - 1])
-            bear_bars = len(last8) - 1 - bull_bars
+            # ── 信号3：资金费率 ──
+            if funding is not None:
+                if funding > 0.0015:
+                    score_short += 40; hits_short += 1; rs.append(f"资金费率={funding*100:.3f}%极高")
+                elif funding > 0.0008:
+                    score_short += 22; hits_short += 1; rs.append(f"资金费率={funding*100:.3f}%偏高")
+                elif funding < -0.0015:
+                    score_long += 40; hits_long += 1; rl.append(f"资金费率={funding*100:.3f}%极低")
+                elif funding < -0.0008:
+                    score_long += 22; hits_long += 1; rl.append(f"资金费率={funding*100:.3f}%偏低")
 
-            rsi15m_recent = [self._calc_rsi(m15_c[:i], 14) for i in range(max(15, len(m15_c) - 4), len(m15_c) + 1)]
-            rsi15m_rising = len(rsi15m_recent) >= 2 and rsi15m_recent[-1] > rsi15m_recent[0]
+            # ── 信号4：EMA50 偏离度 ──
+            if ema50:
+                dev = (current - ema50[-1]) / ema50[-1] * 100
+                if dev > 10:
+                    score_short += 30; hits_short += 1; rs.append(f"偏离EMA50={dev:.1f}%极度偏高")
+                elif dev > 6:
+                    score_short += 18; hits_short += 1; rs.append(f"偏离EMA50={dev:.1f}%偏高")
+                elif dev < -10:
+                    score_long += 30; hits_long += 1; rl.append(f"偏离EMA50={dev:.1f}%极度偏低")
+                elif dev < -6:
+                    score_long += 18; hits_long += 1; rl.append(f"偏离EMA50={dev:.1f}%偏低")
 
-            vol_recent = sum(m15_v[-4:]) / 4 if len(m15_v) >= 4 else 0
-            vol_prev   = sum(m15_v[-8:-4]) / 4 if len(m15_v) >= 8 else vol_recent
-            vol_expanding = vol_prev > 0 and vol_recent > vol_prev * 1.3
+            # ── 信号5：高/低位量萎缩（成交量背离）──
+            if len(h1_v) >= 8 and len(h1_c) >= 49:
+                recent_vol = sum(h1_v[-4:]) / 4
+                prev_vol   = sum(h1_v[-8:-4]) / 4
+                if prev_vol > 0:
+                    vol_ratio = recent_vol / prev_vol
+                    hi48 = max(h1_c[-49:-1])
+                    lo48 = min(h1_c[-49:-1])
+                    if current >= hi48 * 0.997 and vol_ratio < 0.7:
+                        score_short += 22; hits_short += 1; rs.append(f"高位量萎缩({vol_ratio:.2f}x)")
+                    elif current <= lo48 * 1.003 and vol_ratio < 0.7:
+                        score_long  += 22; hits_long  += 1; rl.append(f"低位量萎缩({vol_ratio:.2f}x)")
 
-            trend_15m_bull = bull_bars >= 5 and rsi15m_rising
-            trend_15m_bear = bear_bars >= 5 and not rsi15m_rising
+            # ── 信号6：RSI 转向确认 ──
+            if len(h1_c) > 16:
+                rsi_prev = self._calc_rsi(h1_c[:-1], 14)
+                if rsi_1h > 70 and rsi_prev > rsi_1h:
+                    score_short += 15; hits_short += 1; rs.append(f"RSI顶部转头({rsi_prev:.0f}->{rsi_1h:.0f})")
+                elif rsi_1h < 30 and rsi_prev < rsi_1h:
+                    score_long  += 15; hits_long  += 1; rl.append(f"RSI底部回升({rsi_prev:.0f}->{rsi_1h:.0f})")
 
-            # ── 支撑/阻力（72H极值）──
-            support    = min(h1_l)
-            resistance = max(h1_h)
-
-            # ── 方向判断 ──
-            if trend_1h_bull and trend_15m_bull:
-                direction = 'BULLISH'
-            elif trend_1h_bear and trend_15m_bear:
-                direction = 'BEARISH'
+            # ── 决策：评分 >= 65 且至少触发 2 个独立信号 ──
+            THRESHOLD = 65
+            if score_long >= THRESHOLD and hits_long >= 2 and score_long > score_short:
+                direction  = 'BULLISH'
+                confidence = min(score_long, 100)
+                reasoning  = ' | '.join(rl)
+            elif score_short >= THRESHOLD and hits_short >= 2 and score_short > score_long:
+                direction  = 'BEARISH'
+                confidence = min(score_short, 100)
+                reasoning  = ' | '.join(rs)
             else:
-                direction = 'NEUTRAL'
+                direction  = 'NEUTRAL'
+                confidence = max(score_long, score_short)
+                reasoning  = f"long={score_long}({hits_long}signals) short={score_short}({hits_short}signals)"
 
-            # ── 置信度评分 ──
-            confidence = 0
-            reasons = []
-
-            if direction != 'NEUTRAL':
-                confidence += 30
-                reasons.append(f"1H+15M方向一致({direction})")
-
-            if adx1h > 30:
-                confidence += 25
-                reasons.append(f"ADX={adx1h:.1f}(强趋势)")
-            elif adx1h > 20:
-                confidence += 10
-                reasons.append(f"ADX={adx1h:.1f}(弱趋势)")
-            else:
-                reasons.append(f"ADX={adx1h:.1f}(震荡)")
-
-            if rsi1h < 40 or rsi1h > 60:
-                confidence += 15
-                reasons.append(f"RSI={rsi1h:.1f}(动能明确)")
-            else:
-                reasons.append(f"RSI={rsi1h:.1f}(中性)")
-
-            if (direction == 'BULLISH' and macd_bullish) or (direction == 'BEARISH' and macd_bearish):
-                confidence += 15
-                reasons.append("MACD柱同向扩大")
-
-            if vol_expanding:
-                confidence += 15
-                reasons.append("成交量放大>1.3x")
-
-            confidence = min(confidence, 100)
-
-            # ── 趋势描述 ──
-            if trend_1h_bull:
-                trend_1h_str = 'BULLISH'
-            elif trend_1h_bear:
-                trend_1h_str = 'BEARISH'
-            else:
-                trend_1h_str = 'NEUTRAL'
-
-            if trend_15m_bull:
-                trend_15m_str = 'BULLISH'
-            elif trend_15m_bear:
-                trend_15m_str = 'BEARISH'
-            else:
-                trend_15m_str = 'NEUTRAL'
-
-            reasoning = ' | '.join(reasons)
+            support    = round(min(h1_c[-24:]), 8) if len(h1_c) >= 24 else 0.0
+            resistance = round(max(h1_c[-24:]), 8) if len(h1_c) >= 24 else 0.0
 
             return {
                 'symbol': symbol,
                 'direction': direction,
                 'confidence': confidence,
                 'reasoning': reasoning,
-                'trend_1h': trend_1h_str,
-                'trend_15m': trend_15m_str,
-                'rsi_1h': round(rsi1h, 2),
-                'adx_1h': round(adx1h, 2),
-                'key_level_support': round(support, 8),
-                'key_level_resistance': round(resistance, 8),
+                'trend_1h': direction if direction != 'NEUTRAL' else 'NEUTRAL',
+                'trend_15m': 'NEUTRAL',
+                'rsi_1h': round(rsi_1h, 2),
+                'adx_1h': 0.0,
+                'key_level_support': support,
+                'key_level_resistance': resistance,
             }
 
         except Exception as e:
-            logger.error(f"[预测] {symbol} 分析失败: {e}")
+            logger.error(f"[均值回归] {symbol} 分析失败: {e}")
             return None
 
     # ──────────────────────────────────────────
@@ -284,7 +358,7 @@ class MarketPredictor:
             )
             row = cursor.fetchone()
             if row:
-                age_minutes = (datetime.utcnow().timestamp() - row['open_time'] / 1000) / 60
+                age_minutes = (datetime.now().timestamp() - row['open_time'] / 1000) / 60
                 if age_minutes <= 30:
                     return float(row['close_price'])
         return None
@@ -419,16 +493,20 @@ class MarketPredictor:
         except Exception as e:
             logger.error(f"[预测下单] _sync_close_live 异常: {e}")
 
-    def _open_real_paper_trades(self, cursor, results: List[Dict], now: datetime) -> int:
+    def _open_real_paper_trades(self, cursor, results: List[Dict], now: datetime,
+                                btc_direction: str = 'NEUTRAL') -> int:
         """
-        取 confidence>=70 的预测，按置信度排序，开真实模拟单到 futures_positions
-        - 不限制持仓数量，所有合格信号均开单
+        取 confidence>=75 的预测，按置信度排序，开真实模拟单到 futures_positions
+        - BTC宏观方向门控：BTC BEARISH 时只开空，BTC BULLISH 时只开多，NEUTRAL 多空都开但置信度要求更高
+        - 持仓上限：predictor_max_positions（默认15）
+        - 读取 allow_long / allow_short 开关
         - 模拟盘 400U x5（1级黑名单 100U，2级黑名单 50U），止损2%，止盈6%
         - source='PREDICTOR' 标识来源
         """
         DEFAULT_MARGIN = 400
-        RESTRICTED_MARGIN_L1 = 100  # rating_level=1 限制交易对
-        RESTRICTED_MARGIN_L2 = 50   # rating_level=2 严格限制
+        RESTRICTED_MARGIN_L1 = 200  # rating_level=1 限制交易对
+        RESTRICTED_MARGIN_L2 = 100  # rating_level=2 严格限制
+        MAX_NEW_OPENS = 5            # 每轮最多开 5 仓，防止批量押注
         LEVERAGE = 5
         ACCOUNT_ID = 2
         # 从 system_settings 读取止损止盈，默认 2%/5%
@@ -439,7 +517,7 @@ class MarketPredictor:
             _rows = {r['setting_key']: r['setting_value'] for r in _scur.fetchall()}
             _scur.close(); _sc.close()
             SL_PCT = float(_rows.get('stop_loss_pct', 0.02))
-            TP_PCT = float(_rows.get('take_profit_pct', 0.05))
+            TP_PCT = float(_rows.get('take_profit_pct', 0.03))
         except Exception as _e:
             logger.warning(f"[预测器] 读取SL/TP配置失败，使用默认值: {_e}")
             SL_PCT = 0.02
@@ -454,18 +532,62 @@ class MarketPredictor:
         except Exception:
             restricted_symbols = {}
 
-        # 已开过的交易对（避免重复开同向仓）
+        # 读取开关
+        switches = self._get_trade_switches()
+        allow_long  = switches['allow_long']
+        allow_short = switches['allow_short']
+        max_positions = switches['predictor_max_positions']
+
+        # 已开过的持仓
         cursor.execute(
             "SELECT symbol, position_side FROM futures_positions "
             "WHERE account_id=%s AND status='open' AND source='PREDICTOR'",
             (ACCOUNT_ID,)
         )
         existing = {r['symbol']: r['position_side'] for r in cursor.fetchall()}
+        current_count = len(existing)
 
-        # 候选：confidence>=70，非NEUTRAL，按置信度降序
-        candidates = sorted(
-            [r for r in results if r['direction'] != 'NEUTRAL' and r['confidence'] >= 70],
-            key=lambda x: x['confidence'], reverse=True
+        if current_count >= max_positions:
+            logger.info(f"[预测下单] 已达持仓上限 {current_count}/{max_positions}，跳过开新仓")
+            return 0
+
+        # 置信度门槛（均值回归：评分>=65即可，NEUTRAL时略高）
+        if btc_direction == 'NEUTRAL':
+            min_confidence = 65
+        else:
+            min_confidence = 60
+
+        # 候选：按置信度降序，过滤方向与BTC宏观冲突的信号
+        raw_candidates = [
+            r for r in results
+            if r['direction'] != 'NEUTRAL' and r['confidence'] >= min_confidence
+        ]
+
+        filtered_candidates = []
+        for r in raw_candidates:
+            direction_side = 'LONG' if r['direction'] == 'BULLISH' else 'SHORT'
+            # allow_long / allow_short 开关
+            if direction_side == 'LONG' and not allow_long:
+                continue
+            if direction_side == 'SHORT' and not allow_short:
+                continue
+            # BTC 宏观软门控（均值回归可逆势，但极强信号才允许，confidence>=80）
+            if btc_direction == 'BEARISH' and direction_side == 'LONG' and r['confidence'] < 80:
+                continue
+            if btc_direction == 'BULLISH' and direction_side == 'SHORT' and r['confidence'] < 80:
+                continue
+            filtered_candidates.append(r)
+
+        candidates = sorted(filtered_candidates, key=lambda x: x['confidence'], reverse=True)
+
+        # 按剩余可开仓数量截断，同时每轮最多新开 MAX_NEW_OPENS 仓
+        slots_available = max_positions - current_count
+        candidates = candidates[:min(slots_available, MAX_NEW_OPENS)]
+
+        logger.info(
+            f"[预测下单] BTC方向={btc_direction}  置信度门槛={min_confidence}"
+            f"  候选={len(raw_candidates)}  过滤后={len(filtered_candidates)}"
+            f"  可开槽={slots_available}  实际候选={len(candidates)}"
         )
 
         opened = 0
@@ -630,7 +752,7 @@ class MarketPredictor:
         except Exception as e:
             logger.warning(f"[预测] 读取系统开关失败，默认继续: {e}")
 
-        now = datetime.utcnow()
+        now = datetime.now()
         valid_until = now + timedelta(hours=6)
         saved = 0
         all_results = []
@@ -682,7 +804,11 @@ class MarketPredictor:
         except Exception as e:
             logger.error(f"[回测] 结算虚拟单失败: {e}")
 
-        # ② 运行预测（复用同一连接，避免每币新开连接耗尽 MySQL 连接数）
+        # ② 获取 BTC 宏观方向（用于门控山寨币信号）
+        btc_direction = self._get_btc_direction(cursor)
+        logger.info(f"[预测] BTC宏观方向={btc_direction}，将用于门控开仓方向")
+
+        # ③ 运行预测（复用同一连接，避免每币新开连接耗尽 MySQL 连接数）
         for symbol in symbols:
             result = self.analyze(symbol, cursor=cursor)
             if not result:
@@ -719,9 +845,9 @@ class MarketPredictor:
         except Exception as e:
             logger.error(f"[回测] 开虚拟单失败: {e}")
 
-        # ④ 开真实模拟单（confidence>=70，不限数量，带止损2%/止盈6%）
+        # ④ 开真实模拟单（confidence>=75，上限15仓，BTC宏观门控，带止损2%/止盈6%）
         try:
-            real_opened = self._open_real_paper_trades(cursor, all_results, now)
+            real_opened = self._open_real_paper_trades(cursor, all_results, now, btc_direction)
             if real_opened:
                 logger.info(f"[预测下单] 新开{real_opened}个模拟单（400U x5，SL2% TP6%）")
         except Exception as e:

@@ -1,0 +1,41 @@
+{
+  "session_id": "2026-04-14_0156",
+  "started_at": "2026-04-14T01:56:20.281407+00:00",
+  "deadline_utc": "2026-04-14T04:56:20.281407+00:00",
+  "max_hold_h": 3,
+  "status": "active",
+  "total_pnl": null,
+  "trades": [
+    {
+      "symbol": "BTC/USDT",
+      "direction": "LONG",
+      "entry_price": 74320.9,
+      "quantity": 0.06727582685354995,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 73393.4238,
+      "take_profit": 75866.6937,
+      "position_id": 23310,
+      "open_time": "2026-04-14T01:56:20.281407+00:00",
+      "win_rate_pct": 60,
+      "confidence": 6,
+      "final_pnl": null
+    },
+    {
+      "symbol": "ETH/USDT",
+      "direction": "SHORT",
+      "entry_price": 2369.03,
+      "quantity": 2.1105684605091533,
+      "margin": 1000.0,
+      "leverage": 5,
+      "stop_loss": 2426.309,
+      "take_profit": 2273.5651,
+      "position_id": 23311,
+      "open_time": "2026-04-14T01:56:20.281407+00:00",
+      "win_rate_pct": 72,
+      "confidence": 8,
+      "final_pnl": null
+    }
+  ],
+  "session_file": "D:\\test3\\crypto-analyzer\\discovery_sessions\\session_2026-04-14_0156.json"
+}

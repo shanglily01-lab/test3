@@ -1,0 +1,235 @@
+[
+  {
+    "round": 1,
+    "name": "MTFDivergentExhaustion",
+    "mode": "mtf_self",
+    "hypothesis": "在标的资产的4h宏观趋势强烈看跌时，如果1h图表上出现反向的短时拉升且买压比率偏低，预示着这是一个缺乏信念的局部反弹，很容易被宏观趋势逆转。",
+    "code": "def sig(cs1h, cs4h=None):\n    if cs4h is None or len(cs1h) < 6 or len(cs4h) < 6: return None\n\n    g4h_3 = gradient(cs4h, 3)\n    g4h_6 = gradient(cs4h, 6)\n    g1h_3 = gradient(cs1h, 3)\n    f1h_3 = flux(cs1h, 3)\n\n    # SHORT: 4h宏观下行，1h反弹乏力\n    # 1. 4h趋势明确下跌 (g4h_6 < -0.003 且 g4h_3 < g4h_6 * 0.8)\n    # 2. 1h出现反趋势的积极梯度 (g1h_3 > 0.001)\n    # 3. 1h反弹的买压不足 (f1h_3 < 0.48)\n    if g4h_6 < -0.003 and \\\n       g4h_3 < g4h_6 * 0.8 and \\\n       g1h_3 > 0.001 and \\\n       f1h_3 < 0.48:\n        return \"SHORT\"\n\n    # LONG: 4h宏观上行，1h回调被吸收\n    # 1. 4h趋势明确上涨 (g4h_6 > 0.003 且 g4h_3 > g4h_6 * 0.8)\n    # 2. 1h出现反趋势的下跌梯度 (g1h_3 < -0.001)\n    # 3. 1h下跌时买压活跃 (f1h_3 > 0.52)\n    if g4h_6 > 0.003 and \\\n       g4h_3 > g4h_6 * 0.8 and \\\n       g1h_3 < -0.001 and \\\n       f1h_3 > 0.52:\n        return \"LONG\"\n\n    return None",
+    "stage1": {
+      "n": 7,
+      "wr": 0.7142857142857143,
+      "ev": 0.7066502820207115
+    },
+    "stage2": {
+      "n": 89,
+      "wr": 0.5955056179775281,
+      "ev": 0.37343850317840127
+    },
+    "stage3": {
+      "n": 736,
+      "wr": 0.6875,
+      "ev": 0.5708069300518832
+    },
+    "stage4_test": {
+      "n": 337,
+      "wr": 0.6201780415430267,
+      "ev": 0.35557893460168916,
+      "verdict": "PASS"
+    },
+    "top_symbols_train": [
+      [
+        "SOL/USDT",
+        1.0,
+        3
+      ],
+      [
+        "LDO/USDT",
+        1.0,
+        5
+      ],
+      [
+        "OP/USDT",
+        1.0,
+        4
+      ],
+      [
+        "ORDI/USDT",
+        1.0,
+        6
+      ],
+      [
+        "ONT/USDT",
+        1.0,
+        4
+      ],
+      [
+        "PENDLE/USDT",
+        1.0,
+        5
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        3
+      ],
+      [
+        "IMX/USDT",
+        1.0,
+        4
+      ],
+      [
+        "AR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "THETA/USDT",
+        1.0,
+        11
+      ],
+      [
+        "STX/USDT",
+        0.9091,
+        11
+      ],
+      [
+        "XLM/USDT",
+        0.9,
+        10
+      ],
+      [
+        "ICP/USDT",
+        0.9,
+        10
+      ],
+      [
+        "ETC/USDT",
+        0.8889,
+        9
+      ],
+      [
+        "INJ/USDT",
+        0.8889,
+        9
+      ],
+      [
+        "STRK/USDT",
+        0.875,
+        8
+      ],
+      [
+        "ROSE/USDT",
+        0.875,
+        8
+      ],
+      [
+        "NEAR/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "ONDO/USDT",
+        0.8571,
+        7
+      ],
+      [
+        "CHR/USDT",
+        0.8571,
+        14
+      ]
+    ],
+    "top_symbols_test": [
+      [
+        "HYPE/USDT",
+        1.0,
+        3
+      ],
+      [
+        "NEAR/USDT",
+        1.0,
+        3
+      ],
+      [
+        "BCH/USDT",
+        1.0,
+        4
+      ],
+      [
+        "UNI/USDT",
+        1.0,
+        6
+      ],
+      [
+        "CAKE/USDT",
+        1.0,
+        10
+      ],
+      [
+        "TIA/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SEI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "INJ/USDT",
+        1.0,
+        4
+      ],
+      [
+        "SAND/USDT",
+        1.0,
+        3
+      ],
+      [
+        "ETHFI/USDT",
+        1.0,
+        3
+      ],
+      [
+        "EDU/USDT",
+        1.0,
+        4
+      ],
+      [
+        "COMP/USDT",
+        1.0,
+        3
+      ],
+      [
+        "SUPER/USDT",
+        1.0,
+        4
+      ],
+      [
+        "PYTH/USDT",
+        1.0,
+        4
+      ],
+      [
+        "WIF/USDT",
+        0.8,
+        5
+      ],
+      [
+        "DYDX/USDT",
+        0.8,
+        5
+      ],
+      [
+        "XLM/USDT",
+        0.75,
+        4
+      ],
+      [
+        "RENDER/USDT",
+        0.75,
+        4
+      ],
+      [
+        "STRK/USDT",
+        0.75,
+        4
+      ],
+      [
+        "1000LUNC/USDT",
+        0.75,
+        4
+      ]
+    ],
+    "ts": "2026-04-14T15:48:58.478295"
+  }
+]

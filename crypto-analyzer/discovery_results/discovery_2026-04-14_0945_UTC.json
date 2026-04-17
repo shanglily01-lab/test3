@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-04-14 09:45 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 13835,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "FIL/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.885,
+          "high": 0.9
+        },
+        "stop_loss": 0.855,
+        "target1": 0.92,
+        "target2": 0.93,
+        "win_rate_pct": 62,
+        "risk_reward": 2.1,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h candle close above EMA20 ($0.89) following a successful retest of the $0.89 support",
+        "invalidation": "1h candle close below $0.86 support level",
+        "confluence_signals": [
+          "OI rising + price rising trend continuation",
+          "Price-volume divergence (weak selling on dips)",
+          "Extreme Fear (12) contrarian buy signal",
+          "Price currently above all three 1h EMAs"
+        ],
+        "win_rate_basis": "The combination of healthy OI accumulation and weak volume on the recent pullback suggests a continuation of the 24h bullish trend, supported by extreme market-wide fear which historically marks local bottoms."
+      },
+      {
+        "symbol": "LTC/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 54.1,
+          "high": 54.7
+        },
+        "stop_loss": 53.25,
+        "target1": 55.48,
+        "target2": 55.69,
+        "win_rate_pct": 72,
+        "risk_reward": 2.8,
+        "confidence": 8,
+        "time_window": "enter within 2h, hold 24h",
+        "entry_trigger": "Price sustaining above EMA200 ($54.13) on 1h timeframe",
+        "invalidation": "Break below $53.32 primary support",
+        "confluence_signals": [
+          "L/S Ratio at 0th percentile (extreme short crowd)",
+          "MACD 1h bullish and expanding",
+          "Extreme Fear contrarian signal",
+          "Funding velocity accelerating negative indicating a potential short squeeze"
+        ],
+        "win_rate_basis": "Highest win rate due to extreme positioning divergence: the 0th percentile L/S ratio indicates the retail crowd is heavily shorting into a bullish MACD structure, creating high probability for a short-squeeze reversal."
+      },
+      {
+        "symbol": "BCH/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 431.0,
+          "high": 434.5
+        },
+        "stop_loss": 421.5,
+        "target1": 441.16,
+        "target2": 446.65,
+        "win_rate_pct": 68,
+        "risk_reward": 2.5,
+        "confidence": 7,
+        "time_window": "wait for dip within 6h, hold 24h",
+        "entry_trigger": "Pullback to EMA20 ($433.21) while RSI cools from overbought levels",
+        "invalidation": "1h close below $422.54 support",
+        "confluence_signals": [
+          "Smart money net inflow ($73k+)",
+          "L/S Ratio at 6th percentile (crowded shorts)",
+          "OI rising + price rising trend confirmation",
+          "Extreme Fear index bounce potential"
+        ],
+        "win_rate_basis": "Significant smart money inflow combined with an extreme short retail bias (6th percentile L/S) provides a strong buffer for a long entry on a technical pullback to the EMA cluster."
+      },
+      {
+        "symbol": "UNI/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 3.12,
+          "high": 3.18
+        },
+        "stop_loss": 2.98,
+        "target1": 3.22,
+        "target2": 3.26,
+        "win_rate_pct": 60,
+        "risk_reward": 2.2,
+        "confidence": 6,
+        "time_window": "enter within 8h, hold 12-24h",
+        "entry_trigger": "Price holding above EMA50/200 confluence ($3.12)",
+        "invalidation": "Break below $3.00 psychological and technical support",
+        "confluence_signals": [
+          "Funding velocity accelerating positive (squeeze building)",
+          "Price-volume divergence (weak buying momentum)",
+          "Bullish EMA alignment (price > all EMAs)",
+          "Extreme Fear contrarian indicator"
+        ],
+        "win_rate_basis": "The positive funding acceleration suggests shorts are becoming increasingly expensive to maintain, likely leading to a squeeze toward resistance, though lower volume on the move up limits the win rate to 60%."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Extreme Fear (12) across the market suggests a macro-exhaustion of sellers. High correlations (0.78-0.83) between FIL, LTC, and UNI indicate a synchronized relief rally is likely. LTC and BCH show the strongest contrarian signals due to extreme short-side retail positioning.",
+    "highest_conviction_trade": "LTC/USDT"
+  }
+}

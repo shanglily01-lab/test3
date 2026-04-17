@@ -1,0 +1,145 @@
+{
+  "timestamp": "2026-04-14 02:08 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 18402,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "LINEA/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Key price levels (resistance/support) are invalid or missing, making it impossible to define a precise trade plan."
+      },
+      {
+        "symbol": "LINK/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 9.0,
+          "high": 9.1
+        },
+        "stop_loss": 8.85,
+        "target1": 9.44,
+        "target2": 9.7,
+        "win_rate_pct": 70,
+        "risk_reward": 2.6,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $9.10 after a pullback, or clear bounce from $9.00-$9.10 zone",
+        "invalidation": "Price closes below $8.85 or Funding Velocity turns sharply negative",
+        "confluence_signals": [
+          "EXTREME short crowd (contrarian bullish)",
+          "Funding Velocity accelerating positive (short squeeze building)",
+          "OI rising with price (trend continuation)",
+          "Price above EMA20/50/200 (bullish trend)",
+          "1d channel is up",
+          "Fear & Greed Index: Extreme Fear (contrarian buy)"
+        ],
+        "win_rate_basis": "Strong confluence of contrarian bullish signals (extreme short crowd, accelerating funding velocity) combined with overall bullish trend (price above EMAs, rising OI) and market-wide contrarian buy sentiment (F&G Index). Short-term overbought RSI and low volume divergence are noted but outweighed by stronger signals."
+      },
+      {
+        "symbol": "LIT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.1,
+          "high": 1.11
+        },
+        "stop_loss": 1.07,
+        "target1": 1.21,
+        "target2": 1.23,
+        "win_rate_pct": 65,
+        "risk_reward": 3.28,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $1.11 after a pullback, or clear bounce from $1.10-$1.11 zone",
+        "invalidation": "Price closes below $1.07 or MACD turns bearish",
+        "confluence_signals": [
+          "Price above EMA20/50/200 (bullish trend)",
+          "MACD_1h bullish, EXPANDING (momentum)",
+          "1d channel is up",
+          "Funding Velocity accelerating positive (short squeeze building)",
+          "Fear & Greed Index: Extreme Fear (contrarian buy)"
+        ],
+        "win_rate_basis": "Bullish momentum (expanding MACD, price above EMAs) and overall trend (1d up channel) supported by accelerating positive funding velocity indicating potential short squeeze. Volume divergence is a caution but momentum signals are strong enough for a moderate conviction long."
+      },
+      {
+        "symbol": "LPT/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Strongly conflicting signals: EXTREME short crowd (contrarian bullish) is offset by Funding Velocity accelerating negative (longs paying more, flush building), creating high uncertainty and lack of clear direction."
+      },
+      {
+        "symbol": "LQTY/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.28,
+          "high": 0.285
+        },
+        "stop_loss": 0.295,
+        "target1": 0.27,
+        "target2": 0.265,
+        "win_rate_pct": 70,
+        "risk_reward": 1.2,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below $0.28 or clear rejection from $0.285 resistance",
+        "invalidation": "Price closes above $0.295 with strong volume",
+        "confluence_signals": [
+          "EXTREME long crowd (contrarian bearish)",
+          "RSI_1h overbought (>70)",
+          "Taker_buy_1h aggressive sellers (<45%)",
+          "Price rising with LOW volume (weak buying)",
+          "Fear & Greed Index: Extreme Fear (potential broader market sell-off for overextended assets)"
+        ],
+        "win_rate_basis": "Strong confluence of contrarian bearish signals (extreme long crowd) combined with overbought RSI, aggressive selling pressure, and weak buying volume. Despite bullish EMA alignment, these factors suggest a high probability of a reversal or pullback."
+      },
+      {
+        "symbol": "LTC/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Strongly conflicting signals: EXTREME short crowd (contrarian bullish) is offset by Funding Velocity accelerating negative (longs paying more, flush building) and bearish EMA alignment, creating high uncertainty and lack of clear direction."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is showing signs of a contrarian bounce attempt (Extreme Fear F&G Index), but many individual assets exhibit weak buying volume on recent upward moves and conflicting positioning signals (extreme long crowds vs. extreme short crowds). This suggests a highly fragmented market with potential for localized squeezes and reversals rather than a unified trend.",
+    "highest_conviction_trade": "LINK/USDT"
+  }
+}

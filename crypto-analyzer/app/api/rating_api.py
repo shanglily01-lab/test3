@@ -12,6 +12,9 @@ from loguru import logger
 import sys
 import os
 import math
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -32,13 +35,13 @@ def safe_float(value, default=0.0):
 
 router = APIRouter()
 
-# 数据库配置
+# 数据库配置 — 统一使用本地库（由环境变量控制）
 DB_CONFIG = {
-    'host': '13.212.252.171',
-    'port': 3306,
-    'user': 'admin',
-    'password': 'Tonny@1000',
-    'database': 'binance-data'
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', 3306)),
+    'user': os.getenv('DB_USER', 'root'),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', 'binance-data')
 }
 
 

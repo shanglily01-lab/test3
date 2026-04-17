@@ -33,6 +33,16 @@ class CacheUpdateService:
         self.investment_analyzer = EnhancedInvestmentAnalyzer(config)
         self.token_mapper = get_token_mapper()
 
+        # 复用单个 PriceCollector，避免每次调用都重新初始化 Binance 客户端
+        self._price_collector = None
+        collector_config = config.get('exchanges', {}).get('binance', {})
+        if collector_config.get('enabled', False):
+            try:
+                from app.collectors.price_collector import PriceCollector
+                self._price_collector = PriceCollector('binance', collector_config)
+            except Exception as e:
+                logger.warning("CacheUpdateService: 初始化 PriceCollector 失败: %s", e)
+
     async def update_all_caches(self, symbols: List[str] = None):
         """
         更新所有缓存表
@@ -44,7 +54,7 @@ class CacheUpdateService:
             symbols = self.config.get('symbols', ['BTC/USDT', 'ETH/USDT'])
 
         # logger.info(f"🔄 开始更新缓存 - {len(symbols)} 个币种")  # 减少日志输出
-        start_time = datetime.utcnow()
+        start_time = datetime.now()
 
         try:
             # 并行更新各个缓存表
@@ -65,9 +75,9 @@ class CacheUpdateService:
             success_count = sum(1 for r in results if not isinstance(r, Exception))
             failed_count = len(results) - success_count
 
-            elapsed = (datetime.utcnow() - start_time).total_seconds()
+            elapsed = (datetime.now() - start_time).total_seconds()
             # 只在有失败时输出日志，或者每小时输出一次
-            if failed_count > 0 or datetime.utcnow().minute == 0:
+            if failed_count > 0 or datetime.now().minute == 0:
                 logger.info(
                     f"✅ 缓存更新完成 - 成功: {success_count}, 失败: {failed_count}, "
                     f"耗时: {elapsed:.2f}秒"
@@ -86,14 +96,11 @@ class CacheUpdateService:
             try:
                 # 优先从实时ticker API获取24h统计数据（更准确）
                 ticker_data = None
-                try:
-                    from app.collectors.price_collector import PriceCollector
-                    collector_config = self.config.get('exchanges', {}).get('binance', {})
-                    if collector_config.get('enabled', False):
-                        collector = PriceCollector('binance', collector_config)
-                        ticker_data = await collector.fetch_ticker(symbol)
-                except Exception as e:
-                    logger.debug(f"从ticker API获取{symbol}数据失败，将使用K线数据: {e}")
+                if self._price_collector is not None:
+                    try:
+                        ticker_data = await self._price_collector.fetch_ticker(symbol)
+                    except Exception as e:
+                        logger.debug(f"从ticker API获取{symbol}数据失败，将使用K线数据: {e}")
                 
                 # 获取当前价格（优先 1m K线，回退到 5m K线，因为 1m 采集已停用）
                 latest_kline = (self.db_service.get_latest_kline(symbol, '1m') or
@@ -114,7 +121,7 @@ class CacheUpdateService:
                 else:
                     # 回退到从K线数据计算
                     # 获取24小时前的价格
-                    past_time = datetime.utcnow() - timedelta(hours=24)
+                    past_time = datetime.now() - timedelta(hours=24)
                     past_kline = self.db_service.get_kline_at_time(symbol, '5m', past_time)
                     price_24h_ago = float(past_kline.close_price) if past_kline else current_price
 
@@ -122,7 +129,7 @@ class CacheUpdateService:
                     # 注意：数据库存储的是本地时间（UTC+8），不是UTC时间
                     klines_24h = self.db_service.get_klines(
                         symbol, '5m',  # 使用5分钟K线
-                        start_time=datetime.utcnow() - timedelta(hours=24),  # 使用本地时间
+                        start_time=datetime.now() - timedelta(hours=24),  # 使用本地时间
                         limit=288  # 5分钟 * 288 = 24小时
                     )
 
@@ -136,7 +143,7 @@ class CacheUpdateService:
                         )
                         # 只取最近24小时的数据
                         if klines_24h:
-                            cutoff_time = datetime.utcnow() - timedelta(hours=24)
+                            cutoff_time = datetime.now() - timedelta(hours=24)
                             klines_24h = [k for k in klines_24h if k.timestamp >= cutoff_time]
                     
                     # 如果仍然没有数据，使用最新价格作为默认值
@@ -514,8 +521,8 @@ class CacheUpdateService:
         # logger.info(f"✅ 新闻情绪聚合缓存更新完成 - {len(symbols)} 个币种")  # 减少日志输出
 
     async def update_funding_rate_stats(self, symbols: List[str]):
-        """更新资金费率统计"""
-        # logger.info("💰 更新资金费率统计缓存...")  # 减少日志输出
+        """更新资金费率统计（含 rate_24h_ago 字段）"""
+        # logger.info("更新资金费率统计缓存...")  # 减少日志输出
 
         for symbol in symbols:
             try:
@@ -527,11 +534,31 @@ class CacheUpdateService:
                 current_rate = float(current_funding.funding_rate)
                 current_rate_pct = current_rate * 100
 
+                # 查询24H前的历史资金费率（funding_rate_data 存有完整历史）
+                rate_24h_ago = None
+                try:
+                    session = self.db_service.get_session()
+                    # funding_time 为毫秒时间戳，24H = 86400000ms，允许±2H误差
+                    result = session.execute(text("""
+                        SELECT funding_rate FROM funding_rate_data
+                        WHERE symbol = :symbol
+                          AND funding_time BETWEEN
+                              (UNIX_TIMESTAMP(NOW() - INTERVAL 26 HOUR) * 1000)
+                          AND (UNIX_TIMESTAMP(NOW() - INTERVAL 22 HOUR) * 1000)
+                        ORDER BY ABS(funding_time - UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR) * 1000)
+                        LIMIT 1
+                    """), {'symbol': symbol}).fetchone()
+                    if result:
+                        rate_24h_ago = float(result[0])
+                    session.close()
+                except Exception:
+                    pass
+
                 # 计算资金费率评分
                 funding_score = self._calculate_funding_score(current_rate)
 
                 # 判断市场情绪
-                if current_rate > 0.0005:  # 0.05%
+                if current_rate > 0.0005:
                     market_sentiment = 'overheated'
                     trend = 'strongly_bullish'
                 elif current_rate > 0.0001:
@@ -552,6 +579,7 @@ class CacheUpdateService:
                     symbol=symbol,
                     current_rate=current_rate,
                     current_rate_pct=current_rate_pct,
+                    rate_24h_ago=rate_24h_ago,
                     trend=trend,
                     market_sentiment=market_sentiment,
                     funding_score=funding_score,
@@ -1272,15 +1300,16 @@ class CacheUpdateService:
 
             sql = text("""
                 INSERT INTO funding_rate_stats (
-                    symbol, current_rate, current_rate_pct, trend,
+                    symbol, current_rate, current_rate_pct, rate_24h_ago, trend,
                     market_sentiment, funding_score, exchange, updated_at
                 ) VALUES (
-                    :symbol, :current_rate, :current_rate_pct, :trend,
+                    :symbol, :current_rate, :current_rate_pct, :rate_24h_ago, :trend,
                     :market_sentiment, :funding_score, :exchange, NOW()
                 )
                 ON DUPLICATE KEY UPDATE
                     current_rate = VALUES(current_rate),
                     current_rate_pct = VALUES(current_rate_pct),
+                    rate_24h_ago = COALESCE(VALUES(rate_24h_ago), rate_24h_ago),
                     trend = VALUES(trend),
                     market_sentiment = VALUES(market_sentiment),
                     funding_score = VALUES(funding_score),

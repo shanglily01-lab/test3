@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-04-14 05:56 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 12593,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "C98/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting sentiment signals: extreme negative funding (short squeeze fuel) versus extreme long crowd (contrarian bearish). Ambiguous price levels make precise planning difficult."
+      },
+      {
+        "symbol": "CAKE/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.48,
+          "high": 1.5
+        },
+        "stop_loss": 1.43,
+        "target1": 1.59,
+        "target2": 1.63,
+        "win_rate_pct": 58,
+        "risk_reward": 2.0,
+        "confidence": 6,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above $1.48 after touching the entry zone, or bounce confirmation from $1.48-$1.50 zone.",
+        "invalidation": "1h close below $1.45",
+        "confluence_signals": [
+          "Bullish EMA alignment",
+          "Healthy OI growth with price",
+          "Price-volume divergence (weak selling on dip)",
+          "Extreme Fear F&G Index"
+        ],
+        "win_rate_basis": "Bullish underlying trend (EMA, OI) combined with weak selling on pullback (price-volume divergence) and broad market contrarian fear provides a good setup. The extreme long L/S ratio is a counter signal, moderating the win rate."
+      }
+    ]
+  }
+}

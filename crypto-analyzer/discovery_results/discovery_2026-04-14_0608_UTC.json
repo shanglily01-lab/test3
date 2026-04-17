@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-04-14 06:08 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 13006,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "MOVE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "Data inconsistencies prevent a valid trade plan.",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Conflicting price level data (all key levels at $0.02 while current price is $0.0173)",
+          "Inconsistent 24h/7d ranges ($0.02/$0.02) with current price"
+        ],
+        "win_rate_basis": "Cannot estimate due to unreliable and contradictory price level data, which makes it impossible to define precise entry, stop, and target levels."
+      },
+      {
+        "symbol": "MOVR/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 1.2,
+          "high": 1.21
+        },
+        "stop_loss": 1.25,
+        "target1": 1.17,
+        "target2": 1.15,
+        "win_rate_pct": 68,
+        "risk_reward": 1.22,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close below EMA20 ($1.18) or clear rejection from $1.21 resistance.",
+        "invalidation": "Price holds above $1.25 for 4 consecutive 1h candles.",
+        "confluence_signals": [
+          "Extreme long crowd (97th percentile L/S ratio, contrarian bearish)",
+          "OI falling with price rising (short covering, potential squeeze exhaustion)",
+          "MACD_1h bullish trend contracting (momentum slowing)",
+          "RSI_1h near overbought (66.67)"
+        ],
+        "win_rate_basis": "Four strong contrarian bearish signals (extreme long positioning, OI exhaustion, slowing momentum, near overbought RSI) suggest a high probability of a pullback or reversal from overextended longs, despite short-term price strength."
+      }
+    ]
+  }
+}

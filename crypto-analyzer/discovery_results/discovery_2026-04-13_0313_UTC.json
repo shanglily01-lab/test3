@@ -1,0 +1,158 @@
+{
+  "timestamp": "2026-04-13 03:13 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 14460,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "DOT/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.215,
+          "high": 1.225
+        },
+        "stop_loss": 1.2,
+        "target1": 1.31,
+        "target2": 1.33,
+        "win_rate_pct": 70,
+        "risk_reward": 4.5,
+        "confidence": 8,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($1.23) or confirmed bounce from $1.21 support",
+        "invalidation": "1h close below $1.20",
+        "confluence_signals": [
+          "RSI_4h oversold (<30)",
+          "Price at strong support ($1.21-$1.22)",
+          "Price falling with LOW volume (weak selling)",
+          "Extreme short crowd L/S ratio (contrarian bullish)",
+          "Price near 7d/30d range lows"
+        ],
+        "win_rate_basis": "Five strong bullish signals converge: RSI oversold, price at key support, weak selling pressure, an extreme short crowd indicating a contrarian long opportunity, and the asset trading near its recent lows. These factors combine for a high probability reversal."
+      },
+      {
+        "symbol": "UNI/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 3.005,
+          "high": 3.015
+        },
+        "stop_loss": 2.98,
+        "target1": 3.2,
+        "target2": 3.22,
+        "win_rate_pct": 65,
+        "risk_reward": 6.33,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($3.05) or confirmed bounce from $3.00 support",
+        "invalidation": "1h close below $2.98",
+        "confluence_signals": [
+          "RSI_4h oversold (<30)",
+          "Price at strong support ($3.00-$3.01)",
+          "Price falling with LOW volume (weak selling)",
+          "Price near 7d/30d range lows"
+        ],
+        "win_rate_basis": "Four strong bullish signals align: RSI oversold, price at key support, weak selling pressure, and the asset trading near its recent lows. While the L/S ratio is not extreme, the other factors point to a good probability reversal."
+      },
+      {
+        "symbol": "AVAX/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Conflicting 1d channel (up) vs. bearish EMA alignment and current price action",
+          "RSI_4h is neutral (33.05)",
+          "Moderate funding and balanced L/S ratio provide no strong directional bias"
+        ],
+        "win_rate_basis": "Conflicting signals across momentum, price structure, and sentiment make a clear directional trade plan difficult to formulate with high conviction. The upward 1d channel is contradicted by bearish EMA alignment and neutral RSI."
+      },
+      {
+        "symbol": "ENS/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 5.525,
+          "high": 5.545
+        },
+        "stop_loss": 5.49,
+        "target1": 5.92,
+        "target2": 5.93,
+        "win_rate_pct": 70,
+        "risk_reward": 7.6,
+        "confidence": 9,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "1h close above EMA20 ($5.60) or confirmed bounce from $5.52 support",
+        "invalidation": "1h close below $5.49",
+        "confluence_signals": [
+          "RSI_4h oversold (<30)",
+          "Price at strong support ($5.52-$5.54)",
+          "Price falling with LOW volume (weak selling)",
+          "Extreme short crowd L/S ratio (contrarian bullish)",
+          "Price near 7d/30d range lows"
+        ],
+        "win_rate_basis": "Five strong bullish signals converge: RSI oversold, price at key support, weak selling pressure, an extreme short crowd indicating a contrarian long opportunity, and the asset trading near its recent lows. These factors combine for a high probability reversal."
+      },
+      {
+        "symbol": "WLD/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 4,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Strong bullish trend and EMA alignment",
+          "OI rising with price rising (trend continuation)",
+          "EXTREME long crowd L/S ratio (contrarian bearish)",
+          "Moderate positive funding rate (long squeeze risk)"
+        ],
+        "win_rate_basis": "The strong bullish trend and positive momentum are directly contradicted by an extreme long crowd L/S ratio, which poses a significant risk of a contrarian move or long squeeze. This conflict makes a clear directional trade difficult to justify."
+      },
+      {
+        "symbol": "ACT/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 2,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "RSI_4h oversold and MACD bullish (bullish)",
+          "Aggressive sellers and price rising with LOW volume (weak buying) (bearish)",
+          "Extreme bullish funding (long squeeze risk - bearish)",
+          "Bearish 1d channel",
+          "Ambiguous key price levels ($0.01) for precise planning"
+        ],
+        "win_rate_basis": "Highly contradictory signals across momentum, volume, funding, and price structure, combined with ambiguous key price levels, prevent the formation of a high-conviction trade plan."
+      }
+    ],
+    "market_regime": "ranging",
+    "cross_asset_insight": "DOT, UNI, and ENS exhibit strong positive correlation (0.79-0.90), suggesting they will likely move in tandem. WLD and ACT show weaker correlation, indicating more independent price action.",
+    "highest_conviction_trade": "ENS/USDT"
+  }
+}

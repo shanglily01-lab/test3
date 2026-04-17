@@ -1,0 +1,106 @@
+{
+  "timestamp": "2026-04-14 09:46 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 13413,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "TON/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 1.41,
+          "high": 1.4279
+        },
+        "stop_loss": 1.39,
+        "target1": 1.47,
+        "target2": 1.52,
+        "win_rate_pct": 65,
+        "risk_reward": 2.45,
+        "confidence": 7,
+        "time_window": "enter within 6h, hold 12-24h",
+        "entry_trigger": "1h price stabilization above EMA20 ($1.43)",
+        "invalidation": "1h close below $1.40 support level",
+        "confluence_signals": [
+          "OI rising + price rising trend continuation",
+          "Bullish EMA alignment (price above 2/3 EMAs)",
+          "Healthy MACD trend with balanced taker buy ratio"
+        ],
+        "win_rate_basis": "Three aligned signals including trend health (OI) and momentum structure provide a base win rate in the 62-70% range."
+      },
+      {
+        "symbol": "HBAR/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [
+          "Extreme long crowd (91st percentile)",
+          "Negative funding velocity acceleration",
+          "Price-volume divergence (weak selling)"
+        ],
+        "win_rate_basis": "Conflicting signals between contrarian bearish sentiment (long crowd) and weak selling volume make the directionality high risk."
+      },
+      {
+        "symbol": "NEIRO/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 9.5e-05,
+          "high": 0.000105
+        },
+        "stop_loss": 8.8e-05,
+        "target1": 0.00012,
+        "target2": 0.00014,
+        "win_rate_pct": 74,
+        "risk_reward": 3.1,
+        "confidence": 9,
+        "time_window": "enter within 4h, hold 8-16h",
+        "entry_trigger": "1h MACD histogram tick up from local bottom",
+        "invalidation": "Breakdown below 24h low with high volume",
+        "confluence_signals": [
+          "Extreme short crowd (8th percentile)",
+          "Very low funding (6th percentile) signaling squeeze potential",
+          "Elevated ATR indicating trend expansion",
+          "Price-Volume divergence showing weak selling on dips"
+        ],
+        "win_rate_basis": "Confluence of extreme sentiment reversal signals (low funding/short crowd) combined with trend momentum puts this in the 70-78% category."
+      },
+      {
+        "symbol": "ARB/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.111,
+          "high": 0.1125
+        },
+        "stop_loss": 0.108,
+        "target1": 0.118,
+        "target2": 0.122,
+        "win_rate_pct": 70,
+        "risk_reward": 2.22,
+        "confidence": 8,
+        "time_window": "enter within 8h, hold 24h",
+        "entry_trigger": "Price-volume divergence confirmation (price flat/down on low vol)",
+        "invalidation": "Loss of $0.11 support level on 4h timeframe",
+        "confluence_signals": [
+          "Extreme short crowd (0th percentile signal)",
+          "Global Fear & Greed at 12 (Extreme Fear)",
+          "Price above all 3 major 1h EMAs",
+          "Weak selling volume during local consolidation"
+        ],
+        "win_rate_basis": "Extreme contrarian signals (Sentiment + Fear Index) paired with technical EMA support typically yield high-probability reversal bounces."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "Extreme Fear (12) and extreme short positioning on ARB/NEIRO suggest high-probability short-squeeze potential, while TON shows independent trend strength.",
+    "highest_conviction_trade": "NEIRO/USDT"
+  }
+}

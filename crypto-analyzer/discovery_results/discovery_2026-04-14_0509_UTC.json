@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-04-14 05:09 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17138,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "ROBO/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.0193,
+          "high": 0.0195
+        },
+        "stop_loss": 0.019,
+        "target1": 0.02,
+        "target2": 0.0205,
+        "win_rate_pct": 68,
+        "risk_reward": 1.5,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price retests $0.0193-$0.0195 zone with continued low volume and RSI 1h below 35.",
+        "invalidation": "1h close below $0.0190.",
+        "confluence_signals": [
+          "Extreme bearish funding rate (6th percentile) - contrarian bullish",
+          "Price falling with low volume (weak selling) - suggests weak bearish pressure",
+          "FEAR_AND_GREED_INDEX: Extreme Fear (12) - contrarian buy signal",
+          "RSI 1h low (33.43) - oversold conditions for short-term bounce"
+        ],
+        "win_rate_basis": "Four strong contrarian signals (extreme funding, weak selling, F&G fear, low RSI) align for a bounce from current suppressed levels, leading to a 68% win rate estimate."
+      }
+    ]
+  }
+}

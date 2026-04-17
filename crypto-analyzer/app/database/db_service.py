@@ -140,7 +140,7 @@ class DatabaseService:
             price_record = PriceData(
                 symbol=price_data.get('symbol'),
                 exchange=price_data.get('exchange', 'binance'),
-                timestamp=price_data.get('timestamp', datetime.utcnow()),
+                timestamp=price_data.get('timestamp', datetime.now()),
                 price=price_data.get('price'),
                 open_price=price_data.get('open'),
                 high_price=price_data.get('high'),
@@ -364,7 +364,7 @@ class DatabaseService:
             orderbook_record = OrderBookData(
                 symbol=orderbook_data.get('symbol'),
                 exchange=orderbook_data.get('exchange', 'binance'),
-                timestamp=orderbook_data.get('timestamp', datetime.utcnow()),
+                timestamp=orderbook_data.get('timestamp', datetime.now()),
                 best_bid=best_bid,
                 best_ask=best_ask,
                 spread=spread,
@@ -704,7 +704,7 @@ class DatabaseService:
         session = self.get_session()
         try:
             from datetime import timedelta
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            cutoff_date = datetime.now() - timedelta(days=days)
 
             # 清理价格数据
             deleted = session.query(PriceData).filter(PriceData.timestamp < cutoff_date).delete()
@@ -757,7 +757,7 @@ class DatabaseService:
                 existing.profitable_trades = address_data.get('profitable_trades', existing.profitable_trades)
                 existing.is_active = address_data.get('is_active', existing.is_active)
                 existing.last_active = address_data.get('last_active', existing.last_active)
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now()
                 logger.debug(f"更新聪明钱地址: {address_data.get('address')[:10]}...")
             else:
                 # 创建新地址
@@ -771,8 +771,8 @@ class DatabaseService:
                     total_trades=address_data.get('total_trades', 0),
                     profitable_trades=address_data.get('profitable_trades', 0),
                     is_active=address_data.get('is_active', True),
-                    first_seen=address_data.get('first_seen', datetime.utcnow()),
-                    last_active=address_data.get('last_active', datetime.utcnow()),
+                    first_seen=address_data.get('first_seen', datetime.now()),
+                    last_active=address_data.get('last_active', datetime.now()),
                     data_source=address_data.get('data_source', 'manual')
                 )
                 session.add(address_record)
@@ -894,7 +894,7 @@ class DatabaseService:
                 price_change_pct=signal_data.get('price_change_pct'),
                 signal_start_time=signal_data.get('signal_start_time'),
                 signal_end_time=signal_data.get('signal_end_time'),
-                timestamp=signal_data.get('timestamp', datetime.utcnow()),
+                timestamp=signal_data.get('timestamp', datetime.now()),
                 related_tx_hashes=signal_data.get('related_tx_hashes'),
                 top_addresses=signal_data.get('top_addresses'),
                 is_active=signal_data.get('is_active', True),
@@ -978,7 +978,7 @@ class DatabaseService:
             from datetime import timedelta
             from sqlalchemy import desc
 
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = datetime.now() - timedelta(hours=hours)
 
             query = session.query(SmartMoneyTransaction).filter(
                 SmartMoneyTransaction.timestamp >= cutoff_time
@@ -1157,7 +1157,7 @@ class DatabaseService:
                 order_id=trade_data.get('order_id'),
                 signal_id=trade_data.get('signal_id'),
                 reason=trade_data.get('reason'),
-                trade_time=trade_data.get('trade_time', datetime.utcnow())
+                trade_time=trade_data.get('trade_time', datetime.now())
             )
 
             session.add(trade_record)
@@ -1232,7 +1232,7 @@ class DatabaseService:
                 order_id=trade_data.get('order_id'),
                 signal_id=trade_data.get('signal_id'),
                 reason=trade_data.get('reason'),
-                trade_time=trade_data.get('trade_time', datetime.utcnow())
+                trade_time=trade_data.get('trade_time', datetime.now())
             )
 
             session.add(test_record)
@@ -1356,7 +1356,7 @@ class DatabaseService:
                     capital_data.get('fee'),
                     capital_data.get('reason'),
                     capital_data.get('description'),
-                    capital_data.get('change_time', datetime.utcnow())
+                    capital_data.get('change_time', datetime.now())
                 ))
                 
                 connection.commit()
@@ -1763,7 +1763,7 @@ class DatabaseService:
             from datetime import datetime, timedelta
 
             # 获取最近N天的每日汇总数据
-            start_date = datetime.utcnow() - timedelta(days=days)
+            start_date = datetime.now() - timedelta(days=days)
 
             sql = text("""
                 SELECT

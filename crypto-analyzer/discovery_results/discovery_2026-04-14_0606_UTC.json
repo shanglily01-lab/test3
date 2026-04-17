@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-04-14 06:06 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 13080,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "KITE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting signals: 1d channel is down, and price is rising with low volume (price-volume divergence) into immediate resistance ($0.14), despite bullish 1h momentum and rising OI. Lack of clear directional conviction."
+      },
+      {
+        "symbol": "LAYER/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0,
+          "high": 0.0
+        },
+        "stop_loss": 0.0,
+        "target1": 0.0,
+        "target2": 0.0,
+        "win_rate_pct": 0,
+        "risk_reward": 0.0,
+        "confidence": 0,
+        "time_window": "N/A",
+        "entry_trigger": "N/A",
+        "invalidation": "N/A",
+        "confluence_signals": [],
+        "win_rate_basis": "Conflicting or weak signals: Price is stable around EMAs with a 1d uptrend, but volume is very low, and there's price-volume divergence. Funding velocity accelerating negative suggests a potential long flush. Smart money signals are neutral/unreliable. Insufficient conviction for a trade."
+      }
+    ]
+  }
+}

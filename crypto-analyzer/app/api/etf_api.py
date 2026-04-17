@@ -115,7 +115,7 @@ async def get_etf_summary():
                     "eth_etfs": []
                 },
                 "message": "暂无ETF数据",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             }
 
         # 获取BTC价格和ETH价格
@@ -239,7 +239,7 @@ async def get_etf_summary():
                 "btc_etfs": btc_etfs,
                 "eth_etfs": eth_etfs
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
     except Exception as e:
@@ -308,7 +308,7 @@ async def get_etf_flows(
             "success": True,
             "data": formatted_flows,
             "count": len(formatted_flows),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
     except Exception as e:

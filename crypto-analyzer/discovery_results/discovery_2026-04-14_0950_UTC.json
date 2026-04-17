@@ -1,0 +1,109 @@
+{
+  "timestamp": "2026-04-14 09:50 UTC",
+  "model": "gemini-3-flash-preview",
+  "context_length": 12021,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "AR/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 1.75,
+          "high": 1.77
+        },
+        "stop_loss": 1.71,
+        "target1": 1.79,
+        "target2": 1.84,
+        "win_rate_pct": 50,
+        "risk_reward": 0.0,
+        "confidence": 4,
+        "time_window": "Wait for 4h MACD crossover",
+        "entry_trigger": "None - contradictory signals",
+        "invalidation": "None",
+        "confluence_signals": [
+          "Price rising with low volume (divergence)",
+          "MACD 1h bearish expanding",
+          "OI rising suggesting trend continuation",
+          "Funding velocity accelerating negative"
+        ],
+        "win_rate_basis": "Bullish EMA alignment and rising OI are neutralized by bearish MACD expansion and significant price-volume divergence, indicating a lack of conviction in the current move."
+      },
+      {
+        "symbol": "FLOW/USDT",
+        "direction": "SHORT",
+        "entry_zone": {
+          "low": 0.036,
+          "high": 0.038
+        },
+        "stop_loss": 0.041,
+        "target1": 0.032,
+        "target2": 0.03,
+        "win_rate_pct": 62,
+        "risk_reward": 1.8,
+        "confidence": 6,
+        "time_window": "Enter within 4h, hold 12-24h",
+        "entry_trigger": "1h RSI crossing below 70 from overbought zone",
+        "invalidation": "Hourly candle close above $0.041",
+        "confluence_signals": [
+          "RSI overbought (>70) on 1h and 4h",
+          "Extreme long account ratio (87th percentile)",
+          "Funding rate at 0th percentile (collapsing premium)",
+          "Price at 93rd percentile of 7d range"
+        ],
+        "win_rate_basis": "The combination of overbought RSI and an extreme long-crowded retail sentiment (87th percentile L/S ratio) suggests a high probability of a 'long squeeze' or mean-reversion pullback."
+      },
+      {
+        "symbol": "ROSE/USDT",
+        "direction": "SKIP",
+        "entry_zone": {
+          "low": 0.0105,
+          "high": 0.0108
+        },
+        "stop_loss": 0.01,
+        "target1": 0.011,
+        "target2": 0.0115,
+        "win_rate_pct": 52,
+        "risk_reward": 0.0,
+        "confidence": 3,
+        "time_window": "Wait for volatility expansion",
+        "entry_trigger": "None",
+        "invalidation": "None",
+        "confluence_signals": [
+          "Neutral RSI (50-54)",
+          "Negative funding velocity acceleration",
+          "Contracting bearish MACD",
+          "Price in middle of 7d range"
+        ],
+        "win_rate_basis": "Signals are largely neutral or mean-reverting. Negative funding velocity suggests a potential flush of longs, but price is supported by EMA alignment, leading to no clear edge."
+      },
+      {
+        "symbol": "ID/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.031,
+          "high": 0.0321
+        },
+        "stop_loss": 0.0295,
+        "target1": 0.035,
+        "target2": 0.038,
+        "win_rate_pct": 74,
+        "risk_reward": 2.27,
+        "confidence": 9,
+        "time_window": "Enter immediately, hold 24-48h",
+        "entry_trigger": "Current price action showing capitulation bottom",
+        "invalidation": "Daily close below 0.029",
+        "confluence_signals": [
+          "Extreme Fear Index (12)",
+          "OI falling with price falling (capitulation signal)",
+          "Price-Volume divergence (selling volume is low/exhausted)",
+          "Compressed volatility (compression ratio 0.68x)",
+          "Negative funding rate (shorts paying longs)"
+        ],
+        "win_rate_basis": "High-conviction reversal setup based on 'capitulation' metrics: falling OI into a price drop suggests sellers are exhausted, combined with extreme market fear and compressed volatility, which historically precedes explosive relief bounces."
+      }
+    ],
+    "market_regime": "volatile_reversal",
+    "cross_asset_insight": "The market is in a state of Extreme Fear (12), which creates a high-probability environment for contrarian reversals. ID shows the strongest evidence of seller capitulation (falling OI), while FLOW shows signs of retail over-extension into resistance.",
+    "highest_conviction_trade": "ID/USDT"
+  }
+}

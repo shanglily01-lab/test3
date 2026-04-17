@@ -190,7 +190,7 @@ class PriceCollector:
             return {
                 'exchange': self.exchange_id,
                 'symbol': symbol,
-                'timestamp': datetime.utcnow(),  # 币安订单簿没有时间戳，使用当前时间
+                'timestamp': datetime.now(),  # 币安订单簿没有时间戳，使用当前时间
                 'bids': bids,
                 'asks': asks,
                 'bid_volume': sum(bid[1] for bid in bids),
@@ -270,7 +270,7 @@ class PriceCollector:
                     'symbol': symbol,
                     'funding_rate': float(data.get('lastFundingRate', 0)),
                     'funding_time': int(data.get('time', 0)),
-                    'timestamp': datetime.fromtimestamp(int(data.get('time', 0)) / 1000) if data.get('time') else datetime.utcnow(),
+                    'timestamp': datetime.fromtimestamp(int(data.get('time', 0)) / 1000) if data.get('time') else datetime.now(),
                     'mark_price': float(data.get('markPrice', 0)),
                     'index_price': float(data.get('indexPrice', 0)),
                     'next_funding_time': int(data.get('nextFundingTime', 0))
@@ -383,7 +383,7 @@ class MultiExchangeCollector:
 
         return {
             'symbol': symbol,
-            'timestamp': datetime.utcnow(),
+            'timestamp': datetime.now(),
             'price': avg_price,
             'max_price': max_price,
             'min_price': min_price,
@@ -462,7 +462,7 @@ class MultiExchangeCollector:
         if symbol_upper == 'HYPE/USDT':
             if 'gate' in self.collectors:
                 # Gate.io 使用秒时间戳
-                since = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+                since = int((datetime.now() - timedelta(days=days)).timestamp())
                 all_data = []
                 limit = 1000
                 
@@ -494,7 +494,7 @@ class MultiExchangeCollector:
             return None
         
         # 计算起始时间（毫秒时间戳，用于 Binance）
-        since = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
+        since = int((datetime.now() - timedelta(days=days)).timestamp() * 1000)
 
         # 选择交易所
         if exchange and exchange in self.collectors:

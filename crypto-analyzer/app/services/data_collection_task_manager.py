@@ -36,7 +36,7 @@ class DataCollectionTask:
         self.estimated_total_records = 0  # 预估总数据量（用于进度计算）
         self.errors = []  # 错误列表
         self.result = None  # 最终结果
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now()
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
         self.task: Optional[asyncio.Task] = None
@@ -134,9 +134,9 @@ class DataCollectionTaskManager:
             
             task.status = status
             if status == TaskStatus.RUNNING and not task.started_at:
-                task.started_at = datetime.utcnow()
+                task.started_at = datetime.now()
             elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now()
                 task.progress = 100.0 if status == TaskStatus.COMPLETED else task.progress
             if result:
                 task.result = result
@@ -151,7 +151,7 @@ class DataCollectionTaskManager:
     
     def cleanup_old_tasks(self, days: int = 7):
         """清理旧任务（保留最近N天）"""
-        cutoff = datetime.utcnow().timestamp() - (days * 24 * 60 * 60)
+        cutoff = datetime.now().timestamp() - (days * 24 * 60 * 60)
         
         with self._lock:
             to_remove = []

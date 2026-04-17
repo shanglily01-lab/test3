@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-04-14 05:01 UTC",
+  "model": "gemini-2.5-flash",
+  "context_length": 17787,
+  "results": {
+    "trade_plans": [
+      {
+        "symbol": "JST/USDT",
+        "direction": "LONG",
+        "entry_zone": {
+          "low": 0.076,
+          "high": 0.077
+        },
+        "stop_loss": 0.069,
+        "target1": 0.08,
+        "target2": 0.09,
+        "win_rate_pct": 70,
+        "risk_reward": 1.8,
+        "confidence": 7,
+        "time_window": "enter within 4h, hold 12-24h",
+        "entry_trigger": "Price enters the entry zone with 1h candle close above $0.076",
+        "invalidation": "1h candle close below $0.069",
+        "confluence_signals": [
+          "EXTREME bearish funding (6th percentile) - potential short squeeze fuel",
+          "Price falling with LOW volume (weak selling)",
+          "Volatility COMPRESSED (0.53x ATR_1h) - spring tension building",
+          "MACD 1h bullish EXPANDING",
+          "EMA 1h alignment bullish (price above 3/3 EMAs)",
+          "FEAR_AND_GREED_INDEX at Extreme Fear (contrarian buy signal)"
+        ],
+        "win_rate_basis": "Multiple strong contrarian signals (extreme bearish funding, F&G index) combined with technical strength (MACD, EMA) and weak selling pressure on low volume, indicating a high probability for a bounce or short squeeze."
+      }
+    ]
+  }
+}

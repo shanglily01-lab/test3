@@ -138,7 +138,7 @@ class MarketRegimeDetector:
                 'adx_value': indicators.get('adx', 0),
                 'trend_bars': indicators.get('trend_bars', 0),
                 'volatility': indicators.get('volatility', 0),
-                'detected_at': datetime.utcnow(),
+                'detected_at': datetime.now(),
                 'details': {
                     'ema9': indicators.get('ema9'),
                     'ema26': indicators.get('ema26'),
@@ -319,7 +319,7 @@ class MarketRegimeDetector:
 
         缓存5分钟，避免频繁查询
         """
-        now = datetime.utcnow()
+        now = datetime.now()
 
         # 检查缓存是否有效（5分钟内）
         if (self._btc_regime_cache is not None and
