@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-14 02:09 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 17788,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"MANTA/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 0.060,\n        \"high\": 0.062\n      },\n      \"stop_loss\": 0.059,\n      \"target1\": 0.07,\n      \"target2\": 0.072,\n      \"win_rate_pct\": 58,\n      \"risk_reward\": 4.5,\n      \"confidence\": 6,\n      \"time_window\": \"enter within 8h, hold 12-24h\",\n      \"entry_trigger\": \"1h candle close above EMA20 after price enters entry zone, confirming bounce from support.\",\n      \"invalidation\": \"1h close below $0.059 or 4h close below EMA20.\",\n      \"confluence_signals\": [\n        \"Extreme bearish funding rate (6th percentile) indicates potential for a short squeeze\",\n        \"Bullish EMA alignment (price above all EMAs on 1h)\",\n        \"MACD 1h bullish and expanding\",\n        \"Market-wide Extreme Fear (F&G Index=12) suggests contrarian buy opportunity\"\n      ],\n      \"win_rate_basis\": \"Four bullish signals (funding, EM",
-    "parse_error": "JSON extraction failed"
-  }
-}

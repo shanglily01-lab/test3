@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-13 07:27 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 15754,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"BTC\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\"low\": 70428.00, \"high\": 70566.50},\n      \"stop_loss\": 70200.00,\n      \"target1\": 71096.60,\n      \"target2\": 71750.00,\n      \"win_rate_pct\": 58,\n      \"risk_reward\": 1.99,\n      \"confidence\": 5,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"Price reclaims $70,500 and holds for 15min candle close\",\n      \"invalidation\": \"Price closes below $70,200\",\n      \"confluence_signals\": [\n        \"RSI_4h oversold\",\n        \"Price falling with LOW volume (weak selling)\",\n        \"OI FALLING + price falling (capitulation signal)\",\n        \"Funding Velocity acceleration (flush momentum fading)\",\n        \"Fear & Greed Index: Extreme Fear (contrarian buy)\"\n      ],\n      \"win_rate_basis\": \"5 strong bullish signals (RSI, volume, OI, funding velocity,",
-    "parse_error": "JSON extraction failed"
-  }
-}

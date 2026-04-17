@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-14 02:19 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 17971,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"TREE/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 0.062,\n        \"high\": 0.064\n      },\n      \"stop_loss\": 0.059,\n      \"target1\": 0.07,\n      \"target2\": 0.072,\n      \"win_rate_pct\": 70,\n      \"risk_reward\": 2.0,\n      \"confidence\": 8,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"Price action shows weak selling on 1h, confirming pullback towards EMA20 or $0.062, then 1h candle closes bullish above $0.062\",\n      \"invalidation\": \"1h close below $0.059 or strong bearish volume spike below $0.06\",\n      \"confluence_signals\": [\n        \"Strong bullish momentum (MACD expanding, EMA alignment, 1d channel up)\",\n        \"OI rising with price (healthy trend continuation)\",\n        \"Funding velocity accelerating positive (short squeeze building)\",\n        \"Price falling with LOW volume (weak selling during pullback)\",\n        \"Fear & Greed Index (Extreme Fear -",
-    "parse_error": "JSON extraction failed"
-  }
-}

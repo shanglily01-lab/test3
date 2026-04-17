@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-13 03:11 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 14680,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"JUP/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 0.160,\n        \"high\": 0.161\n      },\n      \"stop_loss\": 0.158,\n      \"target1\": 0.165,\n      \"target2\": 0.170,\n      \"win_rate_pct\": 68,\n      \"risk_reward\": 2.5,\n      \"confidence\": 8,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"Price holds above $0.160 support on 1h close, accompanied by increasing volume.\",\n      \"invalidation\": \"1h close below $0.158\",\n      \"confluence_signals\": [\n        \"EXTREME short crowd (14th percentile)\",\n        \"Price falling with LOW volume (weak selling)\",\n        \"Funding rate positive and increasing (moderate bullish sentiment)\",\n        \"Price near key support levels\"\n      ],\n      \"win_rate_basis\": \"Four strong contrarian bullish signals (extreme short positioning, weak selling pressure, positive funding) converging with price at established support levels, indicating a high probability of a bounce or short squeeze.\"",
-    "parse_error": "JSON extraction failed"
-  }
-}

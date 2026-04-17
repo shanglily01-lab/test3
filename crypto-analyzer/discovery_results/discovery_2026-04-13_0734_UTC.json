@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-13 07:34 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 14160,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"AXS/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 1.06,\n        \"high\": 1.07\n      },\n      \"stop_loss\": 1.04,\n      \"target1\": 1.09,\n      \"target2\": 1.14,\n      \"win_rate_pct\": 70,\n      \"risk_reward\": 2.0,\n      \"confidence\": 7,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"Rebound from $1.06 support, 1h candle close above $1.065\",\n      \"invalidation\": \"Price closes below $1.04\",\n      \"confluence_signals\": [\n        \"Price at strong support ($1.06) and 7d/30d 0th percentile range\",\n        \"RSI 1h (26.23) & 4h (23.77) oversold\",\n        \"Long/Short Ratio at 0th percentile (extreme short crowd)\",\n        \"Funding Velocity accelerating positive (short squeeze building)\",\n        \"Fear & Greed Index at Extreme Fear (contrarian buy)\"",
-    "parse_error": "JSON extraction failed"
-  }
-}

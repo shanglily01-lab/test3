@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-14 02:12 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 18379,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"OPN/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 0.155,\n        \"high\": 0.158\n      },\n      \"stop_loss\": 0.148,\n      \"target1\": 0.17,\n      \"target2\": 0.18,\n      \"win_rate_pct\": 65,\n      \"risk_reward\": 1.58,\n      \"confidence\": 7,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"1h close above EMA20 after pullback to entry zone\",\n      \"invalidation\": \"1h close below 0.148\",\n      \"confluence_signals\": [\n        \"7d/30d range low (contrarian)\",\n        \"MACD 1h bullish expanding\",\n        \"OI rising with price (healthy buildup)\",\n        \"L/S ratio extreme short crowd (contrarian bullish)\",\n        \"Fear & Greed Index Extreme Fear\"\n      ],\n      \"win_rate_basis\": \"5 bullish signals (contrarian low range, healthy OI, MACD expansion, extreme short L/S, F&G) are strong, but",
-    "parse_error": "JSON extraction failed"
-  }
-}

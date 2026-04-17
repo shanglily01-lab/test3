@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-14 02:14 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 17325,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"QNT/USDT\",\n      \"direction\": \"LONG\",\n      \"entry_zone\": {\n        \"low\": 75.92,\n        \"high\": 76.04\n      },\n      \"stop_loss\": 74.90,\n      \"target1\": 77.76,\n      \"target2\": 77.99,\n      \"win_rate_pct\": 65,\n      \"risk_reward\": 1.6,\n      \"confidence\": 7,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"Price holds above $75.92 support level\",\n      \"invalidation\": \"Price closes below $75.05\",\n      \"confluence_signals\": [\n        \"Extreme short crowd L/S (0th percentile)\",\n        \"Price above key EMAs (EMA20, EMA50, EMA200)\",\n        \"MACD_1h bullish and EXPANDING\",\n        \"Price falling with LOW volume (weak selling)\"\n      ],\n      \"win_rate_basis\": \"The extremely low L/S ratio indicates a strong contrarian bullish setup. Price maintaining above multiple EMAs and bullish MACD provide technical support. Weak selling volume on dips",
-    "parse_error": "JSON extraction failed"
-  }
-}

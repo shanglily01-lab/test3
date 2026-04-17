@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-04-14 02:05 UTC",
-  "model": "gemini-2.5-flash",
-  "context_length": 18468,
-  "results": {
-    "raw_response": "{\n  \"trade_plans\": [\n    {\n      \"symbol\": \"GTC/USDT\",\n      \"direction\": \"SHORT\",\n      \"entry_zone\": {\n        \"low\": 0.0810,\n        \"high\": 0.0815\n      },\n      \"stop_loss\": 0.0825,\n      \"target1\": 0.0800,\n      \"target2\": 0.0780,\n      \"win_rate_pct\": 65,\n      \"risk_reward\": 2.0,\n      \"confidence\": 6,\n      \"time_window\": \"enter within 4h, hold 12-24h\",\n      \"entry_trigger\": \"1h close below $0.0810 or clear rejection from $0.0815 resistance area.\",\n      \"invalidation\": \"1h close above $0.0825\",\n      \"confluence_signals\": [\n        \"Extreme long crowd (L/S ratio 97th percentile) - contrarian bearish\",\n        \"RSI 1h overbought (>70)\",\n        \"OI falling + price rising (short covering exhaustion)\",\n        \"Price falling with LOW volume (weak selling pressure on recent dip)\"\n      ],\n      \"win_rate_basis\": \"Strong contrarian bearish signals from the extreme L/",
-    "parse_error": "JSON extraction failed"
-  }
-}
