@@ -296,12 +296,13 @@ class SymbolRatingManager:
 
 # 测试代码
 if __name__ == '__main__':
+    import os as _os
     db_config = {
-        'host': '13.212.252.171',
-        'port': 3306,
-        'user': 'admin',
-        'password': 'Tonny@1000',
-        'database': 'binance-data'
+        'host':     _os.getenv('DB_HOST', 'localhost'),
+        'port':     int(_os.getenv('DB_PORT', '3306')),
+        'user':     _os.getenv('DB_USER', ''),
+        'password': _os.getenv('DB_PASSWORD', ''),
+        'database': _os.getenv('DB_NAME', ''),
     }
 
     manager = SymbolRatingManager(db_config)

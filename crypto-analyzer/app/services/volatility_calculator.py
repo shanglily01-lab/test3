@@ -17,13 +17,14 @@ import mysql.connector
 
 logger = logging.getLogger(__name__)
 
-# 数据库配置
+# 数据库配置（统一从环境变量读，不再硬编码）
+import os as _os
 DB_CONFIG = {
-    'host': '13.212.252.171',
-    'port': 3306,
-    'user': 'admin',
-    'password': 'Tonny@1000',
-    'database': 'binance-data'
+    'host':     _os.getenv('DB_HOST', 'localhost'),
+    'port':     int(_os.getenv('DB_PORT', '3306')),
+    'user':     _os.getenv('DB_USER', ''),
+    'password': _os.getenv('DB_PASSWORD', ''),
+    'database': _os.getenv('DB_NAME', ''),
 }
 
 

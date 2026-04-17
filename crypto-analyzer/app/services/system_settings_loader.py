@@ -18,10 +18,10 @@ def get_system_settings() -> Dict[str, Any]:
         # 直接读取数据库配置
         import os
         db_config = {
-            'host': os.getenv('DB_HOST', '13.212.252.171'),
-            'user': os.getenv('DB_USER', 'admin'),
-            'password': os.getenv('DB_PASSWORD', 'Tonny@1000'),
-            'database': os.getenv('DB_NAME', 'binance-data'),
+            'host': os.getenv('DB_HOST', 'localhost'),
+            'user': os.getenv('DB_USER', ''),
+            'password': os.getenv('DB_PASSWORD', ''),
+            'database': os.getenv('DB_NAME', ''),
             'charset': 'utf8mb4'
         }
 

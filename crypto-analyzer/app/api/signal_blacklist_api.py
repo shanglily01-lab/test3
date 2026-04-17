@@ -5,6 +5,7 @@
 提供 CRUD 接口，供前端管理页面调用
 """
 
+import os
 import pymysql
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,12 +15,12 @@ from loguru import logger
 router = APIRouter()
 
 DB_CONFIG = {
-    'host': '13.212.252.171',
-    'port': 3306,
-    'user': 'admin',
-    'password': 'Tonny@1000',
-    'database': 'binance-data',
-    'charset': 'utf8mb4',
+    'host':     os.getenv('DB_HOST', 'localhost'),
+    'port':     int(os.getenv('DB_PORT', '3306')),
+    'user':     os.getenv('DB_USER', ''),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', ''),
+    'charset':  'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor,
 }
 

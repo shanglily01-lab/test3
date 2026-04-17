@@ -276,8 +276,10 @@ grep "SIGNAL A4[9-9]\|SIGNAL A5\|SIGNAL A6\|SIGNAL A7" logs/dimension_trader.log
 # 统计新策略开仓/止盈/止损
 .venv/Scripts/python -c "
 import pymysql
-conn = pymysql.connect(host='localhost', port=3306, user='root',
-                       password='Tonny@1000', db='binance-data', charset='utf8mb4')
+import os
+conn = pymysql.connect(host=os.getenv('DB_HOST','localhost'), port=int(os.getenv('DB_PORT','3306')),
+                       user=os.getenv('DB_USER',''), password=os.getenv('DB_PASSWORD',''),
+                       db=os.getenv('DB_NAME',''), charset='utf8mb4')
 # 查新策略 48h 内的交易结果
 "
 ```
