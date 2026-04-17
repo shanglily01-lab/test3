@@ -806,7 +806,15 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# 实盘交易(老版) 路由已在 AWS 部署清理中移除
+# 注册实盘交易API路由
+try:
+    from app.api.live_trading_api import router as live_trading_router
+    app.include_router(live_trading_router)
+    logger.info("✅ 实盘交易API路由已注册")
+except Exception as e:
+    logger.warning(f"⚠️  实盘交易API路由注册失败: {e}")
+    import traceback
+    traceback.print_exc()
 
 # 注册复盘合约API路由
 try:
