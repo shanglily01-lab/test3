@@ -652,7 +652,9 @@ function applyHistoryFilter(resetPage) {
                     '<div class="text-[#49f4c8]/70">' + fmtTime(t.close_time || t.trade_time) + '</div>' +
                 '</td>' +
                 '<td class="px-5 py-3.5 text-on-surface-variant monospace whitespace-nowrap text-xs">' + fmtDuration(t.open_time, t.close_time || t.trade_time) + '</td>' +
-                '<td class="px-5 py-3.5 font-bold font-headline uppercase whitespace-nowrap">' + (t.symbol || '--') + '</td>' +
+                '<td class="px-5 py-3.5 font-bold font-headline uppercase whitespace-nowrap">' + (t.symbol || '--') +
+                    (t.account_id != null ? ' <span class="text-[10px] font-normal text-on-surface-variant font-mono">#' + t.account_id + '</span>' : '') +
+                    '</td>' +
                 '<td class="px-5 py-3.5 font-bold text-xs ' + sideClass + '">' + (isLong ? 'LONG' : 'SHORT') + '</td>' +
                 '<td class="px-5 py-3.5 monospace whitespace-nowrap">' + fmtPrice(t.entry_price) + '</td>' +
                 '<td class="px-5 py-3.5 monospace whitespace-nowrap">' + fmtPrice(t.price) + '</td>' +
@@ -710,7 +712,8 @@ async function loadHistory(page) {
 
     var trades = [];
     try {
-        var res = await fetch('/api/futures/trades?account_id=' + ACCOUNT_ID + '&page=' + _historyPage + '&page_size=' + _historyPageSize);
+        // 与持仓一致：合并模拟盘账户 2 + 4，否则账户 4（Whale）平仓不会出现在历史里
+        var res = await fetch('/api/futures/trades?merge_sim_accounts=true&page=' + _historyPage + '&page_size=' + _historyPageSize);
         var data = await res.json();
         trades = Array.isArray(data) ? data : (Array.isArray(data.data) ? data.data : []);
         _historyTotalCount = data.total_count || 0;
@@ -754,7 +757,8 @@ async function loadHistory(page) {
         return trades;
     }
 
-    applyHistoryFilter(true);
+    // 分页加载后勿重置 _historyPage，否则页码与数据错位、「最近」看起来像丢数据
+    applyHistoryFilter(false);
     return trades;
 }
 
@@ -1114,8 +1118,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var searchEl = document.getElementById('history-search');
     var sideEl   = document.getElementById('history-side-filter');
     var limitEl  = document.getElementById('history-limit');
-    if (searchEl) searchEl.addEventListener('input', applyHistoryFilter);
-    if (sideEl)   sideEl.addEventListener('change', applyHistoryFilter);
+    if (searchEl) searchEl.addEventListener('input', function() { applyHistoryFilter(true); });
+    if (sideEl)   sideEl.addEventListener('change', function() { applyHistoryFilter(true); });
     // 切换 limit 时重新拉取
     // history-limit onchange is handled inline (loadHistory(1))
 });

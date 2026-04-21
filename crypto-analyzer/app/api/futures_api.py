@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastapi import APIRouter, HTTPException, Body, Request
+from fastapi import APIRouter, HTTPException, Body, Request, Query
 from pydantic import BaseModel, Field
 import yaml
 from decimal import Decimal
@@ -1401,7 +1401,16 @@ async def get_futures_prices_batch(symbols: List[str] = Body(..., embed=True)):
 # ==================== 健康检查 ====================
 
 @router.get('/trades')
-async def get_trades(account_id: int = 2, limit: int = 50, page: int = 1, page_size: int = 10):
+async def get_trades(
+    account_id: int = 2,
+    limit: int = 50,
+    page: int = 1,
+    page_size: int = 10,
+    merge_sim_accounts: bool = Query(
+        False,
+        description='为 true 时合并 U 本位模拟盘账户 2 与 4 的已平仓记录（与持仓页双账户展示一致）',
+    ),
+):
     """
     获取交易历史记录（从 futures_positions 已平仓记录读取）
     """
@@ -1409,10 +1418,17 @@ async def get_trades(account_id: int = 2, limit: int = 50, page: int = 1, page_s
         connection = get_db_connection()
         cursor = connection.cursor(pymysql.cursors.DictCursor)
 
+        if merge_sim_accounts:
+            where_acct = "account_id IN (2, 4)"
+            count_params: tuple = ()
+        else:
+            where_acct = "account_id = %s"
+            count_params = (account_id,)
+
         # 总数
         cursor.execute(
-            "SELECT COUNT(*) as total FROM futures_positions WHERE account_id=%s AND status='closed'",
-            (account_id,)
+            f"SELECT COUNT(*) as total FROM futures_positions WHERE {where_acct} AND status='closed'",
+            count_params,
         )
         total_count = cursor.fetchone()['total']
 
@@ -1424,9 +1440,17 @@ async def get_trades(account_id: int = 2, limit: int = 50, page: int = 1, page_s
             offset = 0
             actual_limit = limit
 
-        sql = """
+        if merge_sim_accounts:
+            where_p = "p.account_id IN (2, 4)"
+            exec_params: tuple = (actual_limit, offset)
+        else:
+            where_p = "p.account_id = %s"
+            exec_params = (account_id, actual_limit, offset)
+
+        sql = f"""
         SELECT
             p.id,
+            p.account_id,
             p.symbol,
             CASE WHEN p.position_side='LONG' THEN 'CLOSE_LONG' ELSE 'CLOSE_SHORT' END AS side,
             COALESCE(t.close_price, p.mark_price) AS price,
@@ -1458,12 +1482,12 @@ async def get_trades(account_id: int = 2, limit: int = 50, page: int = 1, page_s
         FROM futures_positions p
         LEFT JOIN futures_trades t ON t.position_id = p.id
             AND t.side IN ('CLOSE_LONG', 'CLOSE_SHORT')
-        WHERE p.account_id = %s AND p.status = 'closed'
+        WHERE {where_p} AND p.status = 'closed'
         ORDER BY p.close_time DESC
         LIMIT %s OFFSET %s
         """
 
-        cursor.execute(sql, (account_id, actual_limit, offset))
+        cursor.execute(sql, exec_params)
         trades = cursor.fetchall()
         cursor.close()
 

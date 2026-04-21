@@ -326,6 +326,16 @@ def _fill_pending_orders(conn):
         triggered = (pos_side == 'LONG' and cur_p <= limit_p) or (pos_side == 'SHORT' and cur_p >= limit_p)
         if not triggered:
             continue
+        # 先把订单标成 FILLING，防止同一订单被重复触发
+        c2 = conn.cursor()
+        affected = c2.execute("""UPDATE futures_orders
+            SET status='FILLING', updated_at=NOW()
+            WHERE id=%s AND status='PENDING'""", (o['id'],))
+        conn.commit(); c2.close()
+        if not affected:
+            log.info("WHALE 限价单已被处理，跳过 %s %s oid=%s", sym, side, o['order_id'])
+            continue
+        pos_id = None
         try:
             max_hold = LONG_HOLD_H * 60 if pos_side == 'LONG' else SHORT_HOLD_H * 60
             payload = {
@@ -351,7 +361,18 @@ def _fill_pending_orders(conn):
                 conn.commit(); c2.close()
                 log.info("WHALE 限价单成交 %s %s @ %.5f  pid=%s  oid=%s",
                          sym, side, cur_p, pos_id, o['order_id'])
+            else:
+                c2 = conn.cursor()
+                c2.execute("UPDATE futures_orders SET status='PENDING', updated_at=NOW() WHERE id=%s", (o['id'],))
+                conn.commit(); c2.close()
+                log.warning("WHALE 限价单成交无 pos_id，回退 PENDING %s %s oid=%s", sym, side, o['order_id'])
         except Exception as e:
+            try:
+                c2 = conn.cursor()
+                c2.execute("UPDATE futures_orders SET status='PENDING', updated_at=NOW() WHERE id=%s", (o['id'],))
+                conn.commit(); c2.close()
+            except Exception:
+                pass
             log.warning("WHALE 限价单成交异常 %s: %s", sym, e)
 
 def now_s() -> float:

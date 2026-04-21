@@ -315,6 +315,17 @@ def _fill_pending_orders(conn):
         triggered = (pos_side == 'LONG' and cur_p <= limit_p) or (pos_side == 'SHORT' and cur_p >= limit_p)
         if not triggered:
             continue
+        # 先把订单标成 FILLING，防止同一订单被重复触发（API 超时/异常后下一 tick 再捞到）
+        c2 = conn.cursor()
+        affected = c2.execute("""UPDATE futures_orders
+            SET status='FILLING', updated_at=NOW()
+            WHERE id=%s AND status='PENDING'""", (o['id'],))
+        conn.commit(); c2.close()
+        if not affected:
+            # 被其他并发路径抢先处理了，跳过
+            log.info("限价单已被处理，跳过 %s %s oid=%s", sym, side, o['order_id'])
+            continue
+        pos_id = None
         try:
             qty = float(o['quantity'] or 0)
             lev = int(o['leverage'] or LEVERAGE)
@@ -341,8 +352,21 @@ def _fill_pending_orders(conn):
                 conn.commit(); c2.close()
                 log.info("限价单成交 %s %s @ %.5f  pid=%s  oid=%s",
                          sym, side, cur_p, pos_id, o['order_id'])
+            else:
+                # API 没返回 pos_id，改回 PENDING 让下一 tick 重试
+                c2 = conn.cursor()
+                c2.execute("UPDATE futures_orders SET status='PENDING', updated_at=NOW() WHERE id=%s", (o['id'],))
+                conn.commit(); c2.close()
+                log.warning("限价单成交无 pos_id，回退 PENDING %s %s oid=%s", sym, side, o['order_id'])
         except Exception as e:
-            log.warning("限价单成交异常 %s %s: %s", sym, side, e)
+            # API 调用失败，回退 PENDING
+            try:
+                c2 = conn.cursor()
+                c2.execute("UPDATE futures_orders SET status='PENDING', updated_at=NOW() WHERE id=%s", (o['id'],))
+                conn.commit(); c2.close()
+            except Exception:
+                pass
+            log.warning("限价单成交异常，回退 PENDING %s %s: %s", sym, side, e)
 
 def get_pos_status(pid):
     """返回 (status, realized_pnl, notes) 或 (None, None, None)"""
