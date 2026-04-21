@@ -39,13 +39,12 @@ def _acquire_pid_lock():
             old_pid = None
         # 检查旧进程是否仍在运行
         if old_pid:
-            import ctypes
-            SYNCHRONIZE = 0x00100000
-            handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, old_pid)
-            if handle:
-                ctypes.windll.kernel32.CloseHandle(handle)
+            try:
+                os.kill(old_pid, 0)
                 print(f"[strategy_whale] 已有进程 PID={old_pid} 在运行，退出。")
                 raise SystemExit(1)
+            except OSError:
+                pass
     with open(_PID_FILE, "w") as f:
         f.write(str(os.getpid()))
     atexit.register(lambda: os.path.exists(_PID_FILE) and os.remove(_PID_FILE))

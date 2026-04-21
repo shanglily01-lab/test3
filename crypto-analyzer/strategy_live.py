@@ -26,12 +26,12 @@ def _acquire_pid_lock():
         except Exception:
             old_pid = None
         if old_pid:
-            import ctypes
-            handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, old_pid)
-            if handle:
-                ctypes.windll.kernel32.CloseHandle(handle)
+            try:
+                os.kill(old_pid, 0)   # 0 = 只检查存活，不发信号
                 print(f"[strategy_live] 已有进程 PID={old_pid} 在运行，退出。")
                 raise SystemExit(1)
+            except OSError:
+                pass  # 进程不存在，继续启动
     with open(_PID_FILE, "w") as f:
         f.write(str(os.getpid()))
     atexit.register(lambda: os.path.exists(_PID_FILE) and os.remove(_PID_FILE))
