@@ -471,7 +471,8 @@ class FuturesTradingEngine:
         strategy_id: Optional[int] = None,
         entry_signal_type: Optional[str] = None,
         entry_reason: Optional[str] = None,
-        entry_score: Optional[float] = None
+        entry_score: Optional[float] = None,
+        fill_price: Optional[Decimal] = None
     ) -> Dict:
         """
         开仓
@@ -507,12 +508,20 @@ class FuturesTradingEngine:
             }
 
         try:
+            ps = (position_side or '').strip().upper()
+            if ps not in ('LONG', 'SHORT'):
+                return {
+                    'success': False,
+                    'message': f'无效的持仓方向: {position_side!r}（需 LONG 或 SHORT）'
+                }
+            position_side = ps
+
             # 1. 获取当前价格
             # 限价单和市价单都使用实时价格（确保价格判断准确）
             use_realtime_for_entry = True
             try:
-                current_price = self.get_current_price(symbol, use_realtime=use_realtime_for_entry)
-                if not current_price or current_price <= 0:
+                mark_price_raw = self.get_current_price(symbol, use_realtime=use_realtime_for_entry)
+                if not mark_price_raw or mark_price_raw <= 0:
                     raise ValueError(f"无法获取{symbol}的有效价格")
             except Exception as price_error:
                 logger.error(f"获取价格失败: {price_error}")
@@ -528,24 +537,34 @@ class FuturesTradingEngine:
             # 做空入场：卖出时价格略低（市场冲击）
             SLIPPAGE_PCT = Decimal('0.0008')
             if position_side == 'LONG':
-                current_price = current_price * (1 + SLIPPAGE_PCT)
+                current_price = mark_price_raw * (1 + SLIPPAGE_PCT)
             else:
-                current_price = current_price * (1 - SLIPPAGE_PCT)
+                current_price = mark_price_raw * (1 - SLIPPAGE_PCT)
 
             # 1.5. 检查限价单逻辑
-            logger.info(f"[开仓] {symbol} {position_side} 收到 limit_price={limit_price}, current_price={current_price}(含滑点)")
+            # 是否挂 PENDING 必须与「标记价/市价」比，不能用含滑点的价：否则贴近限价时会误判为立即成交，导致“开不出挂单”
+            logger.info(
+                f"[开仓] {symbol} {position_side} limit_price={limit_price}, "
+                f"mark={mark_price_raw}, exec_ref={current_price}(含滑点)"
+            )
             # 如果设置了限价，检查是否需要创建未成交订单
             if limit_price and limit_price > 0:
                 should_create_pending_order = False
                 if position_side == 'LONG':
-                    # 做多：当前价格高于限价，则创建未成交订单
-                    if current_price > limit_price:
+                    # 做多：标记价高于限价 → 限价在下方，尚未可成交 → 挂单
+                    if mark_price_raw > limit_price:
                         should_create_pending_order = True
                 else:  # SHORT
-                    # 做空：当前价格低于限价，则创建未成交订单
-                    if current_price < limit_price:
+                    # 做空：标记价低于限价 → 限价在上方，尚未可成交 → 挂单
+                    if mark_price_raw < limit_price:
                         should_create_pending_order = True
-                
+
+                if not should_create_pending_order:
+                    logger.info(
+                        f"[开仓] 限价单不满足挂单条件，将走市价立即成交: mark={mark_price_raw}, "
+                        f"limit={limit_price} (LONG 挂单需 mark>limit; SHORT 挂单需 mark<limit)"
+                    )
+
                 if should_create_pending_order:
                     # 使用限价计算保证金
                     limit_notional_value = limit_price * quantity
@@ -691,11 +710,15 @@ class FuturesTradingEngine:
             # 2. 确定开仓价格
             # 限价单立即成交时使用市价，因为实际是按市价成交的
             # 只有PENDING限价单成交时才用限价（由futures_limit_order_executor处理）
-            logger.info(f"🔍 {symbol} {position_side} 开仓价格确定: limit_price={limit_price}, current_price={current_price}")
-            if limit_price and limit_price > 0:
+            logger.info(f"[开仓] {symbol} {position_side} 开仓价格确定: fill_price={fill_price}, limit_price={limit_price}, current_price={current_price}")
+            if fill_price and fill_price > 0:
+                # 调用方指定成交价（如限价单触发填充），直接使用，不再重新拉价
+                entry_price = fill_price
+                logger.info(f"[开仓] {symbol} {position_side} 使用指定成交价: entry_price={entry_price}")
+            elif limit_price and limit_price > 0:
                 # 限价单立即成交：使用市价作为入场价（实际成交价）
                 entry_price = current_price
-                logger.info(f"📌 {symbol} {position_side} 限价单立即成交，使用市价开仓: entry_price={entry_price} (限价:{limit_price})")
+                logger.info(f"[开仓] {symbol} {position_side} 限价单立即成交，使用市价开仓: entry_price={entry_price} (限价:{limit_price})")
             else:
                 # 市价单：再次获取实时价格，确保使用最新价格开仓
                 try:
@@ -1220,9 +1243,9 @@ class FuturesTradingEngine:
             cursor.execute(
                 """UPDATE futures_positions
                 SET status = 'closed', close_time = %s,
-                    realized_pnl = %s, notes = %s
+                    realized_pnl = %s, notes = %s, mark_price = %s
                 WHERE id = %s""",
-                (datetime.now(), float(realized_pnl), notes_reason, position_id)
+                (datetime.now(), float(realized_pnl), notes_reason, float(current_price), position_id)
             )
 
             # 释放全部保证金

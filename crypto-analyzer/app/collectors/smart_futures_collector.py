@@ -17,6 +17,7 @@
 
 import asyncio
 import aiohttp
+import requests as _requests
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from loguru import logger
@@ -24,38 +25,25 @@ import pymysql
 from decimal import Decimal
 from app.database.connection_pool import get_global_pool
 
+# 动态品种缓存刷新间隔（秒）
+_SYMBOLS_REFRESH_SECS = 4 * 3600
+
 
 class SmartFuturesCollector:
     """智能合约数据采集器 - 分层采集策略"""
 
     def __init__(self, db_config: dict):
-        """
-        初始化智能采集器
-
-        Args:
-            db_config: 数据库配置
-        """
         self.db_config = db_config
-
-        # 初始化数据库连接池
         self.db_pool = get_global_pool(db_config, pool_size=5)
-
-        # U本位合约API
         self.usdt_base_url = "https://fapi.binance.com"
-
-        # 币本位合约API
         self.coin_base_url = "https://dapi.binance.com"
-
-        # 超时设置（秒）
         self.timeout = aiohttp.ClientTimeout(total=5, connect=2)
-
-        # 并发限制
         self.max_concurrent = 10
-
-        # 上次采集时间记录（用于判断是否需要采集）
         self.last_collection_time = {}
-
-        logger.info("✅ 初始化智能合约数据采集器（分层采集策略，支持U本位+币本位）")
+        # 动态品种缓存
+        self._dyn_symbols: List[str] = []
+        self._dyn_symbols_updated_at: float = 0.0
+        logger.info("初始化智能合约数据采集器（分层采集策略，支持U本位+币本位）")
 
 
     def should_collect_interval(self, interval: str) -> bool:
@@ -371,38 +359,55 @@ class SmartFuturesCollector:
             finally:
                 cursor.close()
 
+    def _fetch_all_usdt_perp_symbols(self) -> List[str]:
+        """从 Binance fapi/v1/exchangeInfo 动态获取全量活跃 USDT 永续合约列表."""
+        import time
+        now = time.time()
+        if self._dyn_symbols and now - self._dyn_symbols_updated_at < _SYMBOLS_REFRESH_SECS:
+            return self._dyn_symbols
+        try:
+            resp = _requests.get(
+                f"{self.usdt_base_url}/fapi/v1/exchangeInfo",
+                timeout=10,
+            )
+            resp.raise_for_status()
+            syms = [
+                s['symbol']
+                for s in resp.json().get('symbols', [])
+                if s.get('contractType') == 'PERPETUAL'
+                and s.get('quoteAsset') == 'USDT'
+                and s.get('status') == 'TRADING'
+            ]
+            self._dyn_symbols = syms
+            self._dyn_symbols_updated_at = now
+            logger.info(f"动态品种列表刷新: 共 {len(syms)} 个 USDT 永续合约")
+            return syms
+        except Exception as e:
+            logger.error("动态拉取 Binance 品种列表失败: %s", e)
+            return self._dyn_symbols  # 失败时沿用缓存
+
     def get_trading_symbols(self) -> List[str]:
         """
-        从config.yaml获取需要监控的U本位合约交易对列表
-
-        Returns:
-            交易对列表（币安格式，如 ['BTCUSDT', 'ETHUSDT']）
+        获取 U 本位合约交易对列表。
+        优先级：config.yaml symbols 非空时作为白名单；否则动态拉取 Binance 全量 USDT 永续合约。
         """
         try:
             import yaml
             from pathlib import Path
 
             config_path = Path(__file__).parent.parent.parent / 'config.yaml'
-
-            if not config_path.exists():
-                logger.error(f"配置文件不存在: {config_path}")
-                return []
-
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                symbols_list = config.get('symbols', [])
-
-            if not symbols_list:
-                logger.warning("配置文件中没有找到交易对列表")
-                return []
-
-            # 转换为币安格式: BTC/USDT -> BTCUSDT
-            symbols = [s.replace('/', '') for s in symbols_list]
-            return symbols
-
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    cfg = yaml.safe_load(f)
+                whitelist = cfg.get('symbols', [])
+                if whitelist:
+                    symbols = [s.replace('/', '') for s in whitelist]
+                    logger.info(f"使用 config.yaml 白名单: {len(symbols)} 个品种")
+                    return symbols
         except Exception as e:
-            logger.error(f"获取交易对列表失败: {e}")
-            return []
+            logger.error("读取 config.yaml 失败: %s", e)
+
+        return self._fetch_all_usdt_perp_symbols()
 
     def get_coin_futures_symbols(self) -> List[str]:
         """
@@ -471,7 +476,7 @@ class SmartFuturesCollector:
         # 智能判断并采集各个时间周期
         for interval, limit in intervals:
             if self.should_collect_interval(interval):
-                logger.info(f"✅ 采集 {interval} K线 (每个交易对{limit}条，距上次 {self._get_elapsed_time(interval)})...")
+                logger.info(f"采集 {interval} K线 (每个交易对{limit}条，距上次 {self._get_elapsed_time(interval)})...")
 
                 # 采集U本位
                 if usdt_symbols:

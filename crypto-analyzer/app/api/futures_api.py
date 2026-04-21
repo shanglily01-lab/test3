@@ -90,6 +90,7 @@ class OpenPositionRequest(BaseModel):
     source: str = Field(default='manual', description="来源: manual, signal, auto")
     signal_id: Optional[int] = Field(None, description="信号ID")
     max_hold_minutes: Optional[int] = Field(None, description="最大持仓分钟数，到期自动平仓")
+    fill_price: Optional[float] = Field(None, description="强制成交价（限价单触发时传入，绕过引擎重新拉价）")
 
 
 class UpdateStopLossTakeProfitRequest(BaseModel):
@@ -103,6 +104,7 @@ class ClosePositionRequest(BaseModel):
     """平仓请求"""
     close_quantity: Optional[float] = Field(None, description="平仓数量，不填则全部平仓")
     reason: str = Field(default='manual', description="原因: manual, stop_loss, take_profit, liquidation")
+    close_price: Optional[float] = Field(None, description="指定平仓价格（SL/TP 监控触发时传入，跳过重新拉价）")
 
 
 class BatchCloseRequest(BaseModel):
@@ -134,35 +136,64 @@ async def get_positions(account_id: int = 2, status: str = 'open'):
     try:
         # 获取持仓
         if status == 'open':
-            positions = engine.get_open_positions(account_id)
-            # 补充 DB 中的止损/止盈价、id、source、开仓时间等字段
+            # 直接查 DB，绕过可能返回空列表的 engine.get_open_positions()
+            connection = get_db_connection()
+            cursor = connection.cursor(pymysql.cursors.DictCursor)
+            cursor.execute("""
+                SELECT
+                    id, symbol, position_side,
+                    quantity,
+                    COALESCE(avg_entry_price, entry_price) AS entry_price,
+                    mark_price AS current_price,
+                    leverage, margin,
+                    unrealized_pnl, unrealized_pnl_pct,
+                    realized_pnl, liquidation_price,
+                    stop_loss_price, take_profit_price,
+                    status, open_time, close_time,
+                    source, entry_signal_type, entry_score,
+                    created_at, max_hold_minutes
+                FROM futures_positions
+                WHERE account_id = %s AND status = 'open'
+                ORDER BY created_at DESC
+            """, (account_id,))
+            positions = cursor.fetchall()
+            cursor.close()
+            # 转换 Decimal / datetime
+            for pos in positions:
+                for k, v in list(pos.items()):
+                    if isinstance(v, Decimal):
+                        pos[k] = float(v)
+                    elif hasattr(v, 'isoformat'):
+                        pos[k] = str(v)
+            # 尝试用实时价格刷新 unrealized_pnl（失败也无所谓）
             try:
-                connection = get_db_connection()
-                cursor = connection.cursor(pymysql.cursors.DictCursor)
-                cursor.execute("""
-                    SELECT id, symbol, position_side,
-                           stop_loss_price, take_profit_price,
-                           source, entry_signal_type, entry_score,
-                           created_at, margin
-                    FROM futures_positions
-                    WHERE account_id = %s AND status = 'open'
-                """, (account_id,))
-                db_rows = {(r['symbol'], r['position_side']): r for r in cursor.fetchall()}
-                cursor.close()
+                import requests as _req
+                syms = list({p['symbol'].replace('/', '') for p in positions})
+                prices: dict = {}
+                resp = _req.get(
+                    'https://fapi.binance.com/fapi/v1/ticker/price',
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    prices = {t['symbol']: float(t['price']) for t in resp.json()}
                 for pos in positions:
-                    key = (pos.get('symbol', ''), pos.get('position_side', ''))
-                    db = db_rows.get(key, {})
-                    pos['id'] = db.get('id')
-                    pos['stop_loss_price'] = float(db['stop_loss_price']) if db.get('stop_loss_price') else None
-                    pos['take_profit_price'] = float(db['take_profit_price']) if db.get('take_profit_price') else None
-                    pos['source'] = db.get('source')
-                    pos['entry_signal_type'] = db.get('entry_signal_type')
-                    pos['entry_score'] = db.get('entry_score')
-                    pos['created_at'] = str(db['created_at']) if db.get('created_at') else None
-                    if db.get('margin') and not pos.get('margin'):
-                        pos['margin'] = float(db['margin'])
+                    bs = pos['symbol'].replace('/', '')
+                    if bs in prices:
+                        cp = prices[bs]
+                        ep = pos.get('entry_price') or 0
+                        qty = pos.get('quantity') or 0
+                        lev = pos.get('leverage') or 1
+                        margin = pos.get('margin') or (ep * qty / lev if ep and qty else 0)
+                        if ep and qty:
+                            if pos['position_side'] == 'LONG':
+                                pnl = (cp - ep) * qty
+                            else:
+                                pnl = (ep - cp) * qty
+                            pos['current_price'] = cp
+                            pos['unrealized_pnl'] = round(pnl, 4)
+                            pos['unrealized_pnl_pct'] = round(pnl / margin * 100, 2) if margin else 0
             except Exception as e:
-                logger.warning(f"补充持仓DB字段失败: {e}")
+                logger.debug(f"实时价格刷新失败(非致命): {e}")
         else:
             # 查询所有持仓（包括已平仓）
             connection = get_db_connection()
@@ -476,7 +507,8 @@ async def open_position(request: OpenPositionRequest):
             stop_loss_price=Decimal(str(request.stop_loss_price)) if request.stop_loss_price else None,
             take_profit_price=Decimal(str(request.take_profit_price)) if request.take_profit_price else None,
             source=request.source,
-            signal_id=request.signal_id
+            signal_id=request.signal_id,
+            fill_price=Decimal(str(request.fill_price)) if request.fill_price else None,
         )
 
         if result.get('success'):
@@ -874,12 +906,13 @@ async def close_position(
             request = ClosePositionRequest()
 
         close_quantity = Decimal(str(request.close_quantity)) if request.close_quantity else None
+        close_price = Decimal(str(request.close_price)) if request.close_price else None
 
-        # 平仓模拟盘（内部会自动同步实盘，无需额外处理）
         result = engine.close_position(
             position_id=position_id,
             close_quantity=close_quantity,
-            reason=request.reason or 'manual'
+            reason=request.reason or 'manual',
+            close_price=close_price,
         )
 
         if result['success']:
@@ -1393,35 +1426,40 @@ async def get_trades(account_id: int = 2, limit: int = 50, page: int = 1, page_s
 
         sql = """
         SELECT
-            id,
-            symbol,
-            CASE WHEN position_side='LONG' THEN 'CLOSE_LONG' ELSE 'CLOSE_SHORT' END AS side,
-            mark_price        AS price,
-            quantity,
-            notional_value,
-            leverage,
-            margin,
-            ROUND(
-                (COALESCE(avg_entry_price, entry_price) * quantity + mark_price * quantity) * 0.0004,
-                4
+            p.id,
+            p.symbol,
+            CASE WHEN p.position_side='LONG' THEN 'CLOSE_LONG' ELSE 'CLOSE_SHORT' END AS side,
+            COALESCE(t.close_price, p.mark_price) AS price,
+            p.quantity,
+            p.notional_value,
+            p.leverage,
+            p.margin,
+            COALESCE(t.fee,
+                ROUND(
+                    (COALESCE(p.avg_entry_price, p.entry_price) * p.quantity
+                     + COALESCE(t.close_price, p.mark_price) * p.quantity) * 0.0004,
+                    4
+                )
             )                 AS fee,
-            realized_pnl,
-            realized_pnl / NULLIF(margin, 0) * 100 AS pnl_pct,
-            realized_pnl / NULLIF(margin, 0) * 100 AS roi,
-            COALESCE(avg_entry_price, entry_price) AS entry_price,
-            close_time        AS trade_time,
-            source            AS entry_source,
-            entry_reason,
-            notes             AS close_reason,
-            stop_loss_price,
-            take_profit_price,
-            open_time,
-            close_time,
-            entry_score,
-            max_profit_pct
-        FROM futures_positions
-        WHERE account_id = %s AND status = 'closed'
-        ORDER BY close_time DESC
+            p.realized_pnl,
+            p.realized_pnl / NULLIF(p.margin, 0) * 100 AS pnl_pct,
+            p.realized_pnl / NULLIF(p.margin, 0) * 100 AS roi,
+            COALESCE(p.avg_entry_price, p.entry_price) AS entry_price,
+            p.close_time        AS trade_time,
+            p.source            AS entry_source,
+            p.entry_reason,
+            p.notes             AS close_reason,
+            p.stop_loss_price,
+            p.take_profit_price,
+            p.open_time,
+            p.close_time,
+            p.entry_score,
+            p.max_profit_pct
+        FROM futures_positions p
+        LEFT JOIN futures_trades t ON t.position_id = p.id
+            AND t.side IN ('CLOSE_LONG', 'CLOSE_SHORT')
+        WHERE p.account_id = %s AND p.status = 'closed'
+        ORDER BY p.close_time DESC
         LIMIT %s OFFSET %s
         """
 

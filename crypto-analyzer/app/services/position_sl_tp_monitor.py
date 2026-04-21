@@ -4,15 +4,9 @@
 持仓止盈止损监控服务（轻量版）
 
 职责：
-- 周期扫描 futures_positions 中所有 status='open' 的持仓（默认仅 dimension_trader 开的仓）
+- 周期扫描 futures_positions 中所有 status='open' 的持仓
 - 用 Binance WS 实时价（回退 REST ticker）与 DB 里存的 stop_loss_price / take_profit_price 比较
-- 命中 SL/TP 立刻调用 FuturesTradingEngine.close_position(...) 平仓
-- 不负责超时平仓（dimension_trader 自己 monitor_position 超时即平）
-
-为什么需要这个：
-- 原先有 smart_trader_service.py + smart_exit_optimizer.py 负责这事，但那两个模块在
-  本轮清理里被删除。main.py 里对应启动代码被注释掉了，导致 SL/TP 虽然写进数据库但
-  没人真正扫描价格触发平仓。
+- 命中 SL/TP 立刻通过 HTTP API 平仓（避免共享 engine 连接线程安全问题）
 """
 
 from __future__ import annotations
@@ -20,10 +14,10 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import pymysql
+import requests
 from loguru import logger
 
 
@@ -45,18 +39,18 @@ class PositionSLTPMonitor:
 
     def __init__(
         self,
-        engine,                      # FuturesTradingEngine 实例（已初始化）
+        engine=None,                 # 保留参数兼容旧调用，不再使用
         interval_seconds: float = 3.0,
-        source_filter: str = "dimension_trader:%",  # 只看 dimension_trader 开的仓
+        source_filter: str = "%",
         price_max_age_seconds: int = 30,
+        api_base: str = "http://localhost:9021",
     ) -> None:
-        self.engine = engine
         self.interval = float(interval_seconds)
         self.source_filter = source_filter
         self.price_max_age = int(price_max_age_seconds)
+        self.api_base = api_base.rstrip("/")
         self._task: Optional[asyncio.Task] = None
         self._stop = False
-        # 仓位级 close 失败的短冷却，防止同一轮反复触发
         self._cooldown: Dict[int, float] = {}
         self._cooldown_seconds = 10.0
 
@@ -91,7 +85,6 @@ class PositionSLTPMonitor:
         if not positions:
             return
 
-        # 预取 WS 价格服务（惰性，异常不致命）
         try:
             from app.services.binance_ws_price import get_ws_price_service
             ws = get_ws_price_service("futures")
@@ -105,7 +98,7 @@ class PositionSLTPMonitor:
                 continue
 
             symbol = pos["symbol"]
-            side = pos["position_side"]  # 'LONG' / 'SHORT'
+            side = pos["position_side"]
             sl = pos.get("stop_loss_price")
             tp = pos.get("take_profit_price")
             if sl is None and tp is None:
@@ -124,40 +117,42 @@ class PositionSLTPMonitor:
                 f"[SL/TP Monitor] 触发平仓 pid={pid} {symbol} {side} "
                 f"reason={reason} price={price:.6f} SL={sl} TP={tp}"
             )
-            # 进冷却：无论成功失败，都在 cooldown 内不再尝试这个 pid，
-            # 避免同一 pid 在 commit 与下一轮扫描之间被反复触发刷日志。
             self._cooldown[pid] = now + self._cooldown_seconds
-            try:
-                result = self.engine.close_position(
-                    position_id=pid,
-                    reason=reason,
-                    close_price=Decimal(str(trigger_price)),
-                )
-            except Exception as e:
-                logger.exception(f"[SL/TP Monitor] close_position 抛异常 pid={pid}: {e}")
-                continue
+            self._do_close(pid, symbol, side, reason, trigger_price, now)
 
-            if not isinstance(result, dict):
-                logger.error(f"[SL/TP Monitor] close_position 返回非 dict pid={pid}: {result!r}")
-                continue
+    def _do_close(self, pid: int, symbol: str, side: str, reason: str,
+                  trigger_price: float, now: float) -> None:
+        """通过 HTTP API 平仓，避免直接调用 engine 的共享连接导致线程冲突。"""
+        try:
+            resp = requests.post(
+                f"{self.api_base}/api/futures/close/{pid}",
+                json={"reason": reason, "close_price": trigger_price},
+                timeout=10,
+            )
+            data = resp.json() if resp.content else {}
+        except Exception as e:
+            logger.exception(f"[SL/TP Monitor] HTTP 平仓请求异常 pid={pid}: {e}")
+            self._cooldown[pid] = now + max(self._cooldown_seconds, 60.0)
+            return
 
-            if result.get("success"):
-                if result.get("already_closed"):
-                    logger.info(f"[SL/TP Monitor] pid={pid} 已在别处平仓，跳过")
-                else:
-                    logger.info(
-                        f"[SL/TP Monitor] ✅ 平仓成功 pid={pid} {symbol} {side} "
-                        f"realized_pnl={result.get('realized_pnl')} "
-                        f"pnl_pct={result.get('pnl_pct')} "
-                        f"exit_price={result.get('exit_price')}"
-                    )
-            else:
-                # 失败放长冷却，防止疯狂刷屏
-                self._cooldown[pid] = now + max(self._cooldown_seconds, 60.0)
-                logger.error(
-                    f"[SL/TP Monitor] ❌ 平仓失败 pid={pid} {symbol} {side} "
-                    f"err={result.get('error')} msg={result.get('message')} reason={result.get('reason')}"
-                )
+        if not resp.ok:
+            self._cooldown[pid] = now + max(self._cooldown_seconds, 60.0)
+            logger.error(
+                f"[SL/TP Monitor] HTTP 平仓失败 pid={pid} status={resp.status_code} "
+                f"body={resp.text[:200]}"
+            )
+            return
+
+        inner = data.get("data") or data
+        if inner.get("already_closed") or data.get("already_closed"):
+            logger.info(f"[SL/TP Monitor] pid={pid} 已在别处平仓，跳过")
+        else:
+            logger.info(
+                f"[SL/TP Monitor] 平仓成功 pid={pid} {symbol} {side} "
+                f"realized_pnl={inner.get('realized_pnl')} "
+                f"pnl_pct={inner.get('pnl_pct')} "
+                f"exit_price={inner.get('exit_price') or inner.get('close_price')}"
+            )
 
     def _fetch_open_positions(self) -> List[Dict[str, Any]]:
         sql = (
@@ -196,9 +191,7 @@ class PositionSLTPMonitor:
                     return float(p)
             except Exception:
                 pass
-        # REST 兜底（一次调用拿全部价格开销大，这里单币）
         try:
-            import requests
             sym = symbol.replace("/", "")
             r = requests.get(
                 "https://fapi.binance.com/fapi/v1/ticker/price",
@@ -218,8 +211,7 @@ class PositionSLTPMonitor:
         price: float,
         sl: Optional[float],
         tp: Optional[float],
-    ) -> Optional[tuple[str, float]]:
-        """返回 (reason, close_price) 或 None。"""
+    ) -> Optional[tuple]:
         side = (side or "").upper()
         if side == "LONG":
             if sl is not None and price <= sl:
@@ -237,7 +229,7 @@ class PositionSLTPMonitor:
 _monitor_instance: Optional[PositionSLTPMonitor] = None
 
 
-def init_sl_tp_monitor(engine, **kwargs) -> PositionSLTPMonitor:
+def init_sl_tp_monitor(engine=None, **kwargs) -> PositionSLTPMonitor:
     global _monitor_instance
     if _monitor_instance is None:
         _monitor_instance = PositionSLTPMonitor(engine, **kwargs)

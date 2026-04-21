@@ -312,7 +312,7 @@ class BinanceWSPriceService:
                 market_label = "U本位合约" if self.market_type == 'futures' else ("币本位合约" if self.market_type == 'coin_futures' else "现货")
                 logger.info(f"WebSocket [{market_label}] 连接中: {url[:80]}...")
 
-                async with websockets.connect(url, ping_interval=20, ping_timeout=10) as ws:
+                async with websockets.connect(url, ping_interval=20, ping_timeout=10, proxy=None) as ws:
                     self.ws = ws
                     logger.info(f"✅ WebSocket 已连接，订阅 {len(self.subscribed_symbols)} 个交易对")
 

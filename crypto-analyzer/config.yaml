@@ -90,17 +90,15 @@ database:
   sqlite:
     path: ./data/crypto.db
   type: mysql
-# Farside Investors：美国现货 BTC / ETH ETF 日度资金流（页面数值均为 M$，入库换算为美元）
 farside_etf:
   enabled: true
-  btc_url: "https://farside.co.uk/btc/"
-  eth_url: "https://farside.co.uk/eth/"
-  daily_at: "06:45" # 调度器本地时间，美收盘后数据多已更新；BTC 与 ETH 同一时刻各跑一次
-# BitcoinTreasuries.NET 上市公司 BTC 持仓表 → corporate_treasury_*
+  btc_url: https://farside.co.uk/btc/
+  eth_url: https://farside.co.uk/eth/
+  daily_at: 06:45
 bitcointreasuries:
   enabled: true
-  url: "https://bitcointreasuries.net/"
-  daily_at: "07:30" # 本地时间；网站更新频率非整点，一天一次即可
+  url: https://bitcointreasuries.net/
+  daily_at: 07:30
 demo_mode: false
 ema_signal:
   enabled: true
@@ -453,105 +451,4 @@ smart_money:
     large_tx_threshold: 1000000
     min_addresses: 2
     min_net_flow: 500000
-symbols:
-# Top-100 by 24h volume, curated (established market-cap coins, no memes/new listings)
-# Updated 2026-04-14
-- BTC/USDT
-- ETH/USDT
-- SOL/USDT
-- ZEC/USDT
-- XRP/USDT
-- DOGE/USDT
-- HYPE/USDT
-- 1000PEPE/USDT
-- BNB/USDT
-- TAO/USDT
-- ENJ/USDT
-- ADA/USDT
-- ENA/USDT
-- AVAX/USDT
-- LINK/USDT
-- SUI/USDT
-- DOT/USDT
-- WLD/USDT
-- AAVE/USDT
-- NEAR/USDT
-- FIL/USDT
-- LTC/USDT
-- BCH/USDT
-- UNI/USDT
-- TRX/USDT
-- 1000SHIB/USDT
-- PENGU/USDT
-- FET/USDT
-- CRV/USDT
-- 1000BONK/USDT
-- APT/USDT
-- WIF/USDT
-- VIRTUAL/USDT
-- LDO/USDT
-- GALA/USDT
-- TON/USDT
-- HBAR/USDT
-- NEIRO/USDT
-- ARB/USDT
-- ONDO/USDT
-- XLM/USDT
-- ALGO/USDT
-- OP/USDT
-- RENDER/USDT
-- ETC/USDT
-- JTO/USDT
-- DRIFT/USDT
-- ORDI/USDT
-- TRU/USDT
-- XMR/USDT
-- CAKE/USDT
-- ONT/USDT
-- TIA/USDT
-- DUSK/USDT
-- AXS/USDT
-- ICP/USDT
-- ZRO/USDT
-- POL/USDT
-- CHZ/USDT
-- ATOM/USDT
-- SEI/USDT
-- BLUR/USDT
-- INJ/USDT
-- BOME/USDT
-- SAND/USDT
-- ETHFI/USDT
-- STRK/USDT
-- CTSI/USDT
-- PENDLE/USDT
-- EDU/USDT
-- JUP/USDT
-- 1000FLOKI/USDT
-- COMP/USDT
-- XTZ/USDT
-- W/USDT
-- LPT/USDT
-- ARKM/USDT
-- SNX/USDT
-- 1000LUNC/USDT
-- SUPER/USDT
-- IMX/USDT
-- 1000SATS/USDT
-- APE/USDT
-- PYTH/USDT
-- AR/USDT
-- FLOW/USDT
-- ROSE/USDT
-- DYDX/USDT
-- ID/USDT
-- ENS/USDT
-- VET/USDT
-- AXL/USDT
-- STG/USDT
-- TRB/USDT
-- CFX/USDT
-- CHR/USDT
-- THETA/USDT
-- STX/USDT
-- IOTA/USDT
+symbols: []

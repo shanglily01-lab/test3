@@ -1,0 +1,148 @@
+"""
+strategy_state_db.py
+策略状态持久化到 MySQL，替代 JSON 文件方案。
+两个策略共用同一张表，通过 (strategy, symbol, stype) 唯一定位一行。
+"""
+import logging
+from decimal import Decimal as _Dec
+log = logging.getLogger(__name__)
+
+
+def _norm(row: dict) -> dict:
+    """将 MySQL DECIMAL 字段统一转 float，避免与 Python float 做运算报 TypeError。"""
+    return {k: float(v) if isinstance(v, _Dec) else v for k, v in row.items()}
+
+_CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS strategy_state (
+  id           BIGINT PRIMARY KEY AUTO_INCREMENT,
+  strategy     VARCHAR(32)    NOT NULL,
+  symbol       VARCHAR(32)    NOT NULL,
+  stype        VARCHAR(32)    NOT NULL,
+  state        VARCHAR(16)    NOT NULL DEFAULT 'IDLE',
+  pid          BIGINT,
+  order_id     VARCHAR(64),
+  entry_p      DECIMAL(18,8),
+  entry_time   DOUBLE         DEFAULT 0,
+  done_time    DOUBLE         DEFAULT 0,
+  tp_pct       DECIMAL(6,4)   DEFAULT 0,
+  peak         DECIMAL(18,8),
+  pump_pct     DECIMAL(6,4),
+  entry_ts     BIGINT,
+  side         VARCHAR(16),
+  last_reason  VARCHAR(32),
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_ssym (strategy, symbol, stype),
+  KEY idx_state (state),
+  KEY idx_pid   (pid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
+_ALL_FIELDS = (
+    'state', 'pid', 'order_id', 'entry_p', 'entry_time', 'done_time',
+    'tp_pct', 'peak', 'pump_pct', 'entry_ts', 'side', 'last_reason',
+)
+
+
+def ensure_table(conn) -> None:
+    """建表（幂等，启动时调一次）"""
+    cur = conn.cursor()
+    cur.execute(_CREATE_SQL)
+    conn.commit()
+    cur.close()
+
+
+def get_or_create(conn, strategy: str, symbol: str, stype: str, defaults: dict) -> dict:
+    """
+    读取行，不存在则按 defaults 插入。
+    返回完整行 dict（含所有字段）。
+    """
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM strategy_state WHERE strategy=%s AND symbol=%s AND stype=%s",
+        (strategy, symbol, stype),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.close()
+        return _norm(row)
+
+    # 插入默认值
+    fields = {**{'state': 'IDLE', 'pid': None, 'order_id': None,
+                 'entry_p': 0.0, 'entry_time': 0.0, 'done_time': 0.0,
+                 'tp_pct': 0.0, 'peak': None, 'pump_pct': None,
+                 'entry_ts': None, 'side': None, 'last_reason': None},
+              **defaults}
+    cols = ', '.join(['strategy', 'symbol', 'stype'] + list(fields.keys()))
+    vals = ', '.join(['%s'] * (3 + len(fields)))
+    cur.execute(
+        f"INSERT IGNORE INTO strategy_state ({cols}) VALUES ({vals})",
+        [strategy, symbol, stype] + list(fields.values()),
+    )
+    conn.commit()
+    cur.execute(
+        "SELECT * FROM strategy_state WHERE strategy=%s AND symbol=%s AND stype=%s",
+        (strategy, symbol, stype),
+    )
+    row = cur.fetchone()
+    cur.close()
+    return _norm(row) if row else {**fields, 'strategy': strategy, 'symbol': symbol, 'stype': stype}
+
+
+def update_state(conn, strategy: str, symbol: str, stype: str, **fields) -> None:
+    """更新指定字段（只传变化的字段即可）"""
+    if not fields:
+        return
+    allowed = {k: v for k, v in fields.items() if k in _ALL_FIELDS}
+    if not allowed:
+        log.warning("update_state: 无有效字段 %s", fields)
+        return
+    set_clause = ', '.join(f"{k}=%s" for k in allowed)
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE strategy_state SET {set_clause} WHERE strategy=%s AND symbol=%s AND stype=%s",
+        list(allowed.values()) + [strategy, symbol, stype],
+    )
+    conn.commit()
+    cur.close()
+
+
+def delete_state(conn, strategy: str, symbol: str, stype: str) -> None:
+    """删除一行（平仓且不需要冷却的品种，如 topshort）"""
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM strategy_state WHERE strategy=%s AND symbol=%s AND stype=%s",
+        (strategy, symbol, stype),
+    )
+    conn.commit()
+    cur.close()
+
+
+def list_active(conn, strategy: str, stype: str = None) -> list:
+    """查所有非 IDLE 状态行，stype 为 None 时不过滤子类型"""
+    cur = conn.cursor()
+    if stype:
+        cur.execute(
+            "SELECT * FROM strategy_state WHERE strategy=%s AND stype=%s AND state!='IDLE'",
+            (strategy, stype),
+        )
+    else:
+        cur.execute(
+            "SELECT * FROM strategy_state WHERE strategy=%s AND state!='IDLE'",
+            (strategy,),
+        )
+    rows = cur.fetchall()
+    cur.close()
+    return [_norm(r) for r in rows]
+
+
+def list_all_stype(conn, strategy: str, stype: str) -> list:
+    """查指定 stype 的所有行（含 IDLE），用于汇总展示"""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM strategy_state WHERE strategy=%s AND stype=%s",
+        (strategy, stype),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return [_norm(r) for r in rows]

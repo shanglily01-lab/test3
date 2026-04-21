@@ -267,10 +267,10 @@ async def lifespan(app: FastAPI):
             sl_tp_monitor = init_sl_tp_monitor(
                 _futures_engine,
                 interval_seconds=3.0,
-                source_filter="dimension_trader:%",
+                source_filter="%",
             )
             sl_tp_monitor.start()
-            logger.info("✅ 持仓止盈止损监控服务已启动 (每3秒扫描, 仅 dimension_trader 仓位)")
+            logger.info("✅ 持仓止盈止损监控服务已启动 (每3秒扫描，覆盖所有来源仓位)")
         except Exception as e:
             logger.error(f"❌ 持仓止盈止损监控服务启动失败: {e}")
             import traceback
@@ -279,14 +279,13 @@ async def lifespan(app: FastAPI):
         # 初始化实盘订单监控服务（限价单成交后自动设置止损止盈）
         try:
             from app.services.live_order_monitor import init_live_order_monitor
-
             db_config = config.get('database', {}).get('mysql', {})
             live_order_monitor = init_live_order_monitor(db_config, live_engine)
-            logger.info("✅ 实盘订单监控服务初始化成功")
+            logger.info("实盘订单监控服务初始化成功")
+        except ImportError:
+            live_order_monitor = None
         except Exception as e:
-            logger.warning(f"⚠️  实盘订单监控服务初始化失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.warning("实盘订单监控服务初始化失败: %s", e)
             live_order_monitor = None
 
         # Telegram通知服务已在前面初始化
@@ -413,6 +412,9 @@ async def lifespan(app: FastAPI):
     daily_optimizer_task = None
     try:
         import schedule
+        from importlib.util import find_spec as _find_spec
+        if not _find_spec('app.services.auto_parameter_optimizer'):
+            raise ImportError('auto_parameter_optimizer not installed, skipping')
         from app.services.auto_parameter_optimizer import AutoParameterOptimizer
 
         # 配置数据库（从 mysql 子配置读取）
@@ -643,6 +645,64 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_dashboard_snapshot_loop())
         logger.info("Dashboard快照预计算任务已启动（每5分钟更新）")
 
+        # ── 超时持仓自动平仓（每60秒扫描 timeout_at <= NOW()）────────────────────
+        def _do_timeout_close():
+            import pymysql as _pm
+            import requests as _req
+            _cfg = {
+                'host': os.getenv('DB_HOST', 'localhost'),
+                'port': int(os.getenv('DB_PORT', 3306)),
+                'user': os.getenv('DB_USER', 'root'),
+                'password': os.getenv('DB_PASSWORD', ''),
+                'db': os.getenv('DB_NAME', ''),
+                'charset': 'utf8mb4',
+                'cursorclass': _pm.cursors.DictCursor,
+                'connect_timeout': 5,
+                'read_timeout': 10,
+                'write_timeout': 10,
+            }
+            conn = _pm.connect(**_cfg)
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id, symbol, position_side FROM futures_positions "
+                    "WHERE status='open' AND timeout_at IS NOT NULL AND timeout_at <= NOW()"
+                )
+                rows = cur.fetchall()
+                cur.close()
+            finally:
+                conn.close()
+            if rows:
+                logger.info("超时平仓扫描: 找到 %d 个到期仓位", len(rows))
+            for row in rows:
+                try:
+                    r = _req.post(
+                        f"http://localhost:{os.getenv('PORT', 9021)}/api/futures/close/{row['id']}",
+                        json={'reason': 'timeout'},
+                        timeout=15,
+                    )
+                    if r.ok and r.json().get('success'):
+                        logger.info("超时平仓成功: %s %s pid=%d", row['symbol'], row['position_side'], row['id'])
+                    else:
+                        logger.warning("超时平仓失败: pid=%d %s", row['id'], r.text[:200])
+                except Exception as e:
+                    logger.error("超时平仓异常 pid=%d: %s", row['id'], e)
+
+        async def _timeout_close_loop():
+            await asyncio.sleep(30)
+            while True:
+                try:
+                    # wait_for 防止 DB 连接挂起导致 loop 永久卡死
+                    await asyncio.wait_for(asyncio.to_thread(_do_timeout_close), timeout=40)
+                except asyncio.TimeoutError:
+                    logger.warning("超时平仓扫描超时（40s），跳过本次")
+                except Exception as e:
+                    logger.error("超时平仓扫描异常: %s", e)
+                await asyncio.sleep(60)
+
+        asyncio.create_task(_timeout_close_loop())
+        logger.info("超时持仓自动平仓任务已启动（每60秒扫描）")
+
         # ── 采集服务守护进程（fast_collector_service.py watchdog）────────────────
         _collector_script = str(project_root / "fast_collector_service.py")
 
@@ -689,10 +749,10 @@ async def lifespan(app: FastAPI):
         logger.info("✅ 12小时复盘分析服务已启动（每天00:00和12:00执行）")
         logger.info("✅ 子进程周期调度已启动：评分5m / 技术信号15m / Dashboard聪明钱30m / 数据管理&采集情况2h")
 
+    except ImportError:
+        pass
     except Exception as e:
-        logger.warning(f"⚠️  启动超级大脑优化服务失败: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.warning("启动超级大脑优化服务失败: %s", e)
 
     yield
 
@@ -869,106 +929,109 @@ if ENABLE_CORPORATE_TREASURY:
     try:
         from app.api.corporate_treasury import router as corporate_treasury_router
         app.include_router(corporate_treasury_router)
-        logger.info("✅ 企业金库监控API路由已注册")
+        logger.info("企业金库监控API路由已注册")
+    except ImportError:
+        pass
     except Exception as e:
-        logger.warning(f"⚠️  企业金库监控API路由注册失败: {e}")
-        import traceback
-        traceback.print_exc()
-else:
-    logger.warning("⚠️  企业金库监控API已禁用（ENABLE_CORPORATE_TREASURY=False）")
+        logger.warning("企业金库监控API路由注册失败: %s", e)
 
 # 注册ETF数据API路由
 try:
     from app.api.etf_api import router as etf_router
     app.include_router(etf_router)
-    logger.info("✅ ETF数据API路由已注册")
+    logger.info("ETF数据API路由已注册")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  ETF数据API路由注册失败: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.warning("ETF数据API路由注册失败: %s", e)
 
 # 注册区块链Gas统计API路由
 try:
     from app.api.blockchain_gas_api import router as blockchain_gas_router
     app.include_router(blockchain_gas_router)
-    logger.info("✅ 区块链Gas统计API路由已注册")
+    logger.info("区块链Gas统计API路由已注册")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  区块链Gas统计API路由注册失败: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.warning("区块链Gas统计API路由注册失败: %s", e)
 
 # 注册数据管理API路由
 try:
     from app.api.data_management_api import router as data_management_router
     app.include_router(data_management_router)
-    logger.info("✅ 数据管理API路由已注册")
+    logger.info("数据管理API路由已注册")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  数据管理API路由注册失败: {e}")
-    import traceback
-    traceback.print_exc()
-
+    logger.warning("数据管理API路由注册失败: %s", e)
 
 # 注册主API路由（包含价格、分析等通用接口）
 try:
     from app.api.routes import router as main_router
     app.include_router(main_router)
-    logger.info("✅ 主API路由已注册（/api/prices, /api/analysis等）")
+    logger.info("主API路由已注册（/api/prices, /api/analysis等）")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  主API路由注册失败: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.warning("主API路由注册失败: %s", e)
 
 # 注册行情识别API路由
 try:
     from app.api.market_regime_api import router as market_regime_router
     app.include_router(market_regime_router)
-    logger.info("✅ 行情识别API路由已注册（/api/market-regime）")
+    logger.info("行情识别API路由已注册（/api/market-regime）")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  行情识别API路由注册失败: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.warning("行情识别API路由注册失败: %s", e)
 
-# 技术信号API路由 - 存储过程缓存版（极速，直接读 technical_signals_cache 表）
+# 技术信号API路由
 try:
     from app.api.technical_signals_api import router as technical_signals_router
     app.include_router(technical_signals_router)
-    logger.info("✅ 技术信号API路由已注册（/api/technical-signals）")
+    logger.info("技术信号API路由已注册（/api/technical-signals）")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  技术信号API路由注册失败: {e}")
+    logger.warning("技术信号API路由注册失败: %s", e)
 
 # 评级管理API路由
 try:
     from app.api.rating_api import router as rating_router
     app.include_router(rating_router)
-    logger.info("✅ 评级管理API路由已注册（/api/rating）")
+    logger.info("评级管理API路由已注册（/api/rating）")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"⚠️  评级管理API路由注册失败: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.warning("评级管理API路由注册失败: %s", e)
 
 # 信号黑名单管理API路由
 try:
     from app.api.signal_blacklist_api import router as signal_blacklist_router
     app.include_router(signal_blacklist_router)
-    logger.info("OK signal_blacklist API registered (/api/signal_blacklist)")
+    logger.info("signal_blacklist API registered (/api/signal_blacklist)")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"signal_blacklist API registration failed: {e}")
+    logger.warning("signal_blacklist API registration failed: %s", e)
 
 try:
     from app.api.signal_config_api import router as signal_config_router
     app.include_router(signal_config_router)
-    logger.info("OK signal_config API registered (/api/signal_config)")
+    logger.info("signal_config API registered (/api/signal_config)")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning(f"signal_config API registration failed: {e}")
+    logger.warning("signal_config API registration failed: %s", e)
 
 try:
     from app.api.binance_news_api import router as binance_news_router
     app.include_router(binance_news_router)
-    logger.info("Binance 公告监控API路由已注册（/api/binance-news）")
+    logger.info("Binance公告监控API路由已注册（/api/binance-news）")
+except ImportError:
+    pass
 except Exception as e:
-    logger.warning("Binance 公告监控API路由注册失败: %s", e)
-    import traceback
-    traceback.print_exc()
+    logger.warning("Binance公告监控API路由注册失败: %s", e)
 
 # ==================== API路由 ====================
 
