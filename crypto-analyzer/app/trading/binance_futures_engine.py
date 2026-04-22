@@ -838,9 +838,8 @@ class BinanceFuturesEngine:
             'positionSide': position_side,
             'type': 'STOP_MARKET',
             'stopPrice': str(stop_price),
-            'quantity': str(quantity),
+            'closePosition': 'true',
             'workingType': 'MARK_PRICE',
-            'timeInForce': 'GTE_GTC',
         }
 
         result = self._request('POST', '/fapi/v1/order', params)
@@ -973,9 +972,8 @@ class BinanceFuturesEngine:
             'positionSide': position_side,
             'type': 'TAKE_PROFIT_MARKET',
             'stopPrice': str(take_profit_price),
-            'quantity': str(quantity),
+            'closePosition': 'true',
             'workingType': 'MARK_PRICE',
-            'timeInForce': 'GTE_GTC',
         }
 
         result = self._request('POST', '/fapi/v1/order', params)
