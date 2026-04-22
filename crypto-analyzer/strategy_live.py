@@ -1,7 +1,7 @@
 """
 实盘策略运行器 - 真实下单到 localhost:9021
 A. 追击: 5m K线检测涨幅>=4% -> 真实开多, TP梯度5%-10%, SL 8%转空
-B. 顶部做空: 48h涨>=80% + 6h无新高 -> 真实开空, 24h固定平仓
+B. 顶部做空: (1) 48h涨>=80% + 6h无新高 或 (2) 1H巨量阳线后走弱 -> 真实开空, 固定持仓与 SL 同原顶空
 
 每5分钟轮询:
   - 检查已有仓位是否平掉 (TP/SL/超时)
@@ -77,6 +77,23 @@ TOPSHORT_COOLDOWN = POST_CLOSE_COOLDOWN_S
 # 顶空依赖「长期顶部结构」；1h K 最早一根距今不足该天数则不做新开顶空（追跌/追击不受影响）
 TOPSHORT_MIN_HISTORY_DAYS = 12
 TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
+
+# 巨量见顶（1H）：(1) 大阳实体 + 巨量 或 (2) 长上影 + 巨量（庄家冲高砸盘，收盘可阴可阳）
+# 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%，可改）；且放量
+# 之后价格从高点回落；不等「48h 低点涨幅 + 6h 无新高」
+TOPCLI_LOOKBACK_BARS   = 40
+TOPCLI_VOL_LOOKBACK    = 20
+TOPCLI_VOL_MULT        = 2.5
+TOPCLI_MIN_BODY_VS_O = 0.028
+TOPCLI_MIN_RANGE_FULL_PCT = 0.05
+TOPCLI_MIN_BODY_OF_RANGE = 0.45
+# 上影模式：上影占「整根振幅 high−low」的比例（非涨跌幅%）；有冲高才有砸盘
+TOPCLI_MIN_UPPER_WICK_OF_RANGE = 0.38
+TOPCLI_MIN_PUMP_TO_HIGH_VS_O   = 0.022
+TOPCLI_PULLBACK_FR     = 0.015
+TOPCLI_MAX_DD_FR       = 0.45
+TOPCLI_SIGNAL_AGE_MS   = 20 * 3600 * 1000
+TOPCLI_MAX_OPEN_AGE_MS = 24 * 3600 * 1000
 
 # 追跌参数
 DUMP_BARS     = 48
@@ -469,6 +486,160 @@ def get_1h_bars(cur, sym, limit=80):
     """, (sym, limit))
     return list(reversed(cur.fetchall()))
 
+
+def _topshort_try_climax_volume(cur, conn, sym, now_ms):
+    """
+    1H 巨量后见顶走弱 → 顶空 SHORT。命中则下单并写 state，返回 True。
+    形态 A：阳线 + 大阳实体 + 放量；形态 B：长上影 + 放量（冲高回落，庄家砸盘）。
+    共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%）；
+    量 >= 前 VOL_LOOKBACK 均量 * VOL_MULT；巨 K 收盘后 SIGNAL_AGE_MS 内；
+    现价从高点回撤 >= PULLBACK；最后一根已完成 1H 体现弱势。
+    """
+    cur.execute(
+        """
+        SELECT open_time, open_price, high_price, low_price, close_price, volume
+        FROM kline_data
+        WHERE timeframe='1h' AND symbol=%s
+          AND open_time + 3600000 < %s
+        ORDER BY open_time DESC
+        LIMIT %s
+        """,
+        (sym, now_ms, TOPCLI_LOOKBACK_BARS),
+    )
+    rows = list(reversed(cur.fetchall()))
+    n = len(rows)
+    if n < TOPCLI_VOL_LOOKBACK + 3:
+        return False
+
+    def _f(b, k):
+        v = b.get(k)
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    last = rows[-1]
+    last_c = _f(last, "close_price")
+
+    for ci in range(n - 2, max(0, n - 14) - 1, -1):
+        b = rows[ci]
+        o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
+        v = _f(b, "volume")
+        if o <= 0 or h <= 0:
+            continue
+        hl = h - l
+        if hl <= 0:
+            continue
+        rng = hl / o
+        body = (c - o) / o
+        upper = h - max(o, c)
+        upper_ratio = upper / hl
+        bull_climax = (
+            c > o
+            and body >= TOPCLI_MIN_BODY_VS_O
+            and rng >= TOPCLI_MIN_RANGE_FULL_PCT
+            and (c - o) / hl >= TOPCLI_MIN_BODY_OF_RANGE
+        )
+        wick_climax = (
+            rng >= TOPCLI_MIN_RANGE_FULL_PCT
+            and upper_ratio >= TOPCLI_MIN_UPPER_WICK_OF_RANGE
+            and (h - o) / o >= TOPCLI_MIN_PUMP_TO_HIGH_VS_O
+        )
+        if not bull_climax and not wick_climax:
+            continue
+
+        lo_i = max(0, ci - TOPCLI_VOL_LOOKBACK)
+        past = rows[lo_i:ci]
+        if len(past) < min(TOPCLI_VOL_LOOKBACK, ci):
+            continue
+        vols = [_f(x, "volume") for x in past]
+        if any(x <= 0 for x in vols):
+            continue
+        avg_v = sum(vols) / len(vols)
+        if avg_v <= 0 or v < TOPCLI_VOL_MULT * avg_v:
+            continue
+
+        climax_open = int(b["open_time"])
+        bar_close_ms = climax_open + 3600000
+        if now_ms - bar_close_ms > TOPCLI_SIGNAL_AGE_MS:
+            continue
+        if now_ms - climax_open > TOPCLI_MAX_OPEN_AGE_MS:
+            continue
+
+        if bull_climax:
+            if last_c >= c:
+                continue
+        else:
+            if last_c >= max(o, c):
+                continue
+            if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
+                continue
+
+        try:
+            price = get_price(sym)
+        except Exception:
+            return False
+
+        peak = h
+        if price >= peak * (1.0 - TOPCLI_PULLBACK_FR):
+            continue
+        dd = (peak - price) / peak if peak else 0.0
+        if dd > TOPCLI_MAX_DD_FR:
+            continue
+        if price <= l * 0.999:
+            continue
+
+        existing = get_or_create(conn, "live", sym, "topshort", {})
+        if existing.get("entry_ts") == climax_open:
+            return False
+
+        h24, l24 = _get_24h_stats(cur, sym)
+        lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
+        tag = "topshort-climax" if bull_climax else "topshort-climax-wick"
+        pid, oid, pending = open_order(
+            sym,
+            "SHORT",
+            price,
+            HARD_TP_PCT,
+            TOP_SL_PCT,
+            TOP_HOLD_H * 60,
+            tag,
+            lp,
+        )
+        if not pid and not oid:
+            return False
+        mode = "巨量阳" if bull_climax else "上影线"
+        log.info(
+            "TOPSHORT 入场(%s) %-18s @ %.5f (限价%.5f) 顶=%.5f 回撤=%.1f%% 量比~%.1fx 上影占比=%.0f%%  pid=%s oid=%s",
+            mode,
+            sym,
+            price,
+            lp,
+            peak,
+            dd * 100,
+            v / avg_v,
+            upper_ratio * 100,
+            pid,
+            oid,
+        )
+        update_state(
+            conn,
+            "live",
+            sym,
+            "topshort",
+            state="SHORT",
+            pid=pid,
+            order_id=oid,
+            entry_p=lp if pending else price,
+            peak_pnl_pct=0.0,
+            peak=peak,
+            pump_pct=body,
+            entry_ts=climax_open,
+        )
+        return True
+
+    return False
+
 def fmt(t):
     return datetime.datetime.fromtimestamp(t / 1000).strftime('%m-%d %H:%M')
 
@@ -675,6 +846,10 @@ def topshort_tick(conn, active_syms):
         if sym in open_syms:
             continue
         if not _topshort_has_min_listed_history(cur, sym, now_ms):
+            continue
+
+        if _topshort_try_climax_volume(cur, conn, sym, now_ms):
+            open_syms.add(sym)
             continue
 
         cur.execute("""
