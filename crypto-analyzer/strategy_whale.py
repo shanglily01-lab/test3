@@ -72,10 +72,10 @@ TRIGGER_CANDLE_PCT  = 0.025  # 单根 2.5%+ 大阴/阳线
 TRIGGER_BREAKOUT    = 0.005  # 0.5% 有效突破(高低点)
 
 # ── 仓位参数 ──────────────────────────────────────────────────────────
-SL_PCT        = 0.10
-TP_START      = 0.08
-TP_MAX        = 0.16
-TP_STEP       = 0.04
+SL_PCT            = 0.10
+HARD_TP_PCT       = 0.20  # 硬止盈
+TRAIL_TP_START    = 0.12  # 移动止盈激活阈值
+TRAIL_TP_PULLBACK = 0.02  # 从峰值盈利回落多少触发
 SHORT_HOLD_H  = 24   # 做空持仓 24小时
 LONG_HOLD_H   = 6    # 做多持仓 6小时
 COOLDOWN_S    = 6  * 3600
@@ -124,6 +124,35 @@ def get_pos_status(pid: int):
         return pos.get("status"), pos.get("realized_pnl", 0), pos.get("notes", "")
     except Exception:
         return None, None, None
+
+def _close_pos(pid: int, reason: str = "manual"):
+    try:
+        _api("POST", f"/api/futures/close/{pid}", json={"reason": reason})
+    except Exception as e:
+        log.warning("_close_pos %d failed: %s", pid, e)
+
+def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pct: float) -> bool:
+    """移动止盈/硬止盈检查。触发则平仓并返回 True。"""
+    if not entry_p:
+        return False
+    try:
+        cur_p = get_price(sym)
+    except Exception:
+        return False
+    pnl_pct = (cur_p - entry_p) / entry_p if side == 'LONG' else (entry_p - cur_p) / entry_p
+    new_peak = max(float(peak_pct or 0.0), pnl_pct)
+    if new_peak > float(peak_pct or 0.0):
+        update_state(conn, 'whale', sym, 'whale', peak_pnl_pct=new_peak)
+    if pnl_pct >= HARD_TP_PCT:
+        _close_pos(pid, "hard-tp")
+        log.info("硬止盈 [WHALE] %-18s  pnl=+%.1f%%", sym, pnl_pct * 100)
+        return True
+    if new_peak >= TRAIL_TP_START and (new_peak - pnl_pct) >= TRAIL_TP_PULLBACK:
+        _close_pos(pid, "trail-tp")
+        log.info("移动止盈 [WHALE] %-18s  pnl=+%.1f%%  peak=+%.1f%%  回撤%.1f%%",
+                 sym, pnl_pct * 100, new_peak * 100, (new_peak - pnl_pct) * 100)
+        return True
+    return False
 
 def _close_overdue(conn):
     """关闭本账户所有超时持仓，每个主循环调一次。"""
@@ -544,7 +573,7 @@ def whale_tick(conn, sym: str):
     """每个品种的主逻辑"""
     ss = get_or_create(conn, 'whale', sym, 'whale', {
         'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
-        'tp_pct': TP_START, 'side': None,
+        'peak_pnl_pct': 0.0, 'side': None,
         'entry_time': 0.0, 'done_time': 0.0,
     })
     s = ss.get('state') or 'IDLE'
@@ -568,6 +597,8 @@ def whale_tick(conn, sym: str):
         if status is None:
             return
         if status == 'open':
+            _trail_tp_check(conn, sym, ss['pid'],
+                            ss.get('side') or s, ss.get('entry_p', 0), ss.get('peak_pnl_pct', 0))
             return
 
         pnl = float(pnl or 0)
@@ -602,7 +633,7 @@ def whale_tick(conn, sym: str):
                 h24, l24 = _get_24h_stats(cur, sym)
                 lp = _calc_limit_price('SHORT', price, h24, l24)
                 hold = SHORT_HOLD_H * 60
-                pid, oid, pending = open_order(sym, 'SHORT', price, TP_START, SL_PCT, hold, 'whale-short', lp)
+                pid, oid, pending = open_order(sym, 'SHORT', price, HARD_TP_PCT, SL_PCT, hold, 'whale-short', lp)
                 if not pid and not oid:
                     raise ValueError("blocked by opposite position")
                 log.info("WHALE SHORT %-18s @ %.5f (限价%.5f)  score=%d %s  pid=%s oid=%s",
@@ -610,7 +641,7 @@ def whale_tick(conn, sym: str):
                 update_state(conn, 'whale', sym, 'whale',
                              state='SHORT', side='SHORT', pid=pid, order_id=oid,
                              entry_p=lp if pending else price,
-                             tp_pct=TP_START, entry_time=now_s())
+                             peak_pnl_pct=0.0, entry_time=now_s())
             except Exception as e:
                 log.warning("开空失败 %s: %s", sym, e)
     cur.close()
@@ -667,7 +698,7 @@ def _sync_state(conn):
                 update_state(conn, 'whale', sym, 'whale',
                              state=side, side=side, pid=p['id'],
                              entry_p=float(p['entry_price']),
-                             tp_pct=TP_START, entry_time=now_s(), done_time=0.0)
+                             peak_pnl_pct=0.0, entry_time=now_s(), done_time=0.0)
                 log.info("同步已有仓位: %s %s pid=%d", sym, side, p['id'])
     except Exception as e:
         log.warning("同步失败: %s", e)
@@ -678,8 +709,8 @@ def main():
     log.info("Strategy Whale  庄家对抗策略  实盘模拟")
     log.info("A: 跟砸盘做空  B: 跟拉盘做多  账户=%d  杠杆=%dx  保证金=%.0fU",
              ACCOUNT_ID, LEVERAGE, MARGIN)
-    log.info("入场门槛: score>=%d  SL=%.0f%%  TP: %.0f%%->%.0f%%",
-             ENTRY_SCORE_MIN, SL_PCT*100, TP_START*100, TP_MAX*100)
+    log.info("入场门槛: score>=%d  SL=%.0f%%  硬TP=%.0f%%  移动TP: >=%.0f%%后回落%.0f%%触发",
+             ENTRY_SCORE_MIN, SL_PCT*100, HARD_TP_PCT*100, TRAIL_TP_START*100, TRAIL_TP_PULLBACK*100)
     log.info("=" * 60)
 
     init_conn = get_db()

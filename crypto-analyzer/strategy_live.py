@@ -52,9 +52,6 @@ def get_active_symbols(cur) -> list:
 CHASE_PUMP_BARS = 24
 CHASE_PUMP_PCT  = 0.12
 CHASE_SL_PCT    = 0.08
-CHASE_TP_START  = 0.05
-CHASE_TP_MAX    = 0.10
-CHASE_TP_STEP   = 0.01
 LONG_HOLD_MIN   = 12 * 60
 SHORT_HOLD_MIN  = 24 * 60
 CHASE_MAX_HOLD  = LONG_HOLD_MIN
@@ -66,17 +63,18 @@ TOP_NO_NEW_H    = 6
 TOP_LOOKBACK_H  = 48
 TOP_HOLD_H      = 16
 TOP_SL_PCT      = 0.12
-TOP_TP_PCT      = 0.12
 TOP_SIGNAL_AGE  = 6 * 3600
 
 # 追跌参数
 DUMP_BARS     = 48
 DUMP_PCT      = 0.10
 DUMP_SL_PCT   = 0.08
-DUMP_TP_START = 0.05
-DUMP_TP_MAX   = 0.10
-DUMP_TP_STEP  = 0.01
 DUMP_MAX_HOLD = SHORT_HOLD_MIN
+
+# 移动止盈参数（三个策略共用）
+HARD_TP_PCT       = 0.20  # 硬止盈: 盈利达到即平仓
+TRAIL_TP_START    = 0.12  # 移动止盈激活阈值
+TRAIL_TP_PULLBACK = 0.02  # 从峰值盈利回落多少触发
 DUMP_COOLDOWN = 4 * 3600
 
 
@@ -365,6 +363,29 @@ def close_order(pid, reason="manual"):
     except Exception as e:
         log.warning("close_order %d failed: %s", pid, e)
 
+def _trail_tp_check(conn, account, strategy, sym, pid, side, entry_p, peak_pct):
+    """移动止盈/硬止盈检查。触发则平仓并返回 True。"""
+    if not entry_p:
+        return False
+    try:
+        cur_p = get_price(sym)
+    except Exception:
+        return False
+    pnl_pct = (cur_p - entry_p) / entry_p if side == 'LONG' else (entry_p - cur_p) / entry_p
+    new_peak = max(float(peak_pct or 0.0), pnl_pct)
+    if new_peak > float(peak_pct or 0.0):
+        update_state(conn, account, sym, strategy, peak_pnl_pct=new_peak)
+    if pnl_pct >= HARD_TP_PCT:
+        close_order(pid, "hard-tp")
+        log.info("硬止盈 [%s] %-18s  pnl=+%.1f%%", strategy.upper(), sym, pnl_pct * 100)
+        return True
+    if new_peak >= TRAIL_TP_START and (new_peak - pnl_pct) >= TRAIL_TP_PULLBACK:
+        close_order(pid, "trail-tp")
+        log.info("移动止盈 [%s] %-18s  pnl=+%.1f%%  peak=+%.1f%%  回撤%.1f%%",
+                 strategy.upper(), sym, pnl_pct * 100, new_peak * 100, (new_peak - pnl_pct) * 100)
+        return True
+    return False
+
 # ── DB ────────────────────────────────────────────────────────────
 def get_db():
     return pymysql.connect(
@@ -400,7 +421,7 @@ def now_s():
 def chase_tick(conn, sym):
     cs = get_or_create(conn, 'live', sym, 'chase', {
         'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
-        'tp_pct': CHASE_TP_START, 'entry_time': 0, 'done_time': 0,
+        'peak_pnl_pct': 0.0, 'entry_time': 0, 'done_time': 0,
     })
     s = cs.get('state') or 'IDLE'
 
@@ -421,6 +442,8 @@ def chase_tick(conn, sym):
         if status is None:
             return
         if status == 'open':
+            _trail_tp_check(conn, 'live', 'chase', sym, cs['pid'],
+                            s, cs.get('entry_p', 0), cs.get('peak_pnl_pct', 0))
             return
 
         pnl = pnl or 0
@@ -430,9 +453,6 @@ def chase_tick(conn, sym):
             return
 
         win = pnl > 0
-        cur = conn.cursor()
-        h24, l24 = _get_24h_stats(cur, sym)
-        cur.close()
         label = "TP" if win else "SL"
         log.info("CHASE %s %s -> DONE %-18s  pnl=%+.2f  冷却%dh",
                  s, label, sym, pnl, CHASE_COOLDOWN // 3600)
@@ -479,7 +499,7 @@ def chase_tick(conn, sym):
     h24, l24 = _get_24h_stats(cur, sym)
     cur.close()
     lp = _calc_limit_price("LONG", price, h24, l24, pct=0.03)
-    pid, oid, pending = open_order(sym, "LONG", price, CHASE_TP_START, CHASE_SL_PCT,
+    pid, oid, pending = open_order(sym, "LONG", price, HARD_TP_PCT, CHASE_SL_PCT,
                                    CHASE_MAX_HOLD, "chase-entry", lp)
     if not pid and not oid:
         return
@@ -488,7 +508,7 @@ def chase_tick(conn, sym):
     update_state(conn, 'live', sym, 'chase',
                  state='LONG', pid=pid, order_id=oid,
                  entry_p=lp if pending else price,
-                 tp_pct=CHASE_TP_START, entry_time=now_s())
+                 peak_pnl_pct=0.0, entry_time=now_s())
 
 # ── B. 顶部做空 ──────────────────────────────────────────────────
 def topshort_tick(conn, active_syms):
@@ -528,10 +548,9 @@ def topshort_tick(conn, active_syms):
         if status is None:
             continue  # API 错误，保留状态
         if status == 'open':
-            log.info("TOPSHORT 持仓  %-18s  pid=%d  峰值回落 %.1f%%",
-                     sym, pos['pid'],
-                     ((pos.get('peak') or pos['entry_p']) - pos['entry_p']) / (pos.get('peak') or pos['entry_p']) * 100
-                     if pos.get('peak') and pos.get('entry_p') else 0)
+            _trail_tp_check(conn, 'live', 'topshort', sym, pos['pid'],
+                            'SHORT', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0))
+            continue
         else:
             pnl_pct = (pnl or 0) / MARGIN * 100
             reason = "手动" if (notes and '手动' in str(notes)) else status
@@ -597,7 +616,7 @@ def topshort_tick(conn, active_syms):
                 break
             h24, l24 = _get_24h_stats(cur, sym)
             lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
-            pid, oid, pending = open_order(sym, "SHORT", price, TOP_TP_PCT, TOP_SL_PCT,
+            pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, TOP_SL_PCT,
                                            TOP_HOLD_H * 60, "topshort", lp)
             if not pid and not oid:
                 break
@@ -606,7 +625,7 @@ def topshort_tick(conn, active_syms):
             update_state(conn, 'live', sym, 'topshort',
                          state='SHORT', pid=pid, order_id=oid,
                          entry_p=lp if pending else price,
-                         peak=peak, pump_pct=pump, entry_ts=entry_ts)
+                         peak_pnl_pct=0.0, peak=peak, pump_pct=pump, entry_ts=entry_ts)
             open_syms.add(sym)
             break
     cur.close()
@@ -621,7 +640,7 @@ def dump_tick(conn, sym):
 
     ds = get_or_create(conn, 'live', sym, 'dump', {
         'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
-        'tp_pct': DUMP_TP_START, 'entry_time': 0, 'done_time': 0,
+        'peak_pnl_pct': 0.0, 'entry_time': 0, 'done_time': 0,
     })
     s = ds.get('state') or 'IDLE'
 
@@ -642,6 +661,8 @@ def dump_tick(conn, sym):
         if status is None:
             return
         if status == 'open':
+            _trail_tp_check(conn, 'live', 'dump', sym, ds['pid'],
+                            s, ds.get('entry_p', 0), ds.get('peak_pnl_pct', 0))
             return
 
         pnl = pnl or 0
@@ -703,7 +724,7 @@ def dump_tick(conn, sym):
     h24, l24 = _get_24h_stats(cur, sym)
     cur.close()
     lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
-    pid, oid, pending = open_order(sym, "SHORT", price, DUMP_TP_START, DUMP_SL_PCT,
+    pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, DUMP_SL_PCT,
                                    DUMP_MAX_HOLD, "dump-entry", lp)
     if not pid and not oid:
         return
@@ -712,7 +733,7 @@ def dump_tick(conn, sym):
     update_state(conn, 'live', sym, 'dump',
                  state='SHORT', pid=pid, order_id=oid,
                  entry_p=lp if pending else price,
-                 tp_pct=DUMP_TP_START, entry_time=now_s())
+                 peak_pnl_pct=0.0, entry_time=now_s())
 
 
 
@@ -734,7 +755,7 @@ def _sync_state(conn):
                     update_state(conn, 'live', sym, 'dump',
                                  state='SHORT', pid=p["id"],
                                  entry_p=p["entry_price"],
-                                 tp_pct=DUMP_TP_START, entry_time=now_s(), done_time=0)
+                                 peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
                     log.info("同步已有追跌空仓: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
             elif "dump-" in src and side == "LONG":
                 existing = get_or_create(conn, 'live', sym, 'dump', {})
@@ -742,7 +763,7 @@ def _sync_state(conn):
                     update_state(conn, 'live', sym, 'dump',
                                  state='LONG', pid=p["id"],
                                  entry_p=p["entry_price"],
-                                 tp_pct=DUMP_TP_START, entry_time=now_s(), done_time=0)
+                                 peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
                     log.info("同步已有追跌翻多仓: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
             if "chase-" in src or "chase-entry" in src:
                 existing = get_or_create(conn, 'live', sym, 'chase', {})
@@ -751,7 +772,7 @@ def _sync_state(conn):
                     update_state(conn, 'live', sym, 'chase',
                                  state=mapped, pid=p["id"],
                                  entry_p=p["entry_price"],
-                                 tp_pct=CHASE_TP_START, entry_time=now_s(), done_time=0)
+                                 peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
                     log.info("同步已有追击仓位: %s %s pid=%d @ %.5f",
                              sym, mapped, p["id"], p["entry_price"])
             elif "topshort" in src and side == "SHORT":
