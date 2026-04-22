@@ -5,6 +5,9 @@ strategy_state_db.py
 """
 import logging
 from decimal import Decimal as _Dec
+
+import pymysql.err
+
 log = logging.getLogger(__name__)
 
 
@@ -27,6 +30,7 @@ CREATE TABLE IF NOT EXISTS strategy_state (
   tp_pct       DECIMAL(6,4)   DEFAULT 0,
   peak         DECIMAL(18,8),
   pump_pct     DECIMAL(6,4),
+  peak_pnl_pct DOUBLE         NOT NULL DEFAULT 0,
   entry_ts     BIGINT,
   side         VARCHAR(16),
   last_reason  VARCHAR(32),
@@ -40,14 +44,21 @@ CREATE TABLE IF NOT EXISTS strategy_state (
 
 _ALL_FIELDS = (
     'state', 'pid', 'order_id', 'entry_p', 'entry_time', 'done_time',
-    'tp_pct', 'peak', 'pump_pct', 'entry_ts', 'side', 'last_reason',
+    'tp_pct', 'peak', 'pump_pct', 'peak_pnl_pct', 'entry_ts', 'side', 'last_reason',
 )
 
 
 def ensure_table(conn) -> None:
-    """建表（幂等，启动时调一次）"""
+    """建表（幂等，启动时调一次）；旧库补列 peak_pnl_pct。"""
     cur = conn.cursor()
     cur.execute(_CREATE_SQL)
+    try:
+        cur.execute(
+            "ALTER TABLE strategy_state ADD COLUMN peak_pnl_pct DOUBLE NOT NULL DEFAULT 0"
+        )
+    except pymysql.err.OperationalError as e:
+        if e.args[0] != 1060:
+            raise
     conn.commit()
     cur.close()
 
@@ -70,7 +81,7 @@ def get_or_create(conn, strategy: str, symbol: str, stype: str, defaults: dict) 
     # 插入默认值
     fields = {**{'state': 'IDLE', 'pid': None, 'order_id': None,
                  'entry_p': 0.0, 'entry_time': 0.0, 'done_time': 0.0,
-                 'tp_pct': 0.0, 'peak': None, 'pump_pct': None,
+                 'tp_pct': 0.0, 'peak': None, 'pump_pct': None, 'peak_pnl_pct': 0.0,
                  'entry_ts': None, 'side': None, 'last_reason': None},
               **defaults}
     cols = ', '.join(['strategy', 'symbol', 'stype'] + list(fields.keys()))
