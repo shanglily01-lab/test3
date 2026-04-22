@@ -88,7 +88,8 @@ TOPSHORT_CLIMAX_MIN_SPAN_MS = int(1.25 * 24 * 60 * 60 * 1000)
 # 之后价格从高点回落；不等「48h 低点涨幅 + 6h 无新高」
 TOPCLI_LOOKBACK_BARS   = 40
 TOPCLI_LEADER_LOOKBACK = 24
-TOPCLI_POST_LEADER_WAIT_BARS = 1
+TOPCLI_POST_LEADER_WAIT_BARS = 2
+TOPCLI_MAX_PENDING         = 1    # 全局最多同时挂几张 climax 限价单
 TOPCLI_VOL_LOOKBACK    = 20
 TOPCLI_VOL_MULT        = 2.0
 TOPCLI_MIN_BODY_VS_O = 0.025
@@ -990,11 +991,22 @@ def topshort_tick(conn, active_syms):
     open_syms = {r['symbol'] for r in list_active(conn, 'live', 'topshort')}
 
     cur = conn.cursor()
+    cur.execute(
+        """SELECT COUNT(*) AS cnt FROM futures_orders
+           WHERE account_id=%s AND status='PENDING' AND order_type='LIMIT'
+             AND order_source LIKE 'topshort-climax%%'""",
+        (ACCOUNT_ID,),
+    )
+    _climax_pending_cnt = (cur.fetchone() or {}).get("cnt", 0)
+
     for sym in active_syms:
         if sym in open_syms:
             continue
         if _topshort_has_min_history_for_climax(cur, sym, now_ms):
-            if _topshort_try_climax_volume(cur, conn, sym, now_ms):
+            if _climax_pending_cnt >= TOPCLI_MAX_PENDING:
+                pass  # 已达上限，本轮跳过
+            elif _topshort_try_climax_volume(cur, conn, sym, now_ms):
+                _climax_pending_cnt += 1
                 open_syms.add(sym)
                 continue
         if not _topshort_has_min_listed_history(cur, sym, now_ms):
