@@ -3,6 +3,7 @@
 API密钥管理接口
 """
 
+import pymysql
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -30,6 +31,18 @@ def get_db_config() -> dict:
             logger.error(f"加载数据库配置失败: {e}")
             _db_config_cache = {}
     return _db_config_cache
+
+
+def _get_conn() -> pymysql.connections.Connection:
+    cfg = get_db_config()
+    return pymysql.connect(
+        host=cfg.get('host', 'localhost'),
+        port=int(cfg.get('port', 3306)),
+        user=cfg.get('user', 'root'),
+        password=cfg.get('password', ''),
+        database=cfg.get('database', ''),
+        cursorclass=pymysql.cursors.DictCursor,
+    )
 
 
 # ==================== 请求模型 ====================
@@ -178,16 +191,8 @@ async def verify_api_key(
     """
     验证已保存的 API 密钥是否有效（通过 api_key_id）
     """
-    import pymysql, os
     try:
-        conn = pymysql.connect(
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=int(os.getenv('DB_PORT', 3306)),
-            user=os.getenv('DB_USER', 'root'),
-            password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'binance-data'),
-            cursorclass=pymysql.cursors.DictCursor
-        )
+        conn = _get_conn()
         cur = conn.cursor()
         cur.execute(
             "SELECT * FROM user_api_keys WHERE id=%s AND user_id=%s AND status='active'",
@@ -273,16 +278,8 @@ async def get_api_key_balance(api_key_id: int):
     """
     获取指定 API 密钥对应账户的实时余额
     """
-    import pymysql, os
     try:
-        conn = pymysql.connect(
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=int(os.getenv('DB_PORT', 3306)),
-            user=os.getenv('DB_USER', 'root'),
-            password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'binance-data'),
-            cursorclass=pymysql.cursors.DictCursor
-        )
+        conn = _get_conn()
         cur = conn.cursor()
         cur.execute(
             "SELECT * FROM user_api_keys WHERE id=%s AND status='active'",
@@ -360,13 +357,8 @@ async def has_api_key(exchange: str = 'binance'):
 @router.put("/update-risk")
 async def update_risk(request: UpdateRiskRequest):
     """更新指定API Key的风控参数（杠杆/持仓/日亏损限额）"""
-    import pymysql, os
     try:
-        conn = pymysql.connect(
-            host=os.getenv('DB_HOST', 'localhost'), port=int(os.getenv('DB_PORT', 3306)),
-            user=os.getenv('DB_USER', 'root'), password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'binance-data'), cursorclass=pymysql.cursors.DictCursor
-        )
+        conn = _get_conn()
         cur = conn.cursor()
         cur.execute("SELECT id FROM user_api_keys WHERE id=%s AND user_id=%s",
                     (request.api_key_id, _USER_ID))
