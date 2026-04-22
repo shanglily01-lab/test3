@@ -61,7 +61,7 @@ def main():
     price_ok = 107.3
     price_fail_pull = 109.5
     run_case("A 典型见顶（应通过）", rows, now_ms, price_ok)
-    run_case("B 回撤不足 1.5%（应失败）", rows, now_ms, price_fail_pull)
+    run_case("B 现价相对高点回撤不足（应失败）", rows, now_ms, price_fail_pull)
 
     # C：领袖阳后 last 收盘仍 >= 领袖收盘
     rows_c = build_base_rows(n, base_t + 1_000_000_000)

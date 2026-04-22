@@ -45,6 +45,7 @@ class SaveAPIKeyRequest(BaseModel):
     max_position_value: float = Field(default=1000.0, ge=0, description='最大持仓价值')
     max_daily_loss: float = Field(default=100.0, ge=0, description='最大日亏损')
     max_leverage: int = Field(default=10, ge=1, le=125, description='最大杠杆')
+    margin_per_trade: float = Field(default=40.0, gt=0, description='每笔实盘保证金(USDT)，用于模拟盘->实盘同步')
 
 
 class DeleteAPIKeyRequest(BaseModel):
@@ -120,7 +121,8 @@ async def save_api_key(request: SaveAPIKeyRequest):
             is_testnet=request.is_testnet,
             max_position_value=request.max_position_value,
             max_daily_loss=request.max_daily_loss,
-            max_leverage=request.max_leverage
+            max_leverage=request.max_leverage,
+            margin_per_trade=request.margin_per_trade,
         )
 
         if result['success']:

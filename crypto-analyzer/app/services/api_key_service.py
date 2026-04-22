@@ -91,7 +91,8 @@ class APIKeyService:
         is_testnet: bool = False,
         max_position_value: float = 1000.0,
         max_daily_loss: float = 100.0,
-        max_leverage: int = 10
+        max_leverage: int = 10,
+        margin_per_trade: float = 40.0,
     ) -> Dict:
         """
         保存用户API密钥
@@ -138,11 +139,13 @@ class APIKeyService:
                                 max_position_value = %s,
                                 max_daily_loss = %s,
                                 max_leverage = %s,
+                                margin_per_trade = %s,
                                 status = 'active',
                                 updated_at = NOW()
                             WHERE id = %s""",
                             (encrypted_key, encrypted_secret, permissions, is_testnet,
-                             max_position_value, max_daily_loss, max_leverage, existing['id'])
+                             max_position_value, max_daily_loss, max_leverage,
+                             margin_per_trade, existing['id'])
                         )
                         api_key_id = existing['id']
                     else:
@@ -150,10 +153,12 @@ class APIKeyService:
                         cursor.execute(
                             """INSERT INTO user_api_keys
                             (user_id, exchange, account_name, api_key, api_secret,
-                             permissions, is_testnet, max_position_value, max_daily_loss, max_leverage)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                             permissions, is_testnet, max_position_value, max_daily_loss,
+                             max_leverage, margin_per_trade)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (user_id, exchange, account_name, encrypted_key, encrypted_secret,
-                             permissions, is_testnet, max_position_value, max_daily_loss, max_leverage)
+                             permissions, is_testnet, max_position_value, max_daily_loss,
+                             max_leverage, margin_per_trade)
                         )
                         api_key_id = cursor.lastrowid
 
@@ -216,6 +221,7 @@ class APIKeyService:
                         'max_position_value': float(row['max_position_value']) if row['max_position_value'] else 1000.0,
                         'max_daily_loss': float(row['max_daily_loss']) if row['max_daily_loss'] else 100.0,
                         'max_leverage': row['max_leverage'] or 10,
+                        'margin_per_trade': float(row['margin_per_trade']) if row.get('margin_per_trade') else 40.0,
                         'status': row['status']
                     }
 
@@ -242,7 +248,7 @@ class APIKeyService:
                 with conn.cursor() as cursor:
                     cursor.execute(
                         """SELECT id, exchange, account_name, permissions, is_testnet,
-                            max_position_value, max_daily_loss, max_leverage,
+                            max_position_value, max_daily_loss, max_leverage, margin_per_trade,
                             status, last_used_at, created_at
                         FROM user_api_keys
                         WHERE user_id = %s
@@ -262,6 +268,7 @@ class APIKeyService:
                             'max_position_value': float(row['max_position_value']) if row['max_position_value'] else None,
                             'max_daily_loss': float(row['max_daily_loss']) if row['max_daily_loss'] else None,
                             'max_leverage': row['max_leverage'],
+                            'margin_per_trade': float(row['margin_per_trade']) if row.get('margin_per_trade') else 40.0,
                             'status': row['status'],
                             'last_used_at': row['last_used_at'].isoformat() if row['last_used_at'] else None,
                             'created_at': row['created_at'].isoformat() if row['created_at'] else None

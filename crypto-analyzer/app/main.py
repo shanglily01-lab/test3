@@ -395,6 +395,17 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️  启动实盘订单监控任务失败: {e}")
             live_order_monitor = None
 
+    # 启动模拟盘限价单->实盘同步服务
+    paper_limit_sync = None
+    try:
+        from app.services.paper_limit_sync_service import init_paper_limit_sync_service
+        paper_limit_sync = init_paper_limit_sync_service()
+        paper_limit_sync.start()
+        logger.info("✅ 模拟盘->实盘同步服务已启动（每10秒检查已成交限价单）")
+    except Exception as e:
+        logger.warning(f"⚠️  模拟盘->实盘同步服务启动失败: {e}")
+        paper_limit_sync = None
+
     # 启动信号分析后台服务（每6小时执行一次）
     signal_analysis_service = None
     try:
@@ -797,6 +808,16 @@ async def lifespan(app: FastAPI):
             logger.info("✅ 实盘订单监控服务已停止")
         except Exception as e:
             logger.warning(f"⚠️  停止实盘订单监控服务失败: {e}")
+
+    # 停止模拟盘->实盘同步服务
+    try:
+        from app.services.paper_limit_sync_service import get_paper_limit_sync_service
+        _ps = get_paper_limit_sync_service()
+        if _ps:
+            _ps.stop()
+            logger.info("✅ 模拟盘->实盘同步服务已停止")
+    except Exception as e:
+        logger.warning(f"⚠️  停止模拟盘->实盘同步服务失败: {e}")
 
     # 停止超级大脑优化服务
     if daily_optimizer_task:

@@ -78,11 +78,11 @@ TOPSHORT_COOLDOWN = POST_CLOSE_COOLDOWN_S
 TOPSHORT_MIN_HISTORY_DAYS = 12
 TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
 # topshort-climax：1h 根数与最早 K 距今门槛低于「经典顶空 12d」，便于 BSB 等上市/入库较短标的
-TOPSHORT_CLIMAX_MIN_BARS = 32
-TOPSHORT_CLIMAX_MIN_SPAN_MS = int(1.5 * 24 * 60 * 60 * 1000)
+TOPSHORT_CLIMAX_MIN_BARS = 28
+TOPSHORT_CLIMAX_MIN_SPAN_MS = int(1.25 * 24 * 60 * 60 * 1000)
 
 # 巨量见顶（1H）：(1) 大阳实体 + 巨量 或 (2) 长上影 + 巨量（庄家冲高砸盘，收盘可阴可阳）
-# 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%，可改）；且放量
+# 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 4.5%，可改）；且放量
 # 筋骨：在最近 LEADER_LOOKBACK 根内，大阳须为「阳线里振幅最大」、上影须为「全 K 振幅最大」；
 # 且领袖 K 的索引须 <= n-1-POST_LEADER_WAIT_BARS：即该 K 收盘后再过 N 根 1H，才确认没有更大阳/更大振幅，再允许开空（默认 2 根=2 小时）。
 # 之后价格从高点回落；不等「48h 低点涨幅 + 6h 无新高」
@@ -90,17 +90,17 @@ TOPCLI_LOOKBACK_BARS   = 40
 TOPCLI_LEADER_LOOKBACK = 24
 TOPCLI_POST_LEADER_WAIT_BARS = 2
 TOPCLI_VOL_LOOKBACK    = 20
-TOPCLI_VOL_MULT        = 2.5
-TOPCLI_MIN_BODY_VS_O = 0.028
-TOPCLI_MIN_RANGE_FULL_PCT = 0.05
-TOPCLI_MIN_BODY_OF_RANGE = 0.45
+TOPCLI_VOL_MULT        = 2.0
+TOPCLI_MIN_BODY_VS_O = 0.025
+TOPCLI_MIN_RANGE_FULL_PCT = 0.045
+TOPCLI_MIN_BODY_OF_RANGE = 0.42
 # 上影模式：上影占「整根振幅 high−low」的比例（非涨跌幅%）；有冲高才有砸盘
-TOPCLI_MIN_UPPER_WICK_OF_RANGE = 0.38
-TOPCLI_MIN_PUMP_TO_HIGH_VS_O   = 0.022
-TOPCLI_PULLBACK_FR     = 0.015
-TOPCLI_MAX_DD_FR       = 0.45
-TOPCLI_SIGNAL_AGE_MS   = 20 * 3600 * 1000
-TOPCLI_MAX_OPEN_AGE_MS = 24 * 3600 * 1000
+TOPCLI_MIN_UPPER_WICK_OF_RANGE = 0.34
+TOPCLI_MIN_PUMP_TO_HIGH_VS_O   = 0.020
+TOPCLI_PULLBACK_FR     = 0.012
+TOPCLI_MAX_DD_FR       = 0.48
+TOPCLI_SIGNAL_AGE_MS   = 22 * 3600 * 1000
+TOPCLI_MAX_OPEN_AGE_MS = 26 * 3600 * 1000
 
 # 追跌参数
 DUMP_BARS     = 48
@@ -692,7 +692,7 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     """
     1H 巨量后见顶走弱 → 顶空 SHORT。命中则下单并写 state，返回 True。
     形态 A：阳线 + 大阳实体 + 放量；形态 B：长上影 + 放量（冲高回落，庄家砸盘）。
-    共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%）；
+    共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 4.5%）；
     量 >= 前 VOL_LOOKBACK 均量 * VOL_MULT；巨 K 收盘后 SIGNAL_AGE_MS 内；
     现价从高点回撤 >= PULLBACK；最后一根已完成 1H 体现弱势。
     大阳/上影候选 K 须在 LEADER_LOOKBACK 窗口内为对应意义的「振幅最大」一根，
