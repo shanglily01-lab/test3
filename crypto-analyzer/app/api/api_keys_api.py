@@ -3,6 +3,7 @@
 API密钥管理接口
 """
 
+import os
 import pymysql
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -34,13 +35,12 @@ def get_db_config() -> dict:
 
 
 def _get_conn() -> pymysql.connections.Connection:
-    cfg = get_db_config()
     return pymysql.connect(
-        host=cfg.get('host', 'localhost'),
-        port=int(cfg.get('port', 3306)),
-        user=cfg.get('user', 'root'),
-        password=cfg.get('password', ''),
-        database=cfg.get('database', ''),
+        host=os.getenv('DB_HOST', 'localhost'),
+        port=int(os.getenv('DB_PORT', 3306)),
+        user=os.getenv('DB_USER', 'root'),
+        password=os.getenv('DB_PASSWORD', ''),
+        database=os.getenv('DB_NAME', ''),
         cursorclass=pymysql.cursors.DictCursor,
     )
 
