@@ -74,6 +74,9 @@ TOP_HOLD_H      = 16
 TOP_SL_PCT      = 0.12
 TOP_SIGNAL_AGE  = 6 * 3600
 TOPSHORT_COOLDOWN = POST_CLOSE_COOLDOWN_S
+# 顶空依赖「长期顶部结构」；1h K 最早一根距今不足该天数则不做新开顶空（追跌/追击不受影响）
+TOPSHORT_MIN_HISTORY_DAYS = 12
+TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
 
 # 追跌参数
 DUMP_BARS     = 48
@@ -90,6 +93,8 @@ DUMP_COOLDOWN = POST_CLOSE_COOLDOWN_S
 
 POLL_SECS       = 60
 TOPSHORT_EVERY  = 5
+# 各子策略 LIMIT 挂单在 futures_orders 中保持 PENDING 的最长时间，超时由 _fill_pending_orders 标为取消
+LIMIT_PENDING_MAX_S = 60 * 60
 
 # ── 日志 ─────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -189,6 +194,33 @@ def _get_24h_stats(cur, sym):
     """, (sym,))
     r = cur.fetchone()
     return (float(r['high_24h']), float(r['low_24h'])) if r else (None, None)
+
+
+_topshort_hist_cache: dict[str, tuple[bool, float]] = {}
+_TOPSHORT_HIST_TTL_SEC = 15 * 60
+
+
+def _topshort_has_min_listed_history(cur, sym: str, now_ms: int) -> bool:
+    """顶空新开仓：要求库内 1h K 线最早一根距今至少 TOPSHORT_MIN_HISTORY_DAYS 天。"""
+    t = time.time()
+    ent = _topshort_hist_cache.get(sym)
+    if ent is not None and (t - ent[1]) < _TOPSHORT_HIST_TTL_SEC:
+        return ent[0]
+    cur.execute(
+        """
+        SELECT MIN(open_time) AS tmin FROM kline_data
+        WHERE timeframe='1h' AND symbol=%s
+        """,
+        (sym,),
+    )
+    r = cur.fetchone() or {}
+    tmin = r.get('tmin')
+    if tmin is None:
+        _topshort_hist_cache[sym] = (False, t)
+        return False
+    ok = (now_ms - int(tmin)) >= TOPSHORT_MIN_HISTORY_MS
+    _topshort_hist_cache[sym] = (ok, t)
+    return ok
 
 def _close_overdue(conn):
     """关闭本账户所有超时持仓，每个主循环调一次。"""
@@ -297,13 +329,19 @@ def _fill_pending_orders(conn):
             continue
         if o['created_at']:
             age_s = (datetime.datetime.now() - o['created_at']).total_seconds()
-            if age_s > 6 * 3600:  # 追击单6小时未成交即取消
+            if age_s > LIMIT_PENDING_MAX_S:
                 c2 = conn.cursor()
                 c2.execute("""UPDATE futures_orders
                     SET status='CANCELLED', cancellation_reason='timeout',
                         canceled_at=NOW(), updated_at=NOW() WHERE id=%s""", (o['id'],))
                 conn.commit(); c2.close()
-                log.info("限价单超时取消 %s %s  oid=%s", sym, side, o['order_id'])
+                log.info(
+                    "限价单超时取消(>%dm) %s %s oid=%s",
+                    LIMIT_PENDING_MAX_S // 60,
+                    sym,
+                    side,
+                    o['order_id'],
+                )
                 continue
         try:
             cur_p = get_price(sym)
@@ -636,6 +674,8 @@ def topshort_tick(conn, active_syms):
     for sym in active_syms:
         if sym in open_syms:
             continue
+        if not _topshort_has_min_listed_history(cur, sym, now_ms):
+            continue
 
         cur.execute("""
             SELECT open_time, high_price, low_price, close_price FROM kline_data
@@ -871,7 +911,10 @@ def _sync_state(conn):
 def main():
     log.info("=" * 56)
     log.info("Strategy Live Runner  实盘下单模式")
-    log.info("A: 追多(2h涨>=12%%, 持仓4h)  B: 顶空(80%%泵+6h无新高)  C: 追跌(4h跌>=10%%, 持仓12h)")
+    log.info(
+        "A: 追多(2h涨>=12%%, 持仓4h)  B: 顶空(80%%泵+6h无新高, >=%d天1h数据)  C: 追跌(4h跌>=10%%, 持仓12h)",
+        TOPSHORT_MIN_HISTORY_DAYS,
+    )
     log.info("账户=%d  杠杆=%dx  每笔保证金=%.0f USDT", ACCOUNT_ID, LEVERAGE, MARGIN)
     log.info("=" * 56)
 
