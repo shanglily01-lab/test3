@@ -10,6 +10,9 @@ import pymysql.err
 
 log = logging.getLogger(__name__)
 
+# done_time 默认 0 时，若状态为 DONE，表达式 (now - done_time) > cd 恒成立，冷却形同虚设。
+_COOLDOWN_DONE_EPOCH_MIN = 946684800.0  # 2000-01-01 之后视为有效 Unix 秒
+
 
 def _norm(row: dict) -> dict:
     """将 MySQL DECIMAL 字段统一转 float，避免与 Python float 做运算报 TypeError。"""
@@ -118,8 +121,25 @@ def update_state(conn, strategy: str, symbol: str, stype: str, **fields) -> None
     cur.close()
 
 
+def ensure_cooldown_anchor_epoch(
+    conn, strategy: str, symbol: str, stype: str, row: dict, now_s_val: float
+) -> float:
+    """
+    平仓冷却计时的起点（Unix 秒）。done_time 无效时用当前时刻写入 DB，避免 now-0 误判已冷却。
+    """
+    raw = row.get('done_time')
+    try:
+        t = float(raw) if raw is not None else 0.0
+    except (TypeError, ValueError):
+        t = 0.0
+    if t > _COOLDOWN_DONE_EPOCH_MIN:
+        return t
+    update_state(conn, strategy, symbol, stype, done_time=now_s_val)
+    return now_s_val
+
+
 def delete_state(conn, strategy: str, symbol: str, stype: str) -> None:
-    """删除一行（平仓且不需要冷却的品种，如 topshort）"""
+    """删除一行（例如不再需要该标的的状态行时）"""
     cur = conn.cursor()
     cur.execute(
         "DELETE FROM strategy_state WHERE strategy=%s AND symbol=%s AND stype=%s",

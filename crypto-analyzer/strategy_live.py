@@ -14,7 +14,14 @@ import pymysql, requests as req
 from dotenv import load_dotenv
 load_dotenv()
 
-from strategy_state_db import ensure_table, get_or_create, update_state, delete_state, list_active
+from strategy_state_db import (
+    ensure_table,
+    get_or_create,
+    update_state,
+    list_active,
+    list_all_stype,
+    ensure_cooldown_anchor_epoch,
+)
 
 # ── 配置 ─────────────────────────────────────────────────────────
 API_BASE    = "http://localhost:9021"
@@ -55,7 +62,9 @@ CHASE_SL_PCT    = 0.08
 LONG_HOLD_MIN   = 12 * 60
 SHORT_HOLD_MIN  = 24 * 60
 CHASE_MAX_HOLD  = LONG_HOLD_MIN
-CHASE_COOLDOWN  = 2 * 3600
+# 各子策略平仓/撤单后同标的再开仓最短间隔（秒）
+POST_CLOSE_COOLDOWN_S = 4 * 3600
+CHASE_COOLDOWN = POST_CLOSE_COOLDOWN_S
 
 # 顶部做空参数
 TOP_PUMP_THRESH = 0.80
@@ -64,6 +73,7 @@ TOP_LOOKBACK_H  = 48
 TOP_HOLD_H      = 16
 TOP_SL_PCT      = 0.12
 TOP_SIGNAL_AGE  = 6 * 3600
+TOPSHORT_COOLDOWN = POST_CLOSE_COOLDOWN_S
 
 # 追跌参数
 DUMP_BARS     = 48
@@ -75,7 +85,7 @@ DUMP_MAX_HOLD = SHORT_HOLD_MIN
 HARD_TP_PCT       = 0.20  # 硬止盈: 盈利达到即平仓
 TRAIL_TP_START    = 0.12  # 移动止盈激活阈值
 TRAIL_TP_PULLBACK = 0.02  # 从峰值盈利回落多少触发
-DUMP_COOLDOWN = 4 * 3600
+DUMP_COOLDOWN = POST_CLOSE_COOLDOWN_S
 
 
 POLL_SECS       = 60
@@ -249,9 +259,19 @@ def _check_pending_db(conn, sym, stype):
         log.info("限价单成交 (%s) -> pid=%d  oid=%s", stype, int(pos_id), oid)
         return True, {**row, 'pid': int(pos_id), 'order_id': None}
     if st in ('CANCELLED', 'REJECTED'):
-        update_state(conn, 'live', sym, stype,
-                     state='IDLE', pid=None, order_id=None, done_time=now_s())
-        return True, {**row, 'state': 'IDLE', 'pid': None, 'order_id': None}
+        t = now_s()
+        update_state(
+            conn,
+            'live',
+            sym,
+            stype,
+            state='DONE',
+            pid=None,
+            order_id=None,
+            done_time=t,
+            last_reason='cancel',
+        )
+        return True, {**row, 'state': 'DONE', 'pid': None, 'order_id': None, 'done_time': t, 'last_reason': 'cancel'}
     return False, row  # still PENDING
 
 def _fill_pending_orders(conn):
@@ -426,7 +446,8 @@ def chase_tick(conn, sym):
     s = cs.get('state') or 'IDLE'
 
     if s == 'DONE':
-        if now_s() - (cs.get('done_time') or 0) > CHASE_COOLDOWN:
+        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'chase', cs, now_s())
+        if now_s() - anchor > CHASE_COOLDOWN:
             update_state(conn, 'live', sym, 'chase', state='IDLE')
             s = 'IDLE'
         else:
@@ -513,11 +534,23 @@ def chase_tick(conn, sym):
 # ── B. 顶部做空 ──────────────────────────────────────────────────
 def topshort_tick(conn, active_syms):
     now_ms = int(now_s() * 1000)
+    nowt = now_s()
+
+    # 顶空 DONE 冷却（平仓/撤单后），到期再 IDLE
+    for row in list_all_stype(conn, 'live', 'topshort'):
+        if row.get('state') != 'DONE':
+            continue
+        sym = row['symbol']
+        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'topshort', row, nowt)
+        if nowt - anchor > TOPSHORT_COOLDOWN:
+            update_state(conn, 'live', sym, 'topshort', state='IDLE', pid=None, order_id=None)
 
     # 检查已有顶空仓位
     active_rows = list_active(conn, 'live', 'topshort')
     for pos in active_rows:
         sym = pos['symbol']
+        if pos.get('state') == 'DONE':
+            continue
         # 挂单状态: 等待限价单成交
         if pos.get('order_id') and not pos.get('pid'):
             cur = conn.cursor()
@@ -536,13 +569,34 @@ def topshort_tick(conn, active_syms):
                     log.info("TOPSHORT 限价单成交 %-18s  pid=%d", sym, int(pos_id))
                     pos = {**pos, 'pid': int(pos_id), 'order_id': None}
                 elif st in ('CANCELLED', 'REJECTED'):
-                    log.info("TOPSHORT 限价单取消 %-18s  oid=%s -> 丢弃", sym, pos.get('order_id'))
-                    delete_state(conn, 'live', sym, 'topshort')
+                    log.info("TOPSHORT 限价单取消 %-18s  oid=%s -> DONE 冷却", sym, pos.get('order_id'))
+                    update_state(
+                        conn,
+                        'live',
+                        sym,
+                        'topshort',
+                        state='DONE',
+                        pid=None,
+                        order_id=None,
+                        done_time=nowt,
+                        last_reason='cancel',
+                    )
                     continue
             if not pos.get('pid'):
                 continue  # 仍在挂单中
         if not pos.get('pid'):
-            delete_state(conn, 'live', sym, 'topshort')
+            log.warning("TOPSHORT 异常无 pid %-18s -> DONE 冷却", sym)
+            update_state(
+                conn,
+                'live',
+                sym,
+                'topshort',
+                state='DONE',
+                pid=None,
+                order_id=None,
+                done_time=nowt,
+                last_reason='orphan',
+            )
             continue
         status, pnl, notes = get_pos_status(pos['pid'])
         if status is None:
@@ -554,9 +608,26 @@ def topshort_tick(conn, active_syms):
         else:
             pnl_pct = (pnl or 0) / MARGIN * 100
             reason = "手动" if (notes and '手动' in str(notes)) else status
-            log.info("TOPSHORT 平仓  %-18s  pid=%d  pnl=%+.1f%%  reason=%s",
-                     sym, pos['pid'], pnl_pct, reason)
-            delete_state(conn, 'live', sym, 'topshort')
+            lr = 'manual' if (notes and '手动' in str(notes)) else ('TP' if (pnl or 0) > 0 else 'SL')
+            log.info(
+                "TOPSHORT 平仓  %-18s  pid=%d  pnl=%+.1f%%  reason=%s  冷却%dh",
+                sym,
+                pos['pid'],
+                pnl_pct,
+                reason,
+                TOPSHORT_COOLDOWN // 3600,
+            )
+            update_state(
+                conn,
+                'live',
+                sym,
+                'topshort',
+                state='DONE',
+                pid=None,
+                order_id=None,
+                done_time=nowt,
+                last_reason=lr,
+            )
 
     # 扫描新信号
     open_syms = {r['symbol'] for r in list_active(conn, 'live', 'topshort')}
@@ -645,7 +716,8 @@ def dump_tick(conn, sym):
     s = ds.get('state') or 'IDLE'
 
     if s == 'DONE':
-        if now_s() - (ds.get('done_time') or 0) > DUMP_COOLDOWN:
+        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'dump', ds, now_s())
+        if now_s() - anchor > DUMP_COOLDOWN:
             update_state(conn, 'live', sym, 'dump', state='IDLE')
             s = 'IDLE'
         else:

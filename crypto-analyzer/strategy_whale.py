@@ -26,7 +26,13 @@ import pymysql, requests as req
 from dotenv import load_dotenv
 load_dotenv()
 
-from strategy_state_db import ensure_table, get_or_create, update_state, list_active
+from strategy_state_db import (
+    ensure_table,
+    get_or_create,
+    update_state,
+    list_active,
+    ensure_cooldown_anchor_epoch,
+)
 
 # ── 账户与 API ────────────────────────────────────────────────────────
 API_BASE    = "http://localhost:9021"
@@ -78,7 +84,7 @@ TRAIL_TP_START    = 0.12  # 移动止盈激活阈值
 TRAIL_TP_PULLBACK = 0.02  # 从峰值盈利回落多少触发
 SHORT_HOLD_H  = 24   # 做空持仓 24小时
 LONG_HOLD_H   = 6    # 做多持仓 6小时
-COOLDOWN_S    = 6  * 3600
+COOLDOWN_S    = 6 * 3600
 COOLDOWN_SL_S = 12 * 3600
 
 POLL_SECS    = 90
@@ -289,9 +295,26 @@ def _check_pending_db(conn, sym):
         log.info("WHALE 限价单成交 -> pid=%d  oid=%s", int(pos_id), oid)
         return True, {**row, 'pid': int(pos_id), 'order_id': None}
     if st in ('CANCELLED', 'REJECTED'):
-        update_state(conn, 'whale', sym, 'whale',
-                     state='IDLE', pid=None, order_id=None, done_time=now_s())
-        return True, {**row, 'state': 'IDLE', 'pid': None, 'order_id': None}
+        ts = time.time()
+        update_state(
+            conn,
+            'whale',
+            sym,
+            'whale',
+            state='DONE',
+            pid=None,
+            order_id=None,
+            done_time=ts,
+            last_reason='cancel',
+        )
+        return True, {
+            **row,
+            'state': 'DONE',
+            'pid': None,
+            'order_id': None,
+            'done_time': ts,
+            'last_reason': 'cancel',
+        }
     return False, row
 
 def _fill_pending_orders(conn):
@@ -578,10 +601,11 @@ def whale_tick(conn, sym: str):
     })
     s = ss.get('state') or 'IDLE'
 
-    # 冷却
+    # 冷却（done_time 为 0 时不得用 now-0，否则恒判定为已冷却）
     if s == 'DONE':
+        anchor = ensure_cooldown_anchor_epoch(conn, 'whale', sym, 'whale', ss, now_s())
         cd = COOLDOWN_SL_S if ss.get('last_reason') == 'SL' else COOLDOWN_S
-        if now_s() - (ss.get('done_time') or 0) > cd:
+        if now_s() - anchor > cd:
             update_state(conn, 'whale', sym, 'whale', state='IDLE')
         return
 
@@ -610,8 +634,9 @@ def whale_tick(conn, sym: str):
 
         side = ss.get('side') or s
         label = "TP" if pnl > 0 else "SL"
+        _cd = COOLDOWN_SL_S if label == "SL" else COOLDOWN_S
         log.info("WHALE %s %s -> DONE %-18s  %-5s  pnl=%+.1f  冷却%dh",
-                 label, s, sym, side, pnl, COOLDOWN_S // 3600)
+                 label, s, sym, side, pnl, _cd // 3600)
         update_state(conn, 'whale', sym, 'whale',
                      state='DONE', pid=None, order_id=None,
                      done_time=now_s(), last_reason=label)
