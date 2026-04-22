@@ -3,8 +3,9 @@
 API密钥管理接口
 """
 
-import os
+from pathlib import Path
 import pymysql
+from dotenv import dotenv_values
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -17,30 +18,36 @@ router = APIRouter(prefix="/api/api-keys", tags=["API密钥管理"])
 # 单用户系统，固定 user_id
 _USER_ID = 1
 
+_ENV_PATH = Path(__file__).parent.parent.parent / '.env'
+_env_cache: Optional[dict] = None
 
-_db_config_cache: Optional[dict] = None
+
+def _get_env() -> dict:
+    global _env_cache
+    if _env_cache is None:
+        _env_cache = dotenv_values(_ENV_PATH)
+    return _env_cache
 
 
 def get_db_config() -> dict:
-    global _db_config_cache
-    if _db_config_cache is None:
-        try:
-            from app.utils.config_loader import load_config
-            cfg = load_config()
-            _db_config_cache = cfg.get('database', {}).get('mysql', {})
-        except Exception as e:
-            logger.error(f"加载数据库配置失败: {e}")
-            _db_config_cache = {}
-    return _db_config_cache
+    env = _get_env()
+    return {
+        'host':     env.get('DB_HOST', 'localhost'),
+        'port':     int(env.get('DB_PORT', 3306)),
+        'user':     env.get('DB_USER', 'root'),
+        'password': env.get('DB_PASSWORD', ''),
+        'database': env.get('DB_NAME', ''),
+    }
 
 
 def _get_conn() -> pymysql.connections.Connection:
+    cfg = get_db_config()
     return pymysql.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=int(os.getenv('DB_PORT', 3306)),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', ''),
-        database=os.getenv('DB_NAME', ''),
+        host=cfg['host'],
+        port=cfg['port'],
+        user=cfg['user'],
+        password=cfg['password'],
+        database=cfg['database'],
         cursorclass=pymysql.cursors.DictCursor,
     )
 
