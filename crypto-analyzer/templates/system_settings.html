@@ -192,7 +192,7 @@
         }
     </style>
 </head>
-<body class="flex min-h-screen overflow-x-hidden md:overflow-hidden">
+<body class="flex min-h-screen md:h-screen overflow-x-hidden md:overflow-hidden">
 <!-- SideNavBar -->
 <aside id="app-sidebar" class="fixed left-0 top-0 h-screen w-[240px] bg-[#0a0f14] border-r border-slate-800 flex flex-col py-6 z-[60] touch-pan-y overscroll-contain">
 <div class="px-5 mb-6">
@@ -236,7 +236,7 @@
 </aside>
 <div id="sidebar-overlay" class="sidebar-overlay fixed inset-0 z-[55] bg-black/60 md:hidden opacity-0 pointer-events-none transition-opacity duration-200" aria-hidden="true"></div>
 <!-- Main Content Area：手机全宽，md+ 与侧栏 240px 对齐 -->
-<main class="ml-0 w-full min-w-0 md:ml-[240px] flex-1 min-h-screen overflow-y-auto bg-[#0a0f14] relative">
+<main class="ml-0 w-full min-w-0 md:ml-[240px] flex-1 overflow-y-auto bg-[#0a0f14] relative">
 <header class="sticky top-0 z-40 flex items-center justify-between pl-3 pr-4 sm:px-6 md:px-10 min-h-14 py-2 border-b border-slate-800/80 bg-[#0a0f14]/90 backdrop-blur-md">
 <div class="flex items-center gap-2 sm:gap-3 min-w-0">
 <button type="button" id="mobileMenuBtn" class="md:hidden flex-shrink-0 p-2.5 -ml-1 rounded-lg text-slate-400 hover:bg-slate-800/80 hover:text-[#49f4c8] touch-manipulation" aria-label="打开导航" aria-expanded="false" aria-controls="app-sidebar">
