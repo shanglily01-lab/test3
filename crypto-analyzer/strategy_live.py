@@ -103,6 +103,26 @@ TOPCLI_MAX_DD_FR       = 0.48
 TOPCLI_SIGNAL_AGE_MS   = 22 * 3600 * 1000
 TOPCLI_MAX_OPEN_AGE_MS = 26 * 3600 * 1000
 
+# 底部做多（bottomlong-climax）：大阴线/长下影 + 放量 → 底部做多（topshort-climax 镜像）
+BOTLONG_LOOKBACK_BARS            = 40
+BOTLONG_LEADER_LOOKBACK          = 24
+BOTLONG_POST_LEADER_WAIT_BARS    = 2
+BOTLONG_MAX_PENDING              = 1    # 全局最多同时挂几张 climax 做多限价单
+BOTLONG_VOL_LOOKBACK             = 20
+BOTLONG_VOL_MULT                 = 2.0
+BOTLONG_MIN_BODY_VS_O            = 0.025   # |close-open|/open 阴线实体门槛
+BOTLONG_MIN_RANGE_FULL_PCT       = 0.045   # (high-low)/open 振幅门槛
+BOTLONG_MIN_BODY_OF_RANGE        = 0.42    # 阴线实体/振幅
+BOTLONG_MIN_LOWER_WICK_OF_RANGE  = 0.34   # 下影/振幅（下影模式）
+BOTLONG_MIN_DROP_TO_LOW_VS_O     = 0.020   # (open-low)/open 下影模式最低跌幅
+BOTLONG_PULLBACK_FR              = 0.012   # 反弹确认：现价须距低点 >= 此比例
+BOTLONG_MAX_DD_FR                = 0.48    # 现价反弹上限（距低点过高则放弃）
+BOTLONG_SIGNAL_AGE_MS            = 22 * 3600 * 1000
+BOTLONG_MAX_OPEN_AGE_MS          = 26 * 3600 * 1000
+BOTLONG_SL_PCT                   = 0.12
+BOTLONG_HOLD_H                   = 6
+BOTLONG_COOLDOWN                 = POST_CLOSE_COOLDOWN_S
+
 # 追跌参数
 DUMP_BARS     = 48
 DUMP_PCT      = 0.10
@@ -548,6 +568,32 @@ def _topshort_leader_idx_max_range(rows, win_lo: int, win_hi: int, bull_only: bo
     return best_j
 
 
+def _bottomlong_leader_idx_max_range(rows, win_lo: int, win_hi: int, bear_only: bool):
+    """在 [win_lo, win_hi] 内找振幅 (high-low) 最大的索引；bear_only 时仅统计阴线。
+    并列取更靠后的 K（更近）。无合法 K 返回 None。"""
+    best_j = None
+    best_hl = -1.0
+    for j in range(win_lo, win_hi + 1):
+        b = rows[j]
+        try:
+            o = float(b.get("open_price") or 0)
+            h = float(b.get("high_price") or 0)
+            l = float(b.get("low_price") or 0)
+            c = float(b.get("close_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if o <= 0:
+            continue
+        if bear_only and not (c < o):
+            continue
+        hl = h - l
+        if hl <= 0:
+            continue
+        if hl > best_hl or (abs(hl - best_hl) <= 1e-12 and best_j is not None and j > best_j):
+            best_hl, best_j = hl, j
+    return best_j
+
+
 def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
     """
     纯逻辑：给定升序 1h K 与「当前价」、回放时刻 now_ms，判断是否满足 topshort-climax（不含 DB 去重与下单）。
@@ -684,6 +730,149 @@ def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
                 "avg_v": avg_v,
             }
         )
+        return True, detail
+
+    return False, detail if detail.get("fail") else {"fail": "no_pattern"}
+
+
+def evaluate_bottomlong_climax_signal(rows: list, now_ms: int, price: float):
+    """
+    纯逻辑：大阴线/长下影 + 放量 → 底部做多（topshort-climax 镜像）。
+    形态 A：大阴实体 + 放量（庄家大量打压，底部蓄力）；
+    形态 B：长下影 + 放量（打压后强力反弹，庄家吸筹）。
+    返回 (True, detail_dict) 或 (False, detail_dict)。
+    """
+    detail: dict = {}
+    n = len(rows)
+    wait = BOTLONG_POST_LEADER_WAIT_BARS
+    if n < BOTLONG_VOL_LOOKBACK + wait + 3:
+        return False, {"fail": "not_enough_rows", "n": n}
+
+    def _f(b, k):
+        v = b.get(k)
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    last = rows[-1]
+    last_c = _f(last, "close_price")
+
+    win_hi = n - 1 - wait
+    if win_hi < 0:
+        return False, {"fail": "win_hi"}
+    win_lo = max(0, win_hi - (BOTLONG_LEADER_LOOKBACK - 1))
+    if win_hi < win_lo:
+        return False, {"fail": "empty_window"}
+    bear_leader  = _bottomlong_leader_idx_max_range(rows, win_lo, win_hi, bear_only=True)
+    range_leader = _bottomlong_leader_idx_max_range(rows, win_lo, win_hi, bear_only=False)
+    detail["win_lo"], detail["win_hi"] = win_lo, win_hi
+    detail["bear_leader"], detail["range_leader"] = bear_leader, range_leader
+
+    try_ci = []
+    if bear_leader is not None:
+        try_ci.append(bear_leader)
+    if range_leader is not None and range_leader not in try_ci:
+        try_ci.append(range_leader)
+
+    for ci in try_ci:
+        b = rows[ci]
+        o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
+        v = _f(b, "volume")
+        if o <= 0 or h <= 0:
+            continue
+        hl = h - l
+        if hl <= 0:
+            continue
+        rng = hl / o
+        body = (o - c) / o                         # 阴线实体比（阴线时为正）
+        lower_wick = min(o, c) - l                 # 下影长度
+        lower_ratio = lower_wick / hl if hl else 0
+
+        bear_climax = (
+            bear_leader is not None
+            and ci == bear_leader
+            and c < o                              # 阴线
+            and body >= BOTLONG_MIN_BODY_VS_O
+            and rng >= BOTLONG_MIN_RANGE_FULL_PCT
+            and (o - c) / hl >= BOTLONG_MIN_BODY_OF_RANGE
+        )
+        lower_climax = (
+            range_leader is not None
+            and ci == range_leader
+            and rng >= BOTLONG_MIN_RANGE_FULL_PCT
+            and lower_ratio >= BOTLONG_MIN_LOWER_WICK_OF_RANGE
+            and (o - l) / o >= BOTLONG_MIN_DROP_TO_LOW_VS_O
+        )
+        if not bear_climax and not lower_climax:
+            continue
+
+        lo_i = max(0, ci - BOTLONG_VOL_LOOKBACK)
+        past = rows[lo_i:ci]
+        vols = [_f(x, "volume") for x in past if _f(x, "volume") > 0]
+        if len(vols) < 10:
+            detail["fail"] = "vol_past_short"
+            detail["ci"] = ci
+            continue
+        avg_v = sum(vols) / len(vols)
+        if avg_v <= 0 or v < BOTLONG_VOL_MULT * avg_v:
+            detail["fail"] = "volume_ratio"
+            detail["ci"] = ci
+            detail["vol_ratio"] = v / avg_v if avg_v else 0
+            continue
+
+        climax_open = int(b["open_time"])
+        bar_close_ms = climax_open + 3600000
+        if now_ms - bar_close_ms > BOTLONG_SIGNAL_AGE_MS:
+            detail["fail"] = "signal_stale"
+            continue
+        if now_ms - climax_open > BOTLONG_MAX_OPEN_AGE_MS:
+            detail["fail"] = "open_too_old"
+            continue
+
+        if bear_climax:
+            # 最后一根须已收复阴线收盘价：确认反弹
+            if last_c <= c:
+                detail["fail"] = "last_c_not_bounce_bear"
+                detail["last_c"], detail["climax_c"] = last_c, c
+                continue
+            if last_c <= l * (1.0 + BOTLONG_PULLBACK_FR):
+                detail["fail"] = "last_c_bear_pull"
+                continue
+        else:  # lower_climax
+            # 最后一根须已收复下影实体下沿
+            if last_c <= min(o, c):
+                detail["fail"] = "last_c_lower"
+                continue
+            if last_c <= l * (1.0 + BOTLONG_PULLBACK_FR):
+                detail["fail"] = "last_c_lower_pull"
+                continue
+
+        trough = l
+        if price <= trough * (1.0 + BOTLONG_PULLBACK_FR):
+            detail["fail"] = "price_pullback"
+            detail["price"], detail["need_above"] = price, trough * (1.0 + BOTLONG_PULLBACK_FR)
+            continue
+        bounce = (price - trough) / trough if trough else 0.0
+        if bounce > BOTLONG_MAX_DD_FR:
+            detail["fail"] = "bounce_too_far"
+            continue
+        if price >= h * 1.001:
+            detail["fail"] = "above_climax_high"
+            continue
+
+        mode = "bear" if bear_climax else "lower"
+        detail.update({
+            "ok": True,
+            "ci": ci,
+            "mode": mode,
+            "climax_open": climax_open,
+            "trough": trough,
+            "vol_ratio": v / avg_v,
+            "lower_ratio": lower_ratio,
+            "body": body,
+            "avg_v": avg_v,
+        })
         return True, detail
 
     return False, detail if detail.get("fail") else {"fail": "no_pattern"}
@@ -1076,6 +1265,198 @@ def topshort_tick(conn, active_syms):
             break
     cur.close()
 
+
+def _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
+    """
+    1H 巨量后底部走强 → 做多 LONG。命中则下单并写 state，返回 True。
+    形态 A：阴线 + 大阴实体 + 放量；形态 B：长下影 + 放量（打压后反弹）。
+    """
+    cur.execute(
+        """
+        SELECT open_time, open_price, high_price, low_price, close_price, volume
+        FROM kline_data
+        WHERE timeframe='1h' AND symbol=%s
+          AND open_time + 3600000 < %s
+        ORDER BY open_time DESC
+        LIMIT %s
+        """,
+        (sym, now_ms, BOTLONG_LOOKBACK_BARS),
+    )
+    rows = list(reversed(cur.fetchall()))
+    try:
+        price = get_price(sym)
+    except Exception:
+        return False
+    ok, det = evaluate_bottomlong_climax_signal(rows, now_ms, price)
+    if not ok:
+        return False
+
+    def _f(b, k):
+        v = b.get(k)
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    ci = det["ci"]
+    bear_climax = det["mode"] == "bear"
+    b = rows[ci]
+    l = _f(b, "low_price")
+    body = det["body"]
+    climax_open = det["climax_open"]
+    lower_ratio = det["lower_ratio"]
+    trough = det["trough"]
+    bounce = (price - trough) / trough if trough else 0.0
+
+    existing = get_or_create(conn, "live", sym, "bottomlong", {})
+    if existing.get("entry_ts") == climax_open:
+        return False
+
+    h24, l24 = _get_24h_stats(cur, sym)
+    lp = _calc_limit_price("LONG", price, h24, l24, pct=0.03)
+    tag = "bottomlong-climax" if bear_climax else "bottomlong-climax-wick"
+    pid, oid, pending = open_order(
+        sym,
+        "LONG",
+        price,
+        HARD_TP_PCT,
+        BOTLONG_SL_PCT,
+        BOTLONG_HOLD_H * 60,
+        tag,
+        lp,
+    )
+    if not pid and not oid:
+        return False
+    mode = "巨量阴" if bear_climax else "下影线"
+    log.info(
+        "BOTLONG 入场(%s) %-18s @ %.5f (限价%.5f) 底=%.5f 反弹=%.1f%% 量比~%.1fx 下影占比=%.0f%%  pid=%s oid=%s",
+        mode,
+        sym,
+        price,
+        lp,
+        trough,
+        bounce * 100,
+        det["vol_ratio"],
+        lower_ratio * 100,
+        pid,
+        oid,
+    )
+    update_state(
+        conn,
+        "live",
+        sym,
+        "bottomlong",
+        state="LONG",
+        pid=pid,
+        order_id=oid,
+        entry_p=lp if pending else price,
+        peak_pnl_pct=0.0,
+        peak=trough,
+        pump_pct=body,
+        entry_ts=climax_open,
+    )
+    return True
+
+
+# ── D. 底部做多（bottomlong-climax）────────────────────────────────
+def bottomlong_tick(conn, active_syms):
+    now_ms = int(now_s() * 1000)
+    nowt = now_s()
+
+    # DONE 冷却到期 → IDLE
+    for row in list_all_stype(conn, 'live', 'bottomlong'):
+        if row.get('state') != 'DONE':
+            continue
+        sym = row['symbol']
+        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'bottomlong', row, nowt)
+        if nowt - anchor > BOTLONG_COOLDOWN:
+            update_state(conn, 'live', sym, 'bottomlong', state='IDLE', pid=None, order_id=None)
+
+    # 检查已有做多仓位
+    active_rows = list_active(conn, 'live', 'bottomlong')
+    for pos in active_rows:
+        sym = pos['symbol']
+        if pos.get('state') == 'DONE':
+            continue
+        if pos.get('order_id') and not pos.get('pid'):
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT status, position_id FROM futures_orders WHERE order_id=%s LIMIT 1",
+                (pos['order_id'],)
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                st     = (row.get('status') or '').upper()
+                pos_id = row.get('position_id')
+                if st == 'FILLED' and pos_id:
+                    update_state(conn, 'live', sym, 'bottomlong',
+                                 pid=int(pos_id), order_id=None)
+                    log.info("BOTLONG 限价单成交 %-18s  pid=%d", sym, int(pos_id))
+                    pos = {**pos, 'pid': int(pos_id), 'order_id': None}
+                elif st in ('CANCELLED', 'REJECTED'):
+                    log.info("BOTLONG 限价单取消 %-18s  oid=%s -> DONE 冷却", sym, pos.get('order_id'))
+                    update_state(
+                        conn, 'live', sym, 'bottomlong',
+                        state='DONE', pid=None, order_id=None,
+                        done_time=nowt, last_reason='cancel',
+                    )
+                    continue
+            if not pos.get('pid'):
+                continue
+        if not pos.get('pid'):
+            log.warning("BOTLONG 异常无 pid %-18s -> DONE 冷却", sym)
+            update_state(
+                conn, 'live', sym, 'bottomlong',
+                state='DONE', pid=None, order_id=None,
+                done_time=nowt, last_reason='orphan',
+            )
+            continue
+        status, pnl, notes = get_pos_status(pos['pid'])
+        if status is None:
+            continue
+        if status == 'open':
+            _trail_tp_check(conn, 'live', 'bottomlong', sym, pos['pid'],
+                            'LONG', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0))
+            continue
+        pnl_pct = (pnl or 0) / MARGIN * 100
+        reason = "手动" if (notes and '手动' in str(notes)) else status
+        lr = 'manual' if (notes and '手动' in str(notes)) else ('TP' if (pnl or 0) > 0 else 'SL')
+        log.info(
+            "BOTLONG 平仓  %-18s  pid=%d  pnl=%+.1f%%  reason=%s  冷却%dh",
+            sym, pos['pid'], pnl_pct, reason, BOTLONG_COOLDOWN // 3600,
+        )
+        update_state(
+            conn, 'live', sym, 'bottomlong',
+            state='DONE', pid=None, order_id=None,
+            done_time=nowt, last_reason=lr,
+        )
+
+    # 扫描新信号
+    open_syms = {r['symbol'] for r in list_active(conn, 'live', 'bottomlong')}
+
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT COUNT(*) AS cnt FROM futures_orders
+           WHERE account_id=%s AND status='PENDING' AND order_type='LIMIT'
+             AND order_source LIKE 'bottomlong-climax%%'""",
+        (ACCOUNT_ID,),
+    )
+    _botlong_pending_cnt = (cur.fetchone() or {}).get("cnt", 0)
+
+    for sym in active_syms:
+        if sym in open_syms:
+            continue
+        if not _topshort_has_min_history_for_climax(cur, sym, now_ms):
+            continue
+        if _botlong_pending_cnt >= BOTLONG_MAX_PENDING:
+            break
+        if _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
+            _botlong_pending_cnt += 1
+            open_syms.add(sym)
+    cur.close()
+
+
 # ── C. 追跌策略 ──────────────────────────────────────────────────
 def dump_tick(conn, sym):
     """追跌: 检测4h跌幅>=DUMP_PCT直接入场做空, 镜像追多逻辑."""
@@ -1222,6 +1603,14 @@ def _sync_state(conn):
                                  peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
                     log.info("同步已有追击仓位: %s %s pid=%d @ %.5f",
                              sym, mapped, p["id"], p["entry_price"])
+            elif "bottomlong" in src and side == "LONG":
+                existing = get_or_create(conn, 'live', sym, 'bottomlong', {})
+                if existing.get('state') not in ('LONG',):
+                    update_state(conn, 'live', sym, 'bottomlong',
+                                 state='LONG', pid=p["id"],
+                                 entry_p=p["entry_price"],
+                                 peak=p["entry_price"], pump_pct=0, entry_ts=0)
+                    log.info("同步已有底多仓位: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
             elif "topshort" in src and side == "SHORT":
                 existing = get_or_create(conn, 'live', sym, 'topshort', {})
                 if existing.get('state') not in ('SHORT',):
@@ -1294,12 +1683,17 @@ def main():
                     topshort_tick(conn, active_syms)
                 except Exception as e:
                     log.warning("topshort_tick error: %s", e)
+                try:
+                    bottomlong_tick(conn, active_syms)
+                except Exception as e:
+                    log.warning("bottomlong_tick error: %s", e)
 
             # 汇总当前持仓
-            chase_active = list_active(conn, 'live', 'chase')
-            dump_active  = list_active(conn, 'live', 'dump')
-            top_active   = list_active(conn, 'live', 'topshort')
-            if chase_active or dump_active or top_active:
+            chase_active   = list_active(conn, 'live', 'chase')
+            dump_active    = list_active(conn, 'live', 'dump')
+            top_active     = list_active(conn, 'live', 'topshort')
+            botlong_active = list_active(conn, 'live', 'bottomlong')
+            if chase_active or dump_active or top_active or botlong_active:
                 summary = []
                 for r in chase_active:
                     summary.append("chase:%s %s pid=%s" % (r['symbol'], r['state'], r.get('pid')))
@@ -1307,6 +1701,8 @@ def main():
                     summary.append("dump:%s %s pid=%s" % (r['symbol'], r['state'], r.get('pid')))
                 for r in top_active:
                     summary.append("top:%s SHORT pid=%s" % (r['symbol'], r.get('pid')))
+                for r in botlong_active:
+                    summary.append("botlong:%s LONG pid=%s" % (r['symbol'], r.get('pid')))
                 log.info("持仓: %s", " | ".join(summary))
             else:
                 log.info("当前无持仓, 等待信号...")
