@@ -80,8 +80,12 @@ TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
 
 # 巨量见顶（1H）：(1) 大阳实体 + 巨量 或 (2) 长上影 + 巨量（庄家冲高砸盘，收盘可阴可阳）
 # 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%，可改）；且放量
+# 筋骨：在最近 LEADER_LOOKBACK 根内，大阳须为「阳线里振幅最大」、上影须为「全 K 振幅最大」；
+# 且领袖 K 的索引须 <= n-1-POST_LEADER_WAIT_BARS：即该 K 收盘后再过 N 根 1H，才确认没有更大阳/更大振幅，再允许开空（默认 2 根=2 小时）。
 # 之后价格从高点回落；不等「48h 低点涨幅 + 6h 无新高」
 TOPCLI_LOOKBACK_BARS   = 40
+TOPCLI_LEADER_LOOKBACK = 24
+TOPCLI_POST_LEADER_WAIT_BARS = 2
 TOPCLI_VOL_LOOKBACK    = 20
 TOPCLI_VOL_MULT        = 2.5
 TOPCLI_MIN_BODY_VS_O = 0.028
@@ -487,6 +491,32 @@ def get_1h_bars(cur, sym, limit=80):
     return list(reversed(cur.fetchall()))
 
 
+def _topshort_leader_idx_max_range(rows, win_lo: int, win_hi: int, bull_only: bool):
+    """在 [win_lo, win_hi] 内找振幅 (high-low) 最大的索引；bull_only 时仅统计阳线。
+    并列取更靠后的 K（更近）。无合法 K 返回 None。"""
+    best_j = None
+    best_hl = -1.0
+    for j in range(win_lo, win_hi + 1):
+        b = rows[j]
+        try:
+            o = float(b.get("open_price") or 0)
+            h = float(b.get("high_price") or 0)
+            l = float(b.get("low_price") or 0)
+            c = float(b.get("close_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if o <= 0:
+            continue
+        if bull_only and not (c > o):
+            continue
+        hl = h - l
+        if hl <= 0:
+            continue
+        if hl > best_hl or (abs(hl - best_hl) <= 1e-12 and best_j is not None and j > best_j):
+            best_hl, best_j = hl, j
+    return best_j
+
+
 def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     """
     1H 巨量后见顶走弱 → 顶空 SHORT。命中则下单并写 state，返回 True。
@@ -494,6 +524,9 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%）；
     量 >= 前 VOL_LOOKBACK 均量 * VOL_MULT；巨 K 收盘后 SIGNAL_AGE_MS 内；
     现价从高点回撤 >= PULLBACK；最后一根已完成 1H 体现弱势。
+    大阳/上影候选 K 须在 LEADER_LOOKBACK 窗口内为对应意义的「振幅最大」一根，
+    且须在最新已收盘 1H 之前至少再隔 POST_LEADER_WAIT_BARS 根 1H（默认 2），
+    才确认其后未出现更大阳/更大振幅 K，再允许结合走弱与现价开空。
     """
     cur.execute(
         """
@@ -508,7 +541,8 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     )
     rows = list(reversed(cur.fetchall()))
     n = len(rows)
-    if n < TOPCLI_VOL_LOOKBACK + 3:
+    wait = TOPCLI_POST_LEADER_WAIT_BARS
+    if n < TOPCLI_VOL_LOOKBACK + wait + 3:
         return False
 
     def _f(b, k):
@@ -521,7 +555,22 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     last = rows[-1]
     last_c = _f(last, "close_price")
 
-    for ci in range(n - 2, max(0, n - 14) - 1, -1):
+    win_hi = n - 1 - wait
+    if win_hi < 0:
+        return False
+    win_lo = max(0, win_hi - (TOPCLI_LEADER_LOOKBACK - 1))
+    if win_hi < win_lo:
+        return False
+    bull_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=True)
+    range_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=False)
+
+    try_ci = []
+    if bull_leader is not None:
+        try_ci.append(bull_leader)
+    if range_leader is not None and range_leader not in try_ci:
+        try_ci.append(range_leader)
+
+    for ci in try_ci:
         b = rows[ci]
         o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
         v = _f(b, "volume")
@@ -535,13 +584,17 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
         upper = h - max(o, c)
         upper_ratio = upper / hl
         bull_climax = (
-            c > o
+            bull_leader is not None
+            and ci == bull_leader
+            and c > o
             and body >= TOPCLI_MIN_BODY_VS_O
             and rng >= TOPCLI_MIN_RANGE_FULL_PCT
             and (c - o) / hl >= TOPCLI_MIN_BODY_OF_RANGE
         )
         wick_climax = (
-            rng >= TOPCLI_MIN_RANGE_FULL_PCT
+            range_leader is not None
+            and ci == range_leader
+            and rng >= TOPCLI_MIN_RANGE_FULL_PCT
             and upper_ratio >= TOPCLI_MIN_UPPER_WICK_OF_RANGE
             and (h - o) / o >= TOPCLI_MIN_PUMP_TO_HIGH_VS_O
         )
