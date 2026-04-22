@@ -1,7 +1,7 @@
 """
 实盘策略运行器 - 真实下单到 localhost:9021
 A. 追击: 5m K线检测涨幅>=4% -> 真实开多, TP梯度5%-10%, SL 8%转空
-B. 顶部做空: (1) 48h涨>=80% + 6h无新高 或 (2) 1H巨量阳线后走弱 -> 真实开空, 固定持仓与 SL 同原顶空
+B. 顶部做空: (1) 48h涨>=80% + 6h无新高(须12d+1h数据) 或 (2) 1H climax 见顶(数据可放宽) -> 真实开空
 
 每5分钟轮询:
   - 检查已有仓位是否平掉 (TP/SL/超时)
@@ -77,6 +77,9 @@ TOPSHORT_COOLDOWN = POST_CLOSE_COOLDOWN_S
 # 顶空依赖「长期顶部结构」；1h K 最早一根距今不足该天数则不做新开顶空（追跌/追击不受影响）
 TOPSHORT_MIN_HISTORY_DAYS = 12
 TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
+# topshort-climax：1h 根数与最早 K 距今门槛低于「经典顶空 12d」，便于 BSB 等上市/入库较短标的
+TOPSHORT_CLIMAX_MIN_BARS = 32
+TOPSHORT_CLIMAX_MIN_SPAN_MS = int(1.5 * 24 * 60 * 60 * 1000)
 
 # 巨量见顶（1H）：(1) 大阳实体 + 巨量 或 (2) 长上影 + 巨量（庄家冲高砸盘，收盘可阴可阳）
 # 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%，可改）；且放量
@@ -219,6 +222,33 @@ def _get_24h_stats(cur, sym):
 
 _topshort_hist_cache: dict[str, tuple[bool, float]] = {}
 _TOPSHORT_HIST_TTL_SEC = 15 * 60
+_topshort_climax_hist_cache: dict[str, tuple[bool, float]] = {}
+
+
+def _topshort_has_min_history_for_climax(cur, sym: str, now_ms: int) -> bool:
+    """topshort-climax 专用：满 12d 仍优先；否则至少 TOPSHORT_CLIMAX_MIN_BARS 根 1h 且最早 K 距今 >= CLIMAX_MIN_SPAN。"""
+    if _topshort_has_min_listed_history(cur, sym, now_ms):
+        return True
+    t = time.time()
+    ent = _topshort_climax_hist_cache.get(sym)
+    if ent is not None and (t - ent[1]) < _TOPSHORT_HIST_TTL_SEC:
+        return ent[0]
+    cur.execute(
+        """
+        SELECT COUNT(*) AS cnt, MIN(open_time) AS tmin FROM kline_data
+        WHERE timeframe='1h' AND symbol=%s
+        """,
+        (sym,),
+    )
+    r = cur.fetchone() or {}
+    cnt = int(r.get("cnt") or 0)
+    tmin = r.get("tmin")
+    if tmin is None or cnt < TOPSHORT_CLIMAX_MIN_BARS:
+        _topshort_climax_hist_cache[sym] = (False, t)
+        return False
+    ok = (now_ms - int(tmin)) >= TOPSHORT_CLIMAX_MIN_SPAN_MS
+    _topshort_climax_hist_cache[sym] = (ok, t)
+    return ok
 
 
 def _topshort_has_min_listed_history(cur, sym: str, now_ms: int) -> bool:
@@ -517,33 +547,16 @@ def _topshort_leader_idx_max_range(rows, win_lo: int, win_hi: int, bull_only: bo
     return best_j
 
 
-def _topshort_try_climax_volume(cur, conn, sym, now_ms):
+def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
     """
-    1H 巨量后见顶走弱 → 顶空 SHORT。命中则下单并写 state，返回 True。
-    形态 A：阳线 + 大阳实体 + 放量；形态 B：长上影 + 放量（冲高回落，庄家砸盘）。
-    共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%）；
-    量 >= 前 VOL_LOOKBACK 均量 * VOL_MULT；巨 K 收盘后 SIGNAL_AGE_MS 内；
-    现价从高点回撤 >= PULLBACK；最后一根已完成 1H 体现弱势。
-    大阳/上影候选 K 须在 LEADER_LOOKBACK 窗口内为对应意义的「振幅最大」一根，
-    且须在最新已收盘 1H 之前至少再隔 POST_LEADER_WAIT_BARS 根 1H（默认 2），
-    才确认其后未出现更大阳/更大振幅 K，再允许结合走弱与现价开空。
+    纯逻辑：给定升序 1h K 与「当前价」、回放时刻 now_ms，判断是否满足 topshort-climax（不含 DB 去重与下单）。
+    返回 (True, detail_dict) 或 (False, detail_dict)，detail 含 leaders、失败原因等。
     """
-    cur.execute(
-        """
-        SELECT open_time, open_price, high_price, low_price, close_price, volume
-        FROM kline_data
-        WHERE timeframe='1h' AND symbol=%s
-          AND open_time + 3600000 < %s
-        ORDER BY open_time DESC
-        LIMIT %s
-        """,
-        (sym, now_ms, TOPCLI_LOOKBACK_BARS),
-    )
-    rows = list(reversed(cur.fetchall()))
+    detail: dict = {}
     n = len(rows)
     wait = TOPCLI_POST_LEADER_WAIT_BARS
     if n < TOPCLI_VOL_LOOKBACK + wait + 3:
-        return False
+        return False, {"fail": "not_enough_rows", "n": n}
 
     def _f(b, k):
         v = b.get(k)
@@ -557,12 +570,14 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
 
     win_hi = n - 1 - wait
     if win_hi < 0:
-        return False
+        return False, {"fail": "win_hi"}
     win_lo = max(0, win_hi - (TOPCLI_LEADER_LOOKBACK - 1))
     if win_hi < win_lo:
-        return False
+        return False, {"fail": "empty_window"}
     bull_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=True)
     range_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=False)
+    detail["win_lo"], detail["win_hi"] = win_lo, win_hi
+    detail["bull_leader"], detail["range_leader"] = bull_leader, range_leader
 
     try_ci = []
     if bull_leader is not None:
@@ -603,95 +618,175 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
 
         lo_i = max(0, ci - TOPCLI_VOL_LOOKBACK)
         past = rows[lo_i:ci]
-        if len(past) < min(TOPCLI_VOL_LOOKBACK, ci):
-            continue
-        vols = [_f(x, "volume") for x in past]
-        if any(x <= 0 for x in vols):
+        # 过滤零量（数据缺口），要求至少 10 根有效基准量，避免 ci=0 时除零
+        vols = [_f(x, "volume") for x in past if _f(x, "volume") > 0]
+        if len(vols) < 10:
+            detail["fail"] = "vol_past_short"
+            detail["ci"] = ci
             continue
         avg_v = sum(vols) / len(vols)
         if avg_v <= 0 or v < TOPCLI_VOL_MULT * avg_v:
+            detail["fail"] = "volume_ratio"
+            detail["ci"] = ci
+            detail["vol_ratio"] = v / avg_v if avg_v else 0
             continue
 
         climax_open = int(b["open_time"])
         bar_close_ms = climax_open + 3600000
         if now_ms - bar_close_ms > TOPCLI_SIGNAL_AGE_MS:
+            detail["fail"] = "signal_stale"
             continue
         if now_ms - climax_open > TOPCLI_MAX_OPEN_AGE_MS:
+            detail["fail"] = "open_too_old"
             continue
 
         if bull_climax:
             if last_c >= c:
+                detail["fail"] = "last_c_not_weak_bull"
+                detail["last_c"], detail["climax_c"] = last_c, c
+                continue
+            if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
+                detail["fail"] = "last_c_bull_pull"
                 continue
         else:
             if last_c >= max(o, c):
+                detail["fail"] = "last_c_wick"
                 continue
             if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
+                detail["fail"] = "last_c_wick_pull"
                 continue
-
-        try:
-            price = get_price(sym)
-        except Exception:
-            return False
 
         peak = h
         if price >= peak * (1.0 - TOPCLI_PULLBACK_FR):
+            detail["fail"] = "price_pullback"
+            detail["price"], detail["need_below"] = price, peak * (1.0 - TOPCLI_PULLBACK_FR)
             continue
         dd = (peak - price) / peak if peak else 0.0
         if dd > TOPCLI_MAX_DD_FR:
+            detail["fail"] = "drawdown_too_deep"
             continue
         if price <= l * 0.999:
+            detail["fail"] = "below_climax_low"
             continue
 
-        existing = get_or_create(conn, "live", sym, "topshort", {})
-        if existing.get("entry_ts") == climax_open:
-            return False
+        mode = "bull" if bull_climax else "wick"
+        detail.update(
+            {
+                "ok": True,
+                "ci": ci,
+                "mode": mode,
+                "climax_open": climax_open,
+                "peak": peak,
+                "vol_ratio": v / avg_v,
+                "upper_ratio": upper_ratio,
+                "body": body,
+                "avg_v": avg_v,
+            }
+        )
+        return True, detail
 
-        h24, l24 = _get_24h_stats(cur, sym)
-        lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
-        tag = "topshort-climax" if bull_climax else "topshort-climax-wick"
-        pid, oid, pending = open_order(
-            sym,
-            "SHORT",
-            price,
-            HARD_TP_PCT,
-            TOP_SL_PCT,
-            TOP_HOLD_H * 60,
-            tag,
-            lp,
-        )
-        if not pid and not oid:
-            return False
-        mode = "巨量阳" if bull_climax else "上影线"
-        log.info(
-            "TOPSHORT 入场(%s) %-18s @ %.5f (限价%.5f) 顶=%.5f 回撤=%.1f%% 量比~%.1fx 上影占比=%.0f%%  pid=%s oid=%s",
-            mode,
-            sym,
-            price,
-            lp,
-            peak,
-            dd * 100,
-            v / avg_v,
-            upper_ratio * 100,
-            pid,
-            oid,
-        )
-        update_state(
-            conn,
-            "live",
-            sym,
-            "topshort",
-            state="SHORT",
-            pid=pid,
-            order_id=oid,
-            entry_p=lp if pending else price,
-            peak_pnl_pct=0.0,
-            peak=peak,
-            pump_pct=body,
-            entry_ts=climax_open,
-        )
-        return True
+    return False, detail if detail.get("fail") else {"fail": "no_pattern"}
 
-    return False
+
+def _topshort_try_climax_volume(cur, conn, sym, now_ms):
+    """
+    1H 巨量后见顶走弱 → 顶空 SHORT。命中则下单并写 state，返回 True。
+    形态 A：阳线 + 大阳实体 + 放量；形态 B：长上影 + 放量（冲高回落，庄家砸盘）。
+    共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 5%）；
+    量 >= 前 VOL_LOOKBACK 均量 * VOL_MULT；巨 K 收盘后 SIGNAL_AGE_MS 内；
+    现价从高点回撤 >= PULLBACK；最后一根已完成 1H 体现弱势。
+    大阳/上影候选 K 须在 LEADER_LOOKBACK 窗口内为对应意义的「振幅最大」一根，
+    且须在最新已收盘 1H 之前至少再隔 POST_LEADER_WAIT_BARS 根 1H（默认 2），
+    才确认其后未出现更大阳/更大振幅 K，再允许结合走弱与现价开空。
+    """
+    cur.execute(
+        """
+        SELECT open_time, open_price, high_price, low_price, close_price, volume
+        FROM kline_data
+        WHERE timeframe='1h' AND symbol=%s
+          AND open_time + 3600000 < %s
+        ORDER BY open_time DESC
+        LIMIT %s
+        """,
+        (sym, now_ms, TOPCLI_LOOKBACK_BARS),
+    )
+    rows = list(reversed(cur.fetchall()))
+    try:
+        price = get_price(sym)
+    except Exception:
+        return False
+    ok, det = evaluate_topshort_climax_signal(rows, now_ms, price)
+    if not ok:
+        return False
+
+    def _f(b, k):
+        v = b.get(k)
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    ci = det["ci"]
+    bull_climax = det["mode"] == "bull"
+    b = rows[ci]
+    o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
+    v = _f(b, "volume")
+    body = det["body"]
+    climax_open = det["climax_open"]
+    upper_ratio = det["upper_ratio"]
+    peak = det["peak"]
+    dd = (peak - price) / peak if peak else 0.0
+
+    existing = get_or_create(conn, "live", sym, "topshort", {})
+    # 同一根 climax K 仅允许开仓一次（含平仓冷却期后），防止对同一顶部重复做空
+    if existing.get("entry_ts") == climax_open:
+        return False
+
+    h24, l24 = _get_24h_stats(cur, sym)
+    lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
+    tag = "topshort-climax" if bull_climax else "topshort-climax-wick"
+    pid, oid, pending = open_order(
+        sym,
+        "SHORT",
+        price,
+        HARD_TP_PCT,
+        TOP_SL_PCT,
+        TOP_HOLD_H * 60,
+        tag,
+        lp,
+    )
+    if not pid and not oid:
+        return False
+    mode = "巨量阳" if bull_climax else "上影线"
+    log.info(
+        "TOPSHORT 入场(%s) %-18s @ %.5f (限价%.5f) 顶=%.5f 回撤=%.1f%% 量比~%.1fx 上影占比=%.0f%%  pid=%s oid=%s",
+        mode,
+        sym,
+        price,
+        lp,
+        peak,
+        dd * 100,
+        det["vol_ratio"],
+        upper_ratio * 100,
+        pid,
+        oid,
+    )
+    update_state(
+        conn,
+        "live",
+        sym,
+        "topshort",
+        state="SHORT",
+        pid=pid,
+        order_id=oid,
+        entry_p=lp if pending else price,
+        peak_pnl_pct=0.0,
+        peak=peak,
+        pump_pct=body,
+        entry_ts=climax_open,
+    )
+    return True
+
 
 def fmt(t):
     return datetime.datetime.fromtimestamp(t / 1000).strftime('%m-%d %H:%M')
@@ -898,11 +993,11 @@ def topshort_tick(conn, active_syms):
     for sym in active_syms:
         if sym in open_syms:
             continue
+        if _topshort_has_min_history_for_climax(cur, sym, now_ms):
+            if _topshort_try_climax_volume(cur, conn, sym, now_ms):
+                open_syms.add(sym)
+                continue
         if not _topshort_has_min_listed_history(cur, sym, now_ms):
-            continue
-
-        if _topshort_try_climax_volume(cur, conn, sym, now_ms):
-            open_syms.add(sym)
             continue
 
         cur.execute("""
