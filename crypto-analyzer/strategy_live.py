@@ -59,8 +59,8 @@ def get_active_symbols(cur) -> list:
 CHASE_PUMP_BARS = 24
 CHASE_PUMP_PCT  = 0.12
 CHASE_SL_PCT    = 0.08
-LONG_HOLD_MIN   = 12 * 60
-SHORT_HOLD_MIN  = 24 * 60
+LONG_HOLD_MIN   = 6 * 60
+SHORT_HOLD_MIN  = 6 * 60
 CHASE_MAX_HOLD  = LONG_HOLD_MIN
 # 各子策略平仓/撤单后同标的再开仓最短间隔（秒）
 POST_CLOSE_COOLDOWN_S = 4 * 3600
