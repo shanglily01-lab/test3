@@ -110,24 +110,27 @@ class CacheUpdateService:
         """更新24小时价格统计缓存"""
         # logger.info("📊 更新价格统计缓存...")  # 减少日志输出
 
+        # 从 WebSocket 服务取实时价格（不走 REST，避免触发频率限制）
+        try:
+            from app.services.binance_ws_price import get_ws_price_service
+            _ws_svc = get_ws_price_service('futures')
+        except Exception:
+            _ws_svc = None
+
         for symbol in symbols:
             try:
-                # 优先从实时ticker API获取24h统计数据（更准确）
-                ticker_data = None
-                if self._price_collector is not None:
-                    try:
-                        ticker_data = await self._price_collector.fetch_ticker(symbol)
-                    except Exception as e:
-                        logger.debug(f"从ticker API获取{symbol}数据失败，将使用K线数据: {e}")
-                
-                # 获取当前价格（优先 1m K线，回退到 5m K线，因为 1m 采集已停用）
-                latest_kline = (self.db_service.get_latest_kline(symbol, '1m') or
-                                self.db_service.get_latest_kline(symbol, '5m'))
-                if not latest_kline:
-                    continue
+                # 获取当前价格：优先 WebSocket 实时价，回退到 K 线
+                ws_price = _ws_svc.get_price(symbol) if _ws_svc else None
+                if ws_price:
+                    current_price = float(ws_price)
+                else:
+                    latest_kline = (self.db_service.get_latest_kline(symbol, '1m') or
+                                    self.db_service.get_latest_kline(symbol, '5m'))
+                    if not latest_kline:
+                        continue
+                    current_price = float(latest_kline.close_price)
 
-                current_price = float(latest_kline.close_price)
-                
+                ticker_data = None  # 不再调 REST ticker，24h 统计由 K 线计算
                 # 如果从ticker获取到数据，优先使用ticker的24h统计数据
                 if ticker_data:
                     # 使用ticker API提供的24h统计数据（最准确）

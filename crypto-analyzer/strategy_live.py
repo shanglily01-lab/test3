@@ -9,32 +9,12 @@ B. 顶部做空: 48h涨>=80% + 6h无新高 -> 真实开空, 24h固定平仓
 """
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-import time, os, datetime, logging, atexit
+import time, os, datetime, logging
 import pymysql, requests as req
 from dotenv import load_dotenv
 load_dotenv()
 
 from strategy_state_db import ensure_table, get_or_create, update_state, delete_state, list_active
-
-# ── 单例锁 (PID 文件) ─────────────────────────────────────────────────────
-_PID_FILE = os.path.join(os.path.dirname(__file__), "strategy_live.pid")
-
-def _acquire_pid_lock():
-    if os.path.exists(_PID_FILE):
-        try:
-            old_pid = int(open(_PID_FILE).read().strip())
-        except Exception:
-            old_pid = None
-        if old_pid:
-            try:
-                os.kill(old_pid, 0)   # 0 = 只检查存活，不发信号
-                print(f"[strategy_live] 已有进程 PID={old_pid} 在运行，退出。")
-                raise SystemExit(1)
-            except OSError:
-                pass  # 进程不存在，继续启动
-    with open(_PID_FILE, "w") as f:
-        f.write(str(os.getpid()))
-    atexit.register(lambda: os.path.exists(_PID_FILE) and os.remove(_PID_FILE))
 
 # ── 配置 ─────────────────────────────────────────────────────────
 API_BASE    = "http://localhost:9021"
@@ -43,7 +23,7 @@ LEVERAGE    = 5
 MARGIN      = 500.0   # 每笔保证金 (USDT)
 
 # 品种黑名单
-SYMBOL_BLACKLIST = {'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT','AAVE/USD', 'BTC/USD', 'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT'}
+SYMBOL_BLACKLIST = {'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT', 'AAVE/USD', 'BTC/USD', 'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT'}
 
 # 动态品种缓存
 _sym_cache: dict = {'syms': [], 'updated_at': 0.0}
@@ -796,7 +776,6 @@ def _sync_state(conn):
 
 # ── 主循环 ───────────────────────────────────────────────────────
 def main():
-    _acquire_pid_lock()
     log.info("=" * 56)
     log.info("Strategy Live Runner  实盘下单模式")
     log.info("A: 追多(2h涨>=12%%, 持仓4h)  B: 顶空(80%%泵+6h无新高)  C: 追跌(4h跌>=10%%, 持仓12h)")

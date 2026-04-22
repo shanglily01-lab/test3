@@ -21,33 +21,12 @@
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-import os, time, logging, datetime, atexit
+import os, time, logging, datetime
 import pymysql, requests as req
 from dotenv import load_dotenv
 load_dotenv()
 
 from strategy_state_db import ensure_table, get_or_create, update_state, list_active
-
-# ── 单例锁 (PID 文件) ────────────────────────────────────────────────────
-_PID_FILE = os.path.join(os.path.dirname(__file__), "strategy_whale.pid")
-
-def _acquire_pid_lock():
-    if os.path.exists(_PID_FILE):
-        try:
-            old_pid = int(open(_PID_FILE).read().strip())
-        except Exception:
-            old_pid = None
-        # 检查旧进程是否仍在运行
-        if old_pid:
-            try:
-                os.kill(old_pid, 0)
-                print(f"[strategy_whale] 已有进程 PID={old_pid} 在运行，退出。")
-                raise SystemExit(1)
-            except OSError:
-                pass
-    with open(_PID_FILE, "w") as f:
-        f.write(str(os.getpid()))
-    atexit.register(lambda: os.path.exists(_PID_FILE) and os.remove(_PID_FILE))
 
 # ── 账户与 API ────────────────────────────────────────────────────────
 API_BASE    = "http://localhost:9021"
@@ -638,7 +617,7 @@ def whale_tick(conn, sym: str):
 
 # ── 品种列表 ──────────────────────────────────────────────────────────
 _sym_cache: dict = {'syms': [], 'ts': 0.0}
-_SYM_BLACKLIST = {'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT'}  # 币安即将下架
+_SYM_BLACKLIST = {'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT'}  # 币安即将下架
 
 def get_universe(cur) -> list:
     """
@@ -695,7 +674,6 @@ def _sync_state(conn):
 
 # ── 主循环 ────────────────────────────────────────────────────────────
 def main():
-    _acquire_pid_lock()
     log.info("=" * 60)
     log.info("Strategy Whale  庄家对抗策略  实盘模拟")
     log.info("A: 跟砸盘做空  B: 跟拉盘做多  账户=%d  杠杆=%dx  保证金=%.0fU",
