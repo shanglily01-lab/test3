@@ -266,11 +266,11 @@ async def lifespan(app: FastAPI):
             from app.api.futures_api import engine as _futures_engine
             sl_tp_monitor = init_sl_tp_monitor(
                 _futures_engine,
-                interval_seconds=3.0,
+                interval_seconds=1.0,   # 1s 扫描：抓小币快速穿越（trail-tp/early-sl/breakeven）
                 source_filter="%",
             )
             sl_tp_monitor.start()
-            logger.info("✅ 持仓止盈止损监控服务已启动 (每3秒扫描，覆盖所有来源仓位)")
+            logger.info("✅ 持仓止盈止损监控服务已启动 (每1秒扫描 trail-tp/early-sl/breakeven-sl/硬SL，覆盖所有来源仓位)")
         except Exception as e:
             logger.error(f"❌ 持仓止盈止损监控服务启动失败: {e}")
             import traceback

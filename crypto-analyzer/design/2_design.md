@@ -332,6 +332,26 @@ def _check_exit(pid, pnl_pct, peak_pnl_pct):
 - SL 只有 1%，early-sl 3% 根本不会先触发
 - 保留原有单档 `trail_tp_start=1.2%, trail_tp_pullback=0.3%` 作为兜底
 
+### 3.6a 出场规则的双路执行：策略 60s 轮询 + Monitor 1s 轮询
+
+为了抓住小币快速穿越，上述 5 条规则同时由 **两处** 执行，先触发者胜：
+
+| 执行者 | 频率 | 数据源 | 职责 |
+|--------|------|--------|------|
+| 策略进程 `_trail_tp_check` | 60s（跟随策略主循环） | strategy_state.peak_pnl_pct | 慢路径，兼容历史 |
+| **`PositionSLTPMonitor`** | **1s** | 进程内 `_peak_pnl_map` 内存维护 | 快路径，抓瞬时 |
+
+Monitor 行为：
+- 每 1s 扫 `futures_positions status='open' 且 sl/tp 非空`
+- 用 `/api/futures/price` 端点的 L2 内存字典或 Binance fallback 取最新价
+- 算 `pnl_pct = (price - entry) / entry`，按 side 取符号
+- 内存 `_peak_pnl_map[pid]` 更新最大值
+- 按优先级判定 trail-tp → breakeven-sl → early-sl → 硬 SL/TP
+- 触发后 HTTP 调 `/api/futures/close/{pid}` 平仓
+- 受 `disable_sl_tp_hold` 开关控制：ON 时跳过新三条规则，仅硬 SL/TP 兜底（但这种仓位通常没设 SL/TP，所以整体"自生自灭"）
+
+Monitor 的 peak 是**进程内内存**，FastAPI 重启时丢失；对持仓 < 1-2h 的仓位影响小，策略端的 60s 轮询会在 peak 重建后接上。
+
 ---
 
 ### 3.7 日内熔断（open_order 入口）

@@ -34,13 +34,32 @@ def _db_cfg() -> Dict[str, Any]:
     }
 
 
+# 动态出场规则（与 strategy_live/whale/bigmid MID 同）
+# monitor 扫描频率高（默认 1s）可以更及时抓到小币快速穿越
+TRAIL_TP_TIERS = [
+    (0.10, 0.03),  # peak ≥ 10% → 回落 3% 平
+    (0.05, 0.02),  # peak ≥ 5%  → 回落 2% 平
+    (0.03, 0.01),  # peak ≥ 3%  → 回落 1% 平
+]
+EARLY_SL_PCT             = 0.03   # 浮亏 ≥ 3% 早期止损
+BREAKEVEN_AFTER_PEAK_PCT = 0.03   # peak ≥ 3% 启用保本守护
+BREAKEVEN_SL_PCT         = -0.005 # 保本线 -0.5%
+
+
+def _dynamic_trail_pullback(peak_pct: float) -> float:
+    for threshold, pullback in TRAIL_TP_TIERS:
+        if peak_pct >= threshold:
+            return pullback
+    return float('inf')
+
+
 class PositionSLTPMonitor:
     """价格驱动的止盈止损监控循环。"""
 
     def __init__(
         self,
         engine=None,                 # 保留参数兼容旧调用，不再使用
-        interval_seconds: float = 3.0,
+        interval_seconds: float = 1.0,
         source_filter: str = "%",
         price_max_age_seconds: int = 30,
         api_base: str = "http://localhost:9021",
@@ -53,6 +72,11 @@ class PositionSLTPMonitor:
         self._stop = False
         self._cooldown: Dict[int, float] = {}
         self._cooldown_seconds = 10.0
+        # peak_pnl_pct 内存映射：进程重启会丢，但一般持仓 <= 24h 影响可控
+        self._peak_pnl_map: Dict[int, float] = {}
+        # disable_sl_tp_hold 开关缓存，避免每秒查 DB
+        self._disable_cache: tuple[float, bool] = (0.0, False)
+        self._disable_cache_ttl = 10.0
 
     def start(self) -> None:
         if self._task and not self._task.done():
@@ -91,6 +115,13 @@ class PositionSLTPMonitor:
         except Exception:
             ws = None
 
+        # 全局裸奔开关（10s 缓存）
+        disable_rules = self._is_disable_sl_tp_hold()
+
+        # 清理已不在 open 列表的 peak 记录
+        alive_pids = {int(p["id"]) for p in positions}
+        self._peak_pnl_map = {k: v for k, v in self._peak_pnl_map.items() if k in alive_pids}
+
         now = time.time()
         for pos in positions:
             pid = int(pos["id"])
@@ -99,26 +130,74 @@ class PositionSLTPMonitor:
 
             symbol = pos["symbol"]
             side = pos["position_side"]
+            entry_price = float(pos.get("entry_price") or 0)
             sl = pos.get("stop_loss_price")
             tp = pos.get("take_profit_price")
             if sl is None and tp is None:
+                continue
+            if entry_price <= 0:
                 continue
 
             price = self._get_live_price(ws, symbol)
             if price is None or price <= 0:
                 continue
 
-            trigger = self._check_trigger(side, price, sl, tp)
-            if not trigger:
+            # 计算浮盈浮亏百分比（价格维度）
+            if side.upper() == "LONG":
+                pnl_pct = (price - entry_price) / entry_price
+            else:
+                pnl_pct = (entry_price - price) / entry_price
+
+            # 更新 peak
+            prev_peak = self._peak_pnl_map.get(pid, 0.0)
+            new_peak = max(prev_peak, pnl_pct)
+            if new_peak != prev_peak:
+                self._peak_pnl_map[pid] = new_peak
+
+            reason: Optional[str] = None
+            trigger_price = price
+
+            # 1. 新规则（受 disable_sl_tp_hold 控制）
+            if not disable_rules:
+                pullback_thresh = _dynamic_trail_pullback(new_peak)
+                if (new_peak - pnl_pct) >= pullback_thresh:
+                    reason = "trail-tp"
+                elif new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+                    reason = "breakeven-sl"
+                elif pnl_pct <= -EARLY_SL_PCT:
+                    reason = "early-sl"
+
+            # 2. 原硬 SL/TP（兜底，永远生效）
+            if not reason:
+                trig = self._check_trigger(side, price, sl, tp)
+                if trig:
+                    reason, trigger_price = trig
+
+            if not reason:
                 continue
 
-            reason, trigger_price = trigger
             logger.warning(
                 f"[SL/TP Monitor] 触发平仓 pid={pid} {symbol} {side} "
-                f"reason={reason} price={price:.6f} SL={sl} TP={tp}"
+                f"reason={reason} price={price:.6f} pnl={pnl_pct*100:+.2f}% "
+                f"peak={new_peak*100:+.2f}% SL={sl} TP={tp}"
             )
             self._cooldown[pid] = now + self._cooldown_seconds
+            self._peak_pnl_map.pop(pid, None)
             self._do_close(pid, symbol, side, reason, trigger_price, now)
+
+    def _is_disable_sl_tp_hold(self) -> bool:
+        """读 system_settings.disable_sl_tp_hold，10s 缓存避免每秒查 DB"""
+        now = time.time()
+        ts, val = self._disable_cache
+        if (now - ts) < self._disable_cache_ttl:
+            return val
+        try:
+            from app.services.system_settings_loader import get_disable_sl_tp_hold
+            val = get_disable_sl_tp_hold()
+        except Exception:
+            val = False
+        self._disable_cache = (now, val)
+        return val
 
     def _do_close(self, pid: int, symbol: str, side: str, reason: str,
                   trigger_price: float, now: float) -> None:
@@ -184,6 +263,7 @@ class PositionSLTPMonitor:
         return out
 
     def _get_live_price(self, ws, symbol: str) -> Optional[float]:
+        # 1. 首选 WebSocket（零 REST 消耗）
         if ws is not None:
             try:
                 p = ws.get_price(symbol, max_age_seconds=self.price_max_age)
@@ -191,16 +271,20 @@ class PositionSLTPMonitor:
                     return float(p)
             except Exception:
                 pass
+        # 2. fallback 走 FastAPI /api/futures/price 端点
+        #    该端点优先命中 L2 内存字典（每 5s 从 Binance 批量拉全市场一次）
+        #    1s × N 仓位的 monitor 轮询在这里几乎全部命中内存，不直打 Binance
+        #    ▸ 早期版本曾直接 requests.get fapi.binance.com —— 会让 monitor 提速到 1s 后快速打爆 IP 限额
         try:
-            sym = symbol.replace("/", "")
             r = requests.get(
-                "https://fapi.binance.com/fapi/v1/ticker/price",
-                params={"symbol": sym},
-                timeout=3,
+                f"{self.api_base}/api/futures/price/{symbol}",
+                timeout=2,
             )
             if r.status_code == 200:
-                data = r.json()
-                return float(data.get("price")) if data.get("price") else None
+                data = r.json() or {}
+                price = data.get("price")
+                if price is not None and float(price) > 0:
+                    return float(price)
         except Exception:
             pass
         return None
