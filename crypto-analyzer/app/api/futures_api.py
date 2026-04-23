@@ -22,75 +22,86 @@ import pymysql
 
 # ── /api/futures/price 多层价格查询策略（避免打爆 Binance IP 限额） ──
 # 2026-04-23 事件：IP 被 Binance 封 1 小时（-1003 Too Many Requests）
+# 架构：FastAPI 进程维护全市场价格内存字典，**唯一的 Binance 出口**
 # 分层读取优先级（先命中先返回）：
 #   L1 进程内 3s TTL 单点缓存（同一 symbol 并发请求折叠）
-#   L2 进程内全市场 dict（后台 task 每 3s 批量 SELECT realtime_prices 全表）
-#   L3 直连 Binance /fapi/v1/ticker/price（兜底）
-#   L4 数据库 kline 5m close（fallback）
+#   L2 进程内全市场 dict（后台 task 每 5s 直接拉 Binance /fapi/v1/ticker/price）
+#   L3 直连 Binance /fapi/v1/ticker/price（兜底，L2 该 symbol 缺失或过期时用）
+#   L4 数据库 kline 5m close（最后兜底）
+# 零 DB 读、零 DB 写；realtime_prices 表已废弃（022 迁移保留为空表）
 _PRICE_CACHE: Dict[str, Tuple[float, float]] = {}
 _PRICE_CACHE_TTL = 3.0
 
-# L2: 全市场内存字典，后台 task 每 3s 刷新一次
+# L2: 全市场内存字典，后台 task 每 5s 从 Binance 批量拉取
 # key 为带斜杠格式（BTC/USDT），value (price, updated_at_epoch)
 _REALTIME_PRICE_MAP: Dict[str, Tuple[float, float]] = {}
-_REALTIME_PRICE_MAX_AGE_S = 15.0   # 超过 15s 视为过期
-_REALTIME_REFRESH_INTERVAL_S = 3.0
+_REALTIME_PRICE_MAX_AGE_S = 12.0   # 超过 12s 视为过期（采集 5s × 2 + 容错）
+_REALTIME_REFRESH_INTERVAL_S = 5.0
 
 
 async def _refresh_realtime_price_map_loop():
-    """后台 task：每 3s 批量 SELECT realtime_prices 全表到 _REALTIME_PRICE_MAP。
+    """后台 task：每 5s 直接拉 Binance /fapi/v1/ticker/price 全市场，写内存字典。
 
-    好处：
-    - DB 查询从 N 次/秒（N = 并发 /price 请求数）降到 0.33 次/秒
-    - /price 端点命中率接近 100%，响应时间从几 ms 降到几 μs
-    - 零 DB 连接开销（在后台 task 里复用长连接）
+    这是整个系统唯一一处常驻打 Binance 的代码。所有其他服务
+    (strategy_live/whale/bigmid, paper_limit_sync, position_sl_tp_monitor)
+    通过 /api/futures/price HTTP 端点读 _REALTIME_PRICE_MAP，零 DB IO。
+
+    频率：12 次/分钟 × 权重 2 = 24 权重/分钟（限额 2400，占 1%）。
     """
     import asyncio as _asyncio
-    import pymysql
-    from app.utils.config_loader import load_config
+    import aiohttp
+    from aiohttp import ClientTimeout
 
-    def _select_all():
-        cfg = load_config().get('database', {}).get('mysql', {})
-        conn = pymysql.connect(
-            host=cfg.get('host', 'localhost'),
-            port=int(cfg.get('port', 3306)),
-            user=cfg.get('user', ''),
-            password=cfg.get('password', ''),
-            database=cfg.get('database', ''),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
-            connect_timeout=3,
-        )
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT symbol, price, UNIX_TIMESTAMP(updated_at) AS ts "
-                    "FROM realtime_prices"
-                )
-                return cur.fetchall()
-        finally:
-            conn.close()
+    url = "https://fapi.binance.com/fapi/v1/ticker/price"
+    timeout = ClientTimeout(total=5)
+
+    def _bn_symbol_to_slash(bn_sym: str) -> str:
+        if bn_sym.endswith("USDT"):
+            return bn_sym[:-4] + "/USDT"
+        if bn_sym.endswith("USDC"):
+            return bn_sym[:-4] + "/USDC"
+        return bn_sym
 
     first_log = True
+    consecutive_errors = 0
     while True:
         try:
-            rows = await _asyncio.to_thread(_select_all)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as r:
+                    if r.status != 200:
+                        logger.warning(f"[price] L2 刷新 HTTP {r.status}")
+                        consecutive_errors += 1
+                        await _asyncio.sleep(
+                            min(_REALTIME_REFRESH_INTERVAL_S * (1 + consecutive_errors), 60)
+                        )
+                        continue
+                    data = await r.json()
+            now_ts = _time.time()
             new_map = {}
-            for r in rows:
-                sym = r['symbol']
-                p = r.get('price')
-                ts = r.get('ts')
-                if sym and p is not None and ts is not None:
-                    new_map[sym] = (float(p), float(ts))
-            # 原子替换
-            _REALTIME_PRICE_MAP.clear()
-            _REALTIME_PRICE_MAP.update(new_map)
-            if first_log and new_map:
-                logger.info(f"[price] L2 内存字典首次填充，{len(new_map)} 个品种")
-                first_log = False
+            for item in data:
+                bn_sym = item.get('symbol', '')
+                price = item.get('price')
+                if not bn_sym or not price:
+                    continue
+                try:
+                    new_map[_bn_symbol_to_slash(bn_sym)] = (float(price), now_ts)
+                except (ValueError, TypeError):
+                    continue
+            if new_map:
+                # 原子替换
+                _REALTIME_PRICE_MAP.clear()
+                _REALTIME_PRICE_MAP.update(new_map)
+                consecutive_errors = 0
+                if first_log:
+                    logger.info(f"[price] L2 内存字典首次填充，{len(new_map)} 个品种")
+                    first_log = False
         except Exception as e:
-            logger.debug(f"[price] L2 刷新失败: {e}")
-        await _asyncio.sleep(_REALTIME_REFRESH_INTERVAL_S)
+            consecutive_errors += 1
+            logger.warning(f"[price] L2 刷新异常 (连续 {consecutive_errors} 次): {e}")
+        await _asyncio.sleep(
+            _REALTIME_REFRESH_INTERVAL_S if consecutive_errors == 0
+            else min(_REALTIME_REFRESH_INTERVAL_S * (1 + consecutive_errors), 60)
+        )
 
 
 def _bn_clean_to_slash(symbol_clean: str, original: str) -> str:
