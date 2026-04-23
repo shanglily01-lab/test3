@@ -80,8 +80,23 @@ TRIGGER_BREAKOUT    = 0.005  # 0.5% 有效突破(高低点)
 # ── 仓位参数 ──────────────────────────────────────────────────────────
 SL_PCT            = 0.10
 HARD_TP_PCT       = 0.20  # 硬止盈
-TRAIL_TP_START    = 0.12  # 移动止盈激活阈值
-TRAIL_TP_PULLBACK = 0.02  # 从峰值盈利回落多少触发
+# 动态移动止盈：按 peak 分档（与 strategy_live 同）
+#   peak 3%-5%  → 回落 1%
+#   peak 5%-10% → 回落 2%
+#   peak ≥ 10% → 回落 3%
+#   peak < 3%  → 不启动 trail
+TRAIL_TP_TIERS = [
+    (0.10, 0.03),
+    (0.05, 0.02),
+    (0.03, 0.01),
+]
+
+
+def _dynamic_trail_pullback(peak_pct: float) -> float:
+    for threshold, pullback in TRAIL_TP_TIERS:
+        if peak_pct >= threshold:
+            return pullback
+    return float('inf')
 SHORT_HOLD_H  = 6    # 做空持仓 6小时
 LONG_HOLD_H   = 6    # 做多持仓 6小时
 COOLDOWN_S    = 6 * 3600
@@ -212,10 +227,12 @@ def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pc
         _close_pos(pid, "hard-tp")
         log.info("硬止盈 [WHALE] %-18s  pnl=+%.1f%%", sym, pnl_pct * 100)
         return True
-    if new_peak >= TRAIL_TP_START and (new_peak - pnl_pct) >= TRAIL_TP_PULLBACK:
+    pullback_thresh = _dynamic_trail_pullback(new_peak)
+    if (new_peak - pnl_pct) >= pullback_thresh:
         _close_pos(pid, "trail-tp")
-        log.info("移动止盈 [WHALE] %-18s  pnl=+%.1f%%  peak=+%.1f%%  回撤%.1f%%",
-                 sym, pnl_pct * 100, new_peak * 100, (new_peak - pnl_pct) * 100)
+        log.info("移动止盈 [WHALE] %-18s  pnl=+%.1f%%  peak=+%.1f%%  回撤%.1f%%  阈值%.1f%%",
+                 sym, pnl_pct * 100, new_peak * 100,
+                 (new_peak - pnl_pct) * 100, pullback_thresh * 100)
         return True
     return False
 

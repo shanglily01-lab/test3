@@ -83,6 +83,21 @@ DUMP_EXCLUDE_PCT = -20.0  # change_24h < -20% 排除
 # 根因：主流币 1h 涨 3% 不是趋势信号，回踩 1% 是常态 → 追涨追跌天然失效
 # 结论：BIG 档改走 Whale 多维评分
 
+# MID 档动态 trail 分档（与 strategy_live/whale 同；BIG 档因 TP 只有 2% 不适用）
+DYNAMIC_TRAIL_TIERS = [
+    (0.10, 0.03),  # peak ≥ 10% → 回落 3%
+    (0.05, 0.02),  # peak ≥ 5%  → 回落 2%
+    (0.03, 0.01),  # peak ≥ 3%  → 回落 1%
+]
+
+
+def _dynamic_trail_pullback(peak_pct: float) -> float:
+    for threshold, pullback in DYNAMIC_TRAIL_TIERS:
+        if peak_pct >= threshold:
+            return pullback
+    return float('inf')
+
+
 TIER_PARAMS = {
     # MID 档：沿用 CHASE/DUMP，阈值按小币波动 × 0.5 缩放
     "MID": {
@@ -909,8 +924,15 @@ def _monitor_positions(conn):
         peak = max(float(ss.get("peak_pnl_pct") or 0.0), pnl_pct)
         if peak != float(ss.get("peak_pnl_pct") or 0.0):
             update_state(conn, "bigmid", sym, stype, peak_pnl_pct=peak)
-        if peak >= p["trail_tp_start"] and (peak - pnl_pct) >= p["trail_tp_pullback"]:
-            _close(r["id"], cur_p, "trail-tp"); continue
+        # MID 档使用与 strategy_live/whale 一致的动态 trail（peak 3%/5%/10% → 回落 1%/2%/3%）
+        # BIG 档 TP 仅 2%，peak 基本到不了 3%，保留原单档阈值兜底
+        if tier == "BIG":
+            if peak >= p["trail_tp_start"] and (peak - pnl_pct) >= p["trail_tp_pullback"]:
+                _close(r["id"], cur_p, "trail-tp"); continue
+        else:
+            pullback_thresh = _dynamic_trail_pullback(peak)
+            if (peak - pnl_pct) >= pullback_thresh:
+                _close(r["id"], cur_p, "trail-tp"); continue
 
 
 def _close(pid: int, close_p: float, reason: str):

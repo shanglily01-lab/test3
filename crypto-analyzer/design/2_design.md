@@ -282,20 +282,41 @@ Step 4: 开仓
 
 ---
 
-### 3.6 移动止盈（三个策略共用）
+### 3.6 动态移动止盈（strategy_live / strategy_whale / bigmid MID 共用）
+
+**动机**：原 `peak ≥ 12% 回落 2%` 单档阈值启动太晚——策略入场方向多数是对的，但很多单在浮盈 3-8% 的区间就遇上反向动能，没到 12% 就被反向扫回 SL。
+
+**分档规则（TRAIL_TP_TIERS）**：
+
+| peak 区间 | 回落阈值 | 设计意图 |
+|-----------|----------|----------|
+| `[3%, 5%)` | 1% | 小赚紧盯：浮盈小回撤 1% 即平，保证落袋 |
+| `[5%, 10%)` | 2% | 中赚放松：允许 2% 回撤给后续上涨空间 |
+| `≥ 10%` | 3% | 大赚奔跑：只有深度回撤才平 |
+| `< 3%` | ∞（不触发） | 靠 SL 兜底 |
+
+**伪代码**：
 
 ```python
+def _dynamic_trail_pullback(peak_pct: float) -> float:
+    for threshold, pullback in [(0.10, 0.03), (0.05, 0.02), (0.03, 0.01)]:
+        if peak_pct >= threshold:
+            return pullback
+    return float('inf')  # peak < 3% 不启动
+
 def _check_trail_tp(pid, pnl_pct, peak_pnl_pct):
     new_peak = max(pnl_pct, peak_pnl_pct)
     update_state(peak_pnl_pct=new_peak)
 
     if pnl_pct >= HARD_TP_PCT(0.20):
-        close_order(pid, "hard-tp")    # 硬止盈 20%
+        close_order(pid, "hard-tp")
 
-    if new_peak >= TRAIL_TP_START(0.12):
-        if (new_peak - pnl_pct) >= TRAIL_TP_PULLBACK(0.02):
-            close_order(pid, "trail-tp")  # 移动止盈：峰值回落2%
+    pullback_thresh = _dynamic_trail_pullback(new_peak)
+    if (new_peak - pnl_pct) >= pullback_thresh:
+        close_order(pid, "trail-tp")
 ```
+
+**BIG 档（strategy_bigmid TIER_PARAMS["BIG"]）不适用**：TP 只有 2%，peak 基本到不了 3%，保留原有单档 `trail_tp_start=1.2%, trail_tp_pullback=0.3%` 作为兜底。
 
 ---
 
@@ -478,16 +499,9 @@ def whale_tick(sym, conn):
     update_state(state='SHORT', pid=pid, entry_p=lp, peak_pnl_pct=0.0)
 ```
 
-### 4.5 移动止盈（与 strategy_live 相同）
+### 4.5 移动止盈（与 strategy_live 相同，动态分档）
 
-```python
-def _monitor_pnl(pid, pnl_pct, peak):
-    new_peak = max(pnl_pct, peak)
-    if pnl_pct >= HARD_TP_PCT(0.20):
-        _close_pos(pid, "hard-tp")
-    elif new_peak >= TRAIL_TP_START(0.12) and (new_peak - pnl_pct) >= TRAIL_TP_PULLBACK(0.02):
-        _close_pos(pid, "trail-tp")
-```
+见 3.6。strategy_whale 的 `_trail_tp_check` 调用同一个 `_dynamic_trail_pullback(peak)` 分档表。
 
 ### 4.6 冷却机制
 
