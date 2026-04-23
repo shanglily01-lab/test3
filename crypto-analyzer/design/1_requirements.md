@@ -1,19 +1,20 @@
 # 需求文档 — 量化交易系统
 
-版本：v1.0  
+版本：v1.1  
 更新日期：2026-04-23  
-覆盖范围：strategy_live（趋势跟踪引擎）、strategy_whale（庄家对抗引擎）
+覆盖范围：strategy_live（小币趋势跟踪）、strategy_whale（庄家对抗）、strategy_bigmid（中大市值引擎）
 
 ---
 
 ## 1. 项目背景
 
-本系统针对加密货币永续合约市场，运行两个独立的自动化交易策略引擎：
+本系统针对加密货币永续合约市场，运行三个独立的自动化交易策略引擎：
 
-- **趋势跟踪引擎**（strategy_live）：捕捉短期强势涨跌趋势，含追涨、顶部做空、底部做多、追跌四个子策略。
-- **庄家对抗引擎**（strategy_whale）：检测庄家分发/吸筹行为，通过多维评分系统过滤信号，做空高杠杆泡沫。
+- **趋势跟踪引擎**（strategy_live）：小币池（通常成交量 < $100M），5m 级别捕捉强势涨跌，含 CHASE/TOPSHORT/BOTTOMLONG/DUMP 四个子策略。
+- **庄家对抗引擎**（strategy_whale）：检测庄家分发/吸筹行为，多维评分做空高杠杆泡沫。
+- **中大市值引擎**（strategy_bigmid）：中大币池（成交量 >= $100M），分 BIG / MID 两档按波动比例缩放阈值，MVP 只含 CHASE + DUMP。
 
-两个引擎独立进程运行，共用同一套纸仿真账户和 FastAPI 服务，通过本地 HTTP API 下单。
+三个引擎独立进程运行，共用同一套纸仿真账户（account_id=2）和 FastAPI 服务，通过本地 HTTP API 下单。状态机按 strategy name 隔离（`live` / `whale` / `bigmid`），订单与仓位按 `source LIKE 'strategy_X:%'` 前缀区分。
 
 ---
 
@@ -166,6 +167,83 @@
 | F-W-04-02 | 要求：最近 30 分钟有数据 AND 24h 成交量 > $5M |
 | F-W-04-03 | 按 24h 成交量降序取前 200 |
 | F-W-04-04 | 黑名单同 strategy_live |
+
+---
+
+### 4.3 中大市值引擎（strategy_bigmid）
+
+#### F-BM-01 品种池
+
+| 需求项 | 描述 |
+|--------|------|
+| F-BM-01-01 | 从 `price_stats_24h.quote_volume_24h` 筛选 >= $100M 的 USDT 永续 |
+| F-BM-01-02 | 分档：BIG (>= $500M) / MID ($100M ~ $500M) |
+| F-BM-01-03 | 硬排除 BIGMID_EXCLUDES：XAU/XAG/CL/TSLA（股票/商品衍生品）+ PIEVERSE（数据不全） |
+| F-BM-01-04 | `1000*/USDT` 前缀默认排除；白名单 MEME_1000_WHITELIST = {`1000PEPE/USDT`} 放行 |
+| F-BM-01-05 | 每 15 分钟刷新品种池，分档在运行时动态判定（成交量变化时自动升降档） |
+
+#### F-BM-02 BIG 档：Whale 多维评分（取代 CHASE/DUMP）
+
+**背景**：72h 回测证实 BIG 档用 CHASE/DUMP 不可行
+- SL=2.5%/TP=5%/24h → -57U，-0.77%/笔
+- SL=1%/TP=2.5%/8h → -121U，6/8 触 SL
+- 根因：主流币 1h 涨 3% 不是趋势信号，回踩 1% 是常态
+- 改用 Whale 多维评分后：+70U / 胜率 75%
+
+**评分维度**（阈值按 BIG 币近 7 天真实分布校准）
+
+| 维度 | 分数 | 做空条件 | 做多条件 |
+|------|------|----------|----------|
+| Funding rate | +1~+3 | ≥ ±0.001% / ±0.003% / ±0.005% | 镜像 |
+| LSR (long_account) | +1~+2 | ≥ 0.70 / 0.75 | short_account ≥ 0.50 / 0.55 |
+| OI 4h 变化 | +1~+2 | ≤ -1% / -2.5% | ≥ +1% / +2.5% |
+| 放量滞涨/滞跌 | +2~+3 | vol_ratio ≥ 1.5/2.0 且 3h 价格变化 < 1% | 镜像 |
+| Taker buy ratio | +1 | < 0.45 | > 0.55 |
+| **触发器**（必须） | N/A | 1h 阴线 ≥ 0.8% 或跌破 4h 低 0.15% | 1h 阳线 ≥ 0.8% 或突破 4h 高 0.15% |
+
+**评分门槛**：`entry_score_min = 4`（原 whale 为 5，BIG 档 LSR 弱化所以降到 4）
+
+**双向评分选优**：同时计算 short/long 评分，都过门槛+触发器时，取高分方开仓；同分偏向 short。
+
+#### F-BM-03 MID 档：CHASE/DUMP（趋势追踪）
+
+| 参数 | MID |
+|------|-----|
+| 时间框架 | 15m |
+| CHASE 回看 / 阈值 / 单 bar | 24 根 (6h) / 6% / 1.5% |
+| CHASE 耗竭 | 3% |
+| DUMP 回看 / 阈值 / 反弹上限 | 48 根 (12h) / 5% / 4% |
+
+#### F-BM-04 风控分档
+
+| 参数 | BIG (whale) | MID (trend) |
+|------|-------------|-------------|
+| SL | 1% | 5% |
+| 硬止盈 | 2% | 10% |
+| 移动止盈激活 | 1.2% | 6% |
+| 移动止盈回落 | 0.3% | 1% |
+| 限价偏移 | **0 (市价入场)** | 1.5% |
+| 反向滑点熔断 | 0.3% | 0.75% |
+| 最大持仓时长 | 4h | 12h |
+| 限价挂单超时 | 2h（仅 MID 有挂单）|
+
+#### F-BM-05 状态机与冷却
+
+| 需求项 | 描述 |
+|--------|------|
+| F-BM-05-01 | 状态机 key：`(strategy='bigmid', symbol, stype)`，stype ∈ {`whale`, `chase`, `dump`} |
+| F-BM-05-02 | BIG 档使用 stype='whale'（不分方向）；MID 档按子策略 stype='chase' / 'dump' |
+| F-BM-05-03 | 状态机记录 `tier` 字段，平仓后冷却 4h |
+| F-BM-05-04 | 订单/仓位 source 前缀：`strategy_bigmid:whale-entry` (BIG) / `strategy_bigmid:chase-entry` / `strategy_bigmid:dump-entry` (MID) |
+| F-BM-05-05 | 持仓监控/状态复位按 source 识别 stype（含 "whale-entry" → stype='whale'） |
+
+#### F-BM-06 与其他引擎的协同
+
+| 需求项 | 描述 |
+|--------|------|
+| F-BM-06-01 | 共用 account_id=2；`_has_any_open(sym)` 跨策略检查，同标的不重复开 |
+| F-BM-06-02 | `_fill_pending_orders` / `_monitor_positions` / `_settle_closed_positions` 全部按 source LIKE 'strategy_bigmid:%' 过滤，不触碰 strategy_live/whale 的订单和仓位 |
+| F-BM-06-03 | v2 规划：MID 档加 Climax / TopShort / BottomLong；BIG Whale 加 trail-tp 分档；考虑 BIG LSR 按币自适应（BTC p50≈0.45 vs DOGE≈0.73） |
 
 ---
 

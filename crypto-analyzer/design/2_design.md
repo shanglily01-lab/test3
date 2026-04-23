@@ -1,8 +1,8 @@
 # 设计文档 — 量化交易系统
 
-版本：v1.0  
+版本：v1.1  
 更新日期：2026-04-23  
-覆盖范围：strategy_live（趋势跟踪引擎）、strategy_whale（庄家对抗引擎）
+覆盖范围：strategy_live（小币趋势跟踪）、strategy_whale（庄家对抗）、strategy_bigmid（中大市值引擎 MVP）
 
 ---
 
@@ -13,20 +13,27 @@
 │                    FastAPI 服务 (port 9021)               │
 │  /api/futures/open  /api/futures/close  /api/system/*    │
 │  FuturesTradingEngine (纸仓) │ BinanceFuturesEngine (实盘) │
-└────────────┬─────────────────────────┬────────────────────┘
-             │ HTTP                    │ HTTP
-    ┌────────┴────────┐      ┌─────────┴──────────┐
-    │ strategy_live   │      │ strategy_whale      │
-    │ ACCOUNT_ID=2    │      │ ACCOUNT_ID=2        │
-    │ POLL=60s        │      │ POLL=90s            │
-    └────────┬────────┘      └─────────┬──────────┘
-             │                         │
-    ┌────────┴─────────────────────────┴──────────┐
-    │              MySQL (dimesion)                │
-    │  kline_data / futures_positions              │
-    │  futures_orders / strategy_state            │
-    │  system_settings / funding_rates / ...       │
-    └──────────────────────────────────────────────┘
+└────┬─────────────────┬──────────────────┬─────────────────┘
+     │ HTTP            │ HTTP             │ HTTP
+┌────┴───────┐   ┌─────┴──────┐   ┌───────┴──────────┐
+│strategy_   │   │strategy_   │   │strategy_bigmid    │
+│  live      │   │  whale     │   │  (MVP: CHASE/DUMP)│
+│POLL=60s    │   │POLL=90s    │   │POLL=60s           │
+│state='live'│   │='whale'    │   │='bigmid'          │
+│source=     │   │source=     │   │source=            │
+│ strategy_  │   │ strategy_  │   │ strategy_bigmid:  │
+│ live:X     │   │ whale:X    │   │ {chase|dump}-entry│
+└────┬───────┘   └─────┬──────┘   └───────┬──────────┘
+     │                 │                   │
+┌────┴─────────────────┴───────────────────┴──────────────┐
+│                  MySQL (dimesion)                        │
+│  kline_data / futures_positions / futures_orders         │
+│  strategy_state / system_settings / price_stats_24h      │
+│  funding_rates / long_short_ratio / open_interest        │
+└──────────────────────────────────────────────────────────┘
+
+三引擎共用 ACCOUNT_ID=2；状态机按 strategy 字段隔离；
+订单/持仓按 source 前缀区分，互不干扰。
 ```
 
 ### 1.1 进程模型
@@ -488,6 +495,167 @@ def _monitor_pnl(pid, pnl_pct, peak):
 |----------|----------|----------|
 | stop_loss | 12 小时 | COOLDOWN_SL_S = 43200 |
 | 其他（tp/timeout） | 6 小时 | COOLDOWN_S = 21600 |
+
+---
+
+## 4a. 中大市值引擎（strategy_bigmid）详细设计
+
+### 4a.1 设计动机
+
+现有 strategy_live 的信号阈值全部按小币 5m 波动（p50 振幅 2-3%，p99 振幅 10%+）设计，在主流大币（BTC/ETH/SOL 5m 振幅 p50 0.15-0.35%、p99 < 1.5%）上**永远无法触发**。近 7 天大币列表（BTC/ETH/SOL/DOGE/XRP/BNB 等）策略开仓数 = 0。
+
+strategy_bigmid 不修改 strategy_live，改用独立进程 + 按档位缩放的阈值表，让大币也能被捕捉。
+
+### 4a.2 分档规则
+
+```python
+TIER_BIG_MIN_VOL = 500_000_000   # >= $500M/24h
+TIER_MID_MIN_VOL = 100_000_000   # >= $100M/24h
+
+def get_tier(sym, vol_map):
+    v = vol_map.get(sym, 0)
+    if v >= TIER_BIG_MIN_VOL: return "BIG"
+    if v >= TIER_MID_MIN_VOL: return "MID"
+    return None   # 跌出池
+
+# 排除
+BIGMID_EXCLUDES = {"XAU/USDT","XAG/USDT","CL/USDT","TSLA/USDT","PIEVERSE/USDT"}
+MEME_1000_WHITELIST = {"1000PEPE/USDT"}
+```
+
+品种池每 15 分钟从 `price_stats_24h` 刷新；成交量波动可致品种升降档（如 HYPE 从 MID 升 BIG）。
+
+### 4a.3 分档策略差异
+
+| 参数 | BIG (whale) | MID (trend) | 说明 |
+|------|-------------|-------------|------|
+| 策略类型 kind | whale | trend | 路由按 kind 分发 |
+| tf | 1h | 15m | 时间框架 |
+| 入场逻辑 | 多维评分 + 触发器 | CHASE/DUMP 单指标 | |
+| 入场评分门槛 | 4 分 | n/a | |
+| sl_pct | 1% | 5% | |
+| hard_tp_pct | 2% | 10% | |
+| trail_tp_start / pullback | 1.2% / 0.3% | 6% / 1% | |
+| limit_offset_pct | **0 (市价)** | 1.5% | BIG 限价单在主流币几乎填不到，用市价 |
+| reverse_slippage | 0.3% | 0.75% | MID 档挂单才有意义；BIG 市价无穿越 |
+| hold_min | 4h | 12h | |
+
+### 4a.4 BIG Whale 评分阈值表（按 7 天真实分布校准）
+
+```python
+BIG Whale 参数（TIER_PARAMS["BIG"]）:
+  funding rate:
+    fr_extreme_high  0.00005   # +3 做空（BTC 7 天 p95 ≈ 0.003%）
+    fr_high          0.00003   # +2
+    fr_mild_high     0.00001   # +1
+    fr_extreme_low  -0.00005   # +3 做多（镜像）
+    fr_low          -0.00003   # +2
+    fr_mild_low     -0.00001   # +1
+
+  LSR (long_account):
+    ls_long_extreme  0.75  # +2 做空
+    ls_long_high     0.70  # +1
+    ls_short_extreme 0.55  # +2 做多
+    ls_short_high    0.50  # +1
+
+  OI 4h change:
+    oi_drop_strong  -0.025  # +2 做空
+    oi_drop_mild    -0.010  # +1
+    oi_rise_strong   0.025  # +2 做多
+    oi_rise_mild     0.010  # +1
+
+  放量滞涨/滞跌 (bars[-3:] 对比前 24 根均量):
+    vol_ratio_strong 2.0  # +3（diverged 时）
+    vol_ratio_mild   1.5  # +2
+    stale_price_pct  0.010  # 3h 价格变化 < 1% 算滞涨/滞跌
+
+  Taker:
+    taker_sell_thresh 0.45  # +1 做空
+    taker_buy_thresh  0.55  # +1 做多
+
+  触发器（必须满足）:
+    trigger_candle_pct 0.008  # 1h 实体 ≥ 0.8% (BTC p92)
+    trigger_breakout   0.0015 # 跌破/突破 4h 高低点 0.15%
+
+  入场门槛 entry_score_min = 4
+```
+
+### 4a.5 big_whale_tick 信号流
+
+```
+big_whale_tick(sym):
+  state = get_or_create('bigmid', sym, 'whale')
+  IF state != IDLE or cooldown not elapsed: return
+  bars_1h = last 24 completed 1h bars
+  s_short, trig_short = compute_whale_score(short, bars_1h, cur_price)
+  s_long,  trig_long  = compute_whale_score(long,  bars_1h, cur_price)
+  candidates = []
+  IF s_short >= 4 AND trig_short: candidates.append(('SHORT', s_short))
+  IF s_long  >= 4 AND trig_long:  candidates.append(('LONG',  s_long))
+  IF not candidates: return
+  direction, sc = max(candidates, key=score)  # 同分偏 short
+  open_order(sym, direction, price, 'BIG', 'whale-entry', limit_p=None)  # 市价
+  update_state(state='PENDING')
+```
+
+### 4a.6 MID 档 CHASE / DUMP 信号流
+
+```
+CHASE: bars_15m[-24:]; pump >= 6% + leader >= 1.5% + dd <= 3%
+DUMP:  bars_15m[-48:]; drop >= 5% + bounce <= 4%
+挂限价单 cur * (1 ± 1.5%)，2h 超时撤单，反向滑点 0.75% 熔断
+```
+
+### 4a.5 限价单填充（复用反向滑点熔断，但按 tier 取阈值）
+
+```python
+for o in pending_orders WHERE source LIKE 'strategy_bigmid:%':
+    tier = lookup_tier(o.symbol)     # 挂单期间 tier 若被挤出池 → CANCELLED('tier_downgrade')
+    if triggered:
+        rev_slip = (limit_p - cur_p)/limit_p if LONG else (cur_p - limit_p)/limit_p
+        if rev_slip > TIER_PARAMS[tier]['reverse_slippage']:
+            CANCELLED(reason=f'reverse_slippage_{rev_slip:.4f}')
+            continue
+        # optimistic lock FILLING + SL/TP 按 cur_p 重算
+        POST /api/futures/open
+```
+
+### 4a.6 持仓监控
+
+`_monitor_positions`: 只扫 `source LIKE 'strategy_bigmid:%'` 的 open 持仓：
+1. 硬止盈 pnl >= hard_tp_pct → close('hard-tp')
+2. 止损 pnl <= -sl_pct → close('stop_loss')
+3. 移动止盈 peak >= trail_tp_start 且 (peak-pnl) >= trail_tp_pullback → close('trail-tp')
+4. 超时 timeout_at <= NOW()：由 FuturesTradingEngine 的后台任务处理（未显式在 bigmid 进程里实现）
+
+`_settle_closed_positions`: 把 `futures_positions.status='closed'` 且状态机仍在 LONG/SHORT/PENDING 的条目复位为 DONE，启动 4h 冷却。
+
+### 4a.7 隔离策略
+
+| 维度 | 实现 |
+|------|------|
+| 状态机 | `strategy_state` 表 strategy='bigmid' |
+| 订单过滤 | `futures_orders.order_source LIKE 'strategy_bigmid:%%'` |
+| 仓位过滤 | `futures_positions.source LIKE 'strategy_bigmid:%%'` |
+| 账户共享 | ACCOUNT_ID=2 与 strategy_live/whale 共用；`_has_any_open` 跨策略，同标的不重复开 |
+| 日志 | `strategy_bigmid.log` 独立文件 |
+
+### 4a.8 72h 回测记录
+
+| 方案 | 成交 | 胜率 | 累计 PnL |
+|------|------|------|----------|
+| BIG CHASE/DUMP SL=2.5%/TP=5%/24h | 3 | 33% | **-57 U** |
+| BIG CHASE/DUMP SL=1%/TP=2.5%/8h | 8 | 12% | **-121 U** |
+| **BIG Whale SL=1%/TP=2%/4h** | **8** | **75%** | **+70 U** |
+| MID CHASE/DUMP | 4 | 50% | +10 U |
+
+根因：主流币 1h 涨幅 3% 不是趋势信号，回踩 1% 是常态。单一 CHASE/DUMP 指标在大币无效，必须多维共振（funding + OI + 放量 + 触发器）才能过滤噪声。
+
+### 4a.9 v2 路线图（未实现）
+
+- MID 档加 Climax / TopShort / BottomLong 覆盖
+- BIG Whale 按币自适应 LSR 阈值（BTC p50≈0.45 vs DOGE p50≈0.73，统一阈值漏信号）
+- 实盘灰度：paper 验证 7 天后开小额实盘，对比 paper/live PnL 相关性
 
 ---
 

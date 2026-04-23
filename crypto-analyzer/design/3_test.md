@@ -1,8 +1,8 @@
 # 测试文档 — 量化交易系统
 
-版本：v1.0  
+版本：v1.1  
 更新日期：2026-04-23  
-覆盖范围：strategy_live（趋势跟踪引擎）、strategy_whale（庄家对抗引擎）
+覆盖范围：strategy_live、strategy_whale、strategy_bigmid（MVP）
 
 ---
 
@@ -552,6 +552,165 @@
 
 ---
 
+## 3a. strategy_bigmid 测试用例
+
+### 3a.1 分档归属
+
+#### TC-BM-TIER-01 BIG 门槛
+
+**前置条件：** price_stats_24h.quote_volume_24h = $500,000,001（刚过 BIG 门槛）
+
+**期望结果：** `get_tier()` 返回 `"BIG"`
+
+---
+
+#### TC-BM-TIER-02 MID 门槛
+
+**前置条件：** quote_volume_24h = $100,000,001
+
+**期望结果：** 返回 `"MID"`
+
+---
+
+#### TC-BM-TIER-03 池外
+
+**前置条件：** quote_volume_24h = $99,999,999
+
+**期望结果：** 返回 `None`，该品种不被扫描
+
+---
+
+#### TC-BM-TIER-04 BIGMID_EXCLUDES 硬排除
+
+**前置条件：** 刷新池时 XAU/USDT 成交量 = $1.3B
+
+**期望结果：** 不进入 BIG 列表（`BIGMID_EXCLUDES` 命中），忽略此币
+
+---
+
+#### TC-BM-TIER-05 1000* 前缀黑名单 + 白名单
+
+**前置条件：** 刷新池时候选含 1000PEPE/USDT（$270M）与 1000MOG/USDT（$280M）
+
+**期望结果：** 1000PEPE 进 MID 列表（白名单放行）；1000MOG 被排除
+
+---
+
+### 3a.2 BIG 档 Whale 评分
+
+#### TC-BM-WHALE-01 做空评分过门槛：BTC 顶部结构
+
+**前置条件：**
+- BTC/USDT tier=BIG
+- funding_rate = 0.00004（+2 做空）
+- long_account = 0.48（< 阈值，0 分，BTC 长期偏空）
+- OI 4h 变化 = -1.5%（< -1%，+1 做空）
+- 最近 3 根 1h 均量 / 前 24 根均量 = 2.3（> 2.0 strong），价格变化 +0.6%（< 1% 滞涨），+3 做空
+- 最近 3 根 taker_buy_ratio 均值 = 0.43（< 0.45，+1 做空）
+- 触发器：1h 阴线 -0.9%（> 0.8%），触发器 ✓
+- 总分：2+0+1+3+1 = 7 ≥ 4
+
+**期望结果：** 开 SHORT，状态机 `(bigmid, BTC/USDT, whale)` = PENDING，source=`strategy_bigmid:whale-entry`，市价入场
+
+---
+
+#### TC-BM-WHALE-02 评分过门槛但触发器缺失
+
+**前置条件：** 评分 6 分（足够），但最新 1h K body 只有 0.5% 且无突破
+
+**期望结果：** 不开仓（触发器必须满足）
+
+---
+
+#### TC-BM-WHALE-03 双向评分同时满足
+
+**前置条件：** short 评分 5 分 + 触发器；long 评分 6 分 + 触发器
+
+**期望结果：** 开 LONG（择优开高分方）
+
+---
+
+#### TC-BM-WHALE-04 双向评分同分
+
+**前置条件：** short 和 long 都 5 分 + 触发器
+
+**期望结果：** 开 SHORT（同分偏向 short，避险优先）
+
+---
+
+#### TC-BM-WHALE-05 funding 阈值缩放验证
+
+**前置条件：** fr=0.00004（= 0.004%）
+
+**期望结果：** 原 whale 阈值下不得分（< 0.0001），BIG Whale 下得 +2（≥ fr_high 0.00003）
+
+---
+
+### 3a.3 MID 档 CHASE / DUMP
+
+#### TC-BM-CHASE-01 MID 触发：HYPE 15m 涨 6.2%
+
+**前置条件：** MID 档，24 根 15m (6h) 涨幅 6.2%，单 bar 最大 1.8%，回撤 2.5%
+
+**期望结果：** 触发开多，SL=5%，TP=10%，限价 = close × (1 - 0.015)
+
+---
+
+#### TC-BM-DUMP-01 MID 反弹过深
+
+**前置条件：** MID 档，跌幅 5.5%，但距最低点已反弹 4.5%（> 4%）
+
+**期望结果：** 不开仓
+
+---
+
+### 3a.4 反向滑点熔断（仅 MID 档有挂单）
+
+#### TC-BM-SLIP-01 MID 熔断：偏离 0.80%
+
+**前置条件：** SHORT LIMIT 100，cur_p = 100.8，tier=MID，阈值 0.75%
+
+**期望结果：** CANCELLED
+
+---
+
+#### TC-BM-SLIP-02 MID 正常滑点：偏离 0.3%
+
+**前置条件：** tier=MID，偏离 0.3%
+
+**期望结果：** 正常填充（小于 0.75% 阈值）
+
+---
+
+### 3a.5 挂单期间 tier 降档
+
+#### TC-BM-DOWNGRADE-01 挂单中成交量跌出 $100M
+
+**前置条件：** 挂单时 tier=MID，2h 后刷新 price_stats_24h 显示该币成交量跌到 $90M
+
+**期望结果：** 下一轮 `_fill_pending_orders` 扫描时 `lookup_tier()` 返回 None → CANCELLED，reason='tier_downgrade'
+
+---
+
+### 3a.6 策略隔离
+
+#### TC-BM-ISOLATE-01 bigmid 不触碰 strategy_live 订单
+
+**前置条件：**
+- futures_orders 表中同时存在 `source='strategy_live:chase-entry'` 与 `source='strategy_bigmid:chase-entry'` 的 PENDING 订单
+
+**期望结果：** `strategy_bigmid._fill_pending_orders` 只处理 `strategy_bigmid:%` 的订单，strategy_live 的订单不变
+
+---
+
+#### TC-BM-ISOLATE-02 共用 _has_any_open
+
+**前置条件：** strategy_live 在 SOL/USDT 有 open 持仓
+
+**期望结果：** strategy_bigmid 的 CHASE 信号满足时，`_has_any_open` 返回 True，拒绝重复开仓
+
+---
+
 ## 4. 配置加载测试
 
 #### TC-CFG-01 strategy_live 从 DB 加载参数
@@ -724,6 +883,12 @@ Body: {"live_trading_enabled": true}
 - [ ] CHASE 耗竭过滤在高点回撤 > 6% 时生效
 - [ ] CHASE 慢速爬升过滤在单 bar 涨幅 < 3% 时生效
 - [ ] 反向滑点 > 1.5% 撤单不填；= 1.5% 允许填充；正向滑点不受影响
+- [ ] strategy_bigmid 分档归属正确（$500M/100M 门槛 + BIG_WHITELIST 双重判定）
+- [ ] BIG 档走 whale 评分；MID 档走 CHASE/DUMP
+- [ ] BIG Whale 评分 ≥ 4 且触发器满足才开仓；双向同分偏 SHORT
+- [ ] BIG Whale 市价入场（limit_offset=0）；MID 限价偏移 1.5% + 反向滑点 0.75% 熔断
+- [ ] strategy_bigmid 只处理 source LIKE 'strategy_bigmid:%' 的订单和仓位
+- [ ] 挂单期间 tier 降档到池外 → tier_downgrade 撤单
 - [ ] TOPSHORT Climax 放量 < 2x 时不触发
 - [ ] TOPSHORT Climax 信号 > 26h 自动撤单
 - [ ] DUMP 反弹 > 8% 时不触发
