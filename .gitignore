@@ -22,3 +22,14 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# 日志文件
+*.log
+
+# Claude Code 内部数据
+.claude/
+
+# 运行时状态文件
+strategy_live_state.json
+strategy_whale_state.json
+strategy_live_trades.jsonl
