@@ -67,7 +67,8 @@ CHASE_MAX_HOLD  = LONG_HOLD_MIN
 # 各子策略平仓/撤单后同标的再开仓最短间隔（秒）
 POST_CLOSE_COOLDOWN_S = 4 * 3600
 CHASE_COOLDOWN = POST_CLOSE_COOLDOWN_S
-SYMBOL_MAX_DAILY_SL = 2   # 同标的当日止损 >= 2 次则暂停该标的当日所有新开仓
+SYMBOL_MAX_DAILY_SL = 2        # 同标的当日止损 >= 2 次则暂停该标的当日所有新开仓
+RECENT_SL_COOLDOWN_MIN = 240  # 止损后 4 小时内禁止同标的开新仓，防止连续被扫
 
 # 顶部做空参数
 TOP_PUMP_THRESH = 0.80
@@ -93,15 +94,11 @@ TOPCLI_LOOKBACK_BARS   = 40
 TOPCLI_LEADER_LOOKBACK = 24
 TOPCLI_POST_LEADER_WAIT_BARS = 2
 TOPCLI_MAX_PENDING         = 1    # 全局最多同时挂几张 climax 限价单
-TOPCLI_ALLOW_WICK          = False  # 上影线变体胜率 0%，暂停使用
 TOPCLI_VOL_LOOKBACK    = 20
 TOPCLI_VOL_MULT        = 2.0
 TOPCLI_MIN_BODY_VS_O = 0.025
 TOPCLI_MIN_RANGE_FULL_PCT = 0.045
 TOPCLI_MIN_BODY_OF_RANGE = 0.42
-# 上影模式：上影占「整根振幅 high−low」的比例（非涨跌幅%）；有冲高才有砸盘
-TOPCLI_MIN_UPPER_WICK_OF_RANGE = 0.34
-TOPCLI_MIN_PUMP_TO_HIGH_VS_O   = 0.020
 TOPCLI_PULLBACK_FR     = 0.012
 TOPCLI_MAX_DD_FR       = 0.48
 TOPCLI_SIGNAL_AGE_MS   = 22 * 3600 * 1000
@@ -256,6 +253,41 @@ def _symbol_daily_sl_count(sym: str) -> int:
         return 0
 
 
+def _symbol_recent_sl_minutes(sym: str) -> float:
+    """返回该标的最近一次止损距今分钟数；无记录或异常返回 9999.0"""
+    try:
+        conn = pymysql.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "3306")),
+            user=os.getenv("DB_USER", ""),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", ""),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT TIMESTAMPDIFF(SECOND, close_time, NOW()) AS secs "
+                    "FROM futures_positions "
+                    "WHERE account_id=%s AND symbol=%s "
+                    "  AND status='closed' AND notes='stop_loss' "
+                    "  AND close_time >= DATE_SUB(NOW(), INTERVAL %s MINUTE) "
+                    "ORDER BY close_time DESC LIMIT 1",
+                    (ACCOUNT_ID, sym, RECENT_SL_COOLDOWN_MIN),
+                )
+                row = cur.fetchone()
+                if row and row["secs"] is not None:
+                    return float(row["secs"]) / 60.0
+                return 9999.0
+        finally:
+            conn.close()
+    except Exception as e:
+        log.error("_symbol_recent_sl_minutes %s error: %s", sym, e)
+        return 9999.0
+
+
 def _has_any_open(sym: str) -> bool:
     """检查 DB 里是否已有任意方向的 open 持仓或 PENDING 挂单。有则返回 True。"""
     try:
@@ -295,6 +327,10 @@ def open_order(sym, direction, entry_price, tp_pct, sl_pct, hold_min, tag, limit
     """开仓. 返回 (position_id, order_id, is_pending)"""
     if _has_any_open(sym):
         log.info("跳过开%s %s: 已有持仓", direction, sym)
+        return None, None, False
+    recent_min = _symbol_recent_sl_minutes(sym)
+    if recent_min < RECENT_SL_COOLDOWN_MIN:
+        log.info("跳过开%s %s: 止损后%.0f分钟，冷却%d小时内不开新仓", direction, sym, recent_min, RECENT_SL_COOLDOWN_MIN // 60)
         return None, None, False
     daily_sl = _symbol_daily_sl_count(sym)
     if daily_sl >= SYMBOL_MAX_DAILY_SL:
@@ -545,6 +581,25 @@ def _fill_pending_orders(conn):
             lev = int(o['leverage'] or LEVERAGE)
             sl  = float(o['stop_loss_price']  or 0) or None
             tp  = float(o['take_profit_price'] or 0) or None
+            # 以实际成交价重算 SL/TP：限价被穿越时 fill_price 可能远偏离 limit_price，
+            # 若继续用原止损价则实际 SL 幅度大幅压缩，容易被秒扫
+            if sl and tp and limit_p > 0 and cur_p > 0 and abs(cur_p - limit_p) / limit_p > 0.001:
+                if pos_side == 'LONG':
+                    sl_ratio = (limit_p - sl) / limit_p
+                    tp_ratio = (tp - limit_p) / limit_p
+                else:
+                    sl_ratio = (sl - limit_p) / limit_p
+                    tp_ratio = (limit_p - tp) / limit_p
+                if sl_ratio > 0 and tp_ratio > 0:
+                    orig_sl, orig_tp = sl, tp
+                    if pos_side == 'LONG':
+                        sl = round(cur_p * (1 - sl_ratio), 8)
+                        tp = round(cur_p * (1 + tp_ratio), 8)
+                    else:
+                        sl = round(cur_p * (1 + sl_ratio), 8)
+                        tp = round(cur_p * (1 - tp_ratio), 8)
+                    log.info("SL/TP重算 %s %s fill=%.5f limit=%.5f SL %.5f->%.5f TP %.5f->%.5f",
+                             sym, side, cur_p, limit_p, orig_sl, sl, orig_tp, tp)
             src = (o.get('order_source') or 'strategy_live:limit-fill')
             max_hold = LONG_HOLD_MIN if pos_side == 'LONG' else SHORT_HOLD_MIN
             payload = {
@@ -728,15 +783,10 @@ def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
     if win_hi < win_lo:
         return False, {"fail": "empty_window"}
     bull_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=True)
-    range_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=False)
     detail["win_lo"], detail["win_hi"] = win_lo, win_hi
-    detail["bull_leader"], detail["range_leader"] = bull_leader, range_leader
+    detail["bull_leader"] = bull_leader
 
-    try_ci = []
-    if bull_leader is not None:
-        try_ci.append(bull_leader)
-    if range_leader is not None and range_leader not in try_ci:
-        try_ci.append(range_leader)
+    try_ci = [bull_leader] if bull_leader is not None else []
 
     for ci in try_ci:
         b = rows[ci]
@@ -759,15 +809,7 @@ def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
             and rng >= TOPCLI_MIN_RANGE_FULL_PCT
             and (c - o) / hl >= TOPCLI_MIN_BODY_OF_RANGE
         )
-        wick_climax = (
-            TOPCLI_ALLOW_WICK
-            and range_leader is not None
-            and ci == range_leader
-            and rng >= TOPCLI_MIN_RANGE_FULL_PCT
-            and upper_ratio >= TOPCLI_MIN_UPPER_WICK_OF_RANGE
-            and (h - o) / o >= TOPCLI_MIN_PUMP_TO_HIGH_VS_O
-        )
-        if not bull_climax and not wick_climax:
+        if not bull_climax:
             continue
 
         lo_i = max(0, ci - TOPCLI_VOL_LOOKBACK)
@@ -794,21 +836,13 @@ def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
             detail["fail"] = "open_too_old"
             continue
 
-        if bull_climax:
-            if last_c >= c:
-                detail["fail"] = "last_c_not_weak_bull"
-                detail["last_c"], detail["climax_c"] = last_c, c
-                continue
-            if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
-                detail["fail"] = "last_c_bull_pull"
-                continue
-        else:
-            if last_c >= max(o, c):
-                detail["fail"] = "last_c_wick"
-                continue
-            if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
-                detail["fail"] = "last_c_wick_pull"
-                continue
+        if last_c >= c:
+            detail["fail"] = "last_c_not_weak_bull"
+            detail["last_c"], detail["climax_c"] = last_c, c
+            continue
+        if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
+            detail["fail"] = "last_c_bull_pull"
+            continue
 
         peak = h
         if price >= peak * (1.0 - TOPCLI_PULLBACK_FR):
@@ -823,7 +857,7 @@ def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
             detail["fail"] = "below_climax_low"
             continue
 
-        mode = "bull" if bull_climax else "wick"
+        mode = "bull"
         detail.update(
             {
                 "ok": True,
@@ -1024,7 +1058,6 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
             return 0.0
 
     ci = det["ci"]
-    bull_climax = det["mode"] == "bull"
     b = rows[ci]
     o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
     v = _f(b, "volume")
@@ -1041,7 +1074,7 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
 
     h24, l24 = _get_24h_stats(cur, sym)
     lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
-    tag = "topshort-climax" if bull_climax else "topshort-climax-wick"
+    tag = "topshort-climax"
     pid, oid, pending = open_order(
         sym,
         "SHORT",
@@ -1054,7 +1087,7 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     )
     if not pid and not oid:
         return False
-    mode = "巨量阳" if bull_climax else "上影线"
+    mode = "巨量阳"
     log.info(
         "TOPSHORT 入场(%s) %-18s @ %.5f (限价%.5f) 顶=%.5f 回撤=%.1f%% 量比~%.1fx 上影占比=%.0f%%  pid=%s oid=%s",
         mode,
