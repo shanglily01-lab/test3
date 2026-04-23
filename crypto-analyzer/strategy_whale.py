@@ -87,6 +87,55 @@ LONG_HOLD_H   = 6    # 做多持仓 6小时
 COOLDOWN_S    = 6 * 3600
 COOLDOWN_SL_S = 12 * 3600
 
+# 从 system_settings 动态加载的参数（运行时覆盖上方常量）
+WHALE_SL_PCT           = SL_PCT
+WHALE_HARD_TP_PCT      = HARD_TP_PCT
+WHALE_LIMIT_OFFSET_PCT = 0.003  # 限价单挂单偏移（0.3%）
+WHALE_HOLD_H           = 6
+
+
+def _load_whale_config() -> None:
+    """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
+    global WHALE_SL_PCT, WHALE_HARD_TP_PCT, WHALE_LIMIT_OFFSET_PCT, WHALE_HOLD_H
+    global SL_PCT, HARD_TP_PCT, SHORT_HOLD_H, LONG_HOLD_H
+    try:
+        import pymysql as _pym
+        conn = _pym.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "3306")),
+            user=os.getenv("DB_USER", ""),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", ""),
+            charset="utf8mb4",
+            cursorclass=_pym.cursors.DictCursor,
+            connect_timeout=5,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT setting_key, setting_value FROM system_settings "
+                    "WHERE setting_key IN ('whale_sl_pct','whale_hard_tp_pct',"
+                    "'whale_limit_offset_pct','whale_hold_hours')"
+                )
+                rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
+        finally:
+            conn.close()
+        WHALE_SL_PCT           = float(rows.get('whale_sl_pct',           WHALE_SL_PCT))
+        WHALE_HARD_TP_PCT      = float(rows.get('whale_hard_tp_pct',      WHALE_HARD_TP_PCT))
+        WHALE_LIMIT_OFFSET_PCT = float(rows.get('whale_limit_offset_pct', WHALE_LIMIT_OFFSET_PCT))
+        WHALE_HOLD_H           = int(  rows.get('whale_hold_hours',        WHALE_HOLD_H))
+        SL_PCT      = WHALE_SL_PCT
+        HARD_TP_PCT = WHALE_HARD_TP_PCT
+        SHORT_HOLD_H = WHALE_HOLD_H
+        LONG_HOLD_H  = WHALE_HOLD_H
+        log.info(
+            "strategy_whale 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh",
+            WHALE_SL_PCT * 100, WHALE_HARD_TP_PCT * 100, WHALE_LIMIT_OFFSET_PCT * 100, WHALE_HOLD_H,
+        )
+    except Exception as exc:
+        log.error("_load_whale_config 失败，使用默认值: %s", exc)
+
+
 POLL_SECS    = 90
 MAX_POS_PER_SIDE = 3   # 同时最多持 3 个多/空
 
@@ -262,11 +311,11 @@ def _get_24h_stats(cur, sym):
 
 def _calc_limit_price(side, cur_price, high_24h, low_24h):
     if side == 'LONG':
-        lp = cur_price * 0.997
+        lp = cur_price * (1 - WHALE_LIMIT_OFFSET_PCT)
         if low_24h and low_24h > 0:
             lp = max(lp, float(low_24h))
     else:
-        lp = cur_price * 1.003
+        lp = cur_price * (1 + WHALE_LIMIT_OFFSET_PCT)
         if high_24h and high_24h > 0:
             lp = min(lp, float(high_24h))
     return round(lp, 8)
@@ -730,6 +779,7 @@ def _sync_state(conn):
 
 # ── 主循环 ────────────────────────────────────────────────────────────
 def main():
+    _load_whale_config()
     log.info("=" * 60)
     log.info("Strategy Whale  庄家对抗策略  实盘模拟")
     log.info("A: 跟砸盘做空  B: 跟拉盘做多  账户=%d  杠杆=%dx  保证金=%.0fU",

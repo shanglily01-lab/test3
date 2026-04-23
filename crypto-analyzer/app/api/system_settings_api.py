@@ -58,6 +58,18 @@ class TradingServicesUpdate(BaseModel):
     take_profit_pct: Optional[float] = None
 
 
+class StrategyConfigUpdate(BaseModel):
+    """策略参数更新（趋势跟踪引擎 / 庄家对抗引擎）"""
+    live_sl_pct:            Optional[float] = None
+    live_hard_tp_pct:       Optional[float] = None
+    live_limit_offset_pct:  Optional[float] = None
+    live_hold_hours:        Optional[int]   = None
+    whale_sl_pct:           Optional[float] = None
+    whale_hard_tp_pct:      Optional[float] = None
+    whale_limit_offset_pct: Optional[float] = None
+    whale_hold_hours:       Optional[int]   = None
+
+
 @router.get("/settings")
 async def get_system_settings():
     """
@@ -629,6 +641,72 @@ async def update_max_hold_hours(data: MaxHoldHoursUpdate):
         }
     except Exception as e:
         logger.error(f"更新max_hold_hours失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── 策略参数（趋势跟踪引擎 / 庄家对抗引擎）──────────────────────────────────
+
+_STRATEGY_KEYS = {
+    'live_sl_pct':            ('live_sl_pct',            0.10,  'strategy_live 止损比例'),
+    'live_hard_tp_pct':       ('live_hard_tp_pct',       0.20,  'strategy_live 硬止盈比例'),
+    'live_limit_offset_pct':  ('live_limit_offset_pct',  0.03,  'strategy_live 限价单偏移比例'),
+    'live_hold_hours':        ('live_hold_hours',         6,     'strategy_live 最大持仓时长(h)'),
+    'whale_sl_pct':           ('whale_sl_pct',           0.10,  'strategy_whale 止损比例'),
+    'whale_hard_tp_pct':      ('whale_hard_tp_pct',      0.20,  'strategy_whale 硬止盈比例'),
+    'whale_limit_offset_pct': ('whale_limit_offset_pct', 0.003, 'strategy_whale 限价单偏移比例'),
+    'whale_hold_hours':       ('whale_hold_hours',        6,     'strategy_whale 最大持仓时长(h)'),
+}
+
+
+@router.get("/strategy-config")
+async def get_strategy_config():
+    """获取两个策略引擎的运行参数"""
+    try:
+        db_config = get_db_config()
+        conn = pymysql.connect(**db_config, cursorclass=pymysql.cursors.DictCursor, autocommit=True)
+        cursor = conn.cursor()
+        keys = list(_STRATEGY_KEYS.keys())
+        fmt = ','.join(['%s'] * len(keys))
+        cursor.execute(f"SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ({fmt})", keys)
+        rows = {r['setting_key']: r['setting_value'] for r in cursor.fetchall()}
+        cursor.close()
+        conn.close()
+        data = {}
+        for k, (_, default, _desc) in _STRATEGY_KEYS.items():
+            raw = rows.get(k)
+            data[k] = type(default)(raw) if raw is not None else default
+        return {'success': True, 'data': data}
+    except Exception as e:
+        logger.error(f"get_strategy_config 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/strategy-config")
+async def update_strategy_config(data: StrategyConfigUpdate):
+    """更新策略引擎参数，下次策略进程重载配置时生效"""
+    updates = data.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="无更新字段")
+    try:
+        db_config = get_db_config()
+        conn = pymysql.connect(**db_config, cursorclass=pymysql.cursors.DictCursor, autocommit=True)
+        cursor = conn.cursor()
+        for k, v in updates.items():
+            if k not in _STRATEGY_KEYS:
+                continue
+            _key, _default, desc = _STRATEGY_KEYS[k]
+            cursor.execute("""
+                INSERT INTO system_settings (setting_key, setting_value, description, updated_by, updated_at)
+                VALUES (%s, %s, %s, 'web_ui', NOW())
+                ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),
+                    description=VALUES(description), updated_by='web_ui', updated_at=NOW()
+            """, (k, str(v), desc))
+        cursor.close()
+        conn.close()
+        logger.info(f"strategy_config 已更新: {updates}")
+        return {'success': True, 'message': '策略参数已保存，重载配置后生效', 'data': updates}
+    except Exception as e:
+        logger.error(f"update_strategy_config 失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

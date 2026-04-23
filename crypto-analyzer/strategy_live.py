@@ -139,6 +139,63 @@ TRAIL_TP_START    = 0.12  # 移动止盈激活阈值
 TRAIL_TP_PULLBACK = 0.02  # 从峰值盈利回落多少触发
 DUMP_COOLDOWN = POST_CLOSE_COOLDOWN_S
 
+# 从 system_settings 动态加载的参数（运行时覆盖上方常量）
+LIVE_SL_PCT           = 0.10   # 统一止损（覆盖各子策略 *_SL_PCT）
+LIVE_HARD_TP_PCT      = HARD_TP_PCT
+LIVE_LIMIT_OFFSET_PCT = 0.03   # 限价单挂单偏移
+LIVE_HOLD_H           = 6      # 最大持仓时长（小时）
+
+
+def _load_live_config() -> None:
+    """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
+    global LIVE_SL_PCT, LIVE_HARD_TP_PCT, LIVE_LIMIT_OFFSET_PCT, LIVE_HOLD_H
+    global CHASE_SL_PCT, TOP_SL_PCT, BOTLONG_SL_PCT, DUMP_SL_PCT
+    global HARD_TP_PCT, LONG_HOLD_MIN, SHORT_HOLD_MIN
+    global CHASE_MAX_HOLD, DUMP_MAX_HOLD, TOP_HOLD_H, BOTLONG_HOLD_H
+    try:
+        import pymysql as _pym
+        conn = _pym.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "3306")),
+            user=os.getenv("DB_USER", ""),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", ""),
+            charset="utf8mb4",
+            cursorclass=_pym.cursors.DictCursor,
+            connect_timeout=5,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT setting_key, setting_value FROM system_settings "
+                    "WHERE setting_key IN ('live_sl_pct','live_hard_tp_pct',"
+                    "'live_limit_offset_pct','live_hold_hours')"
+                )
+                rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
+        finally:
+            conn.close()
+        LIVE_SL_PCT           = float(rows.get('live_sl_pct',           LIVE_SL_PCT))
+        LIVE_HARD_TP_PCT      = float(rows.get('live_hard_tp_pct',      LIVE_HARD_TP_PCT))
+        LIVE_LIMIT_OFFSET_PCT = float(rows.get('live_limit_offset_pct', LIVE_LIMIT_OFFSET_PCT))
+        LIVE_HOLD_H           = int(  rows.get('live_hold_hours',        LIVE_HOLD_H))
+        CHASE_SL_PCT   = LIVE_SL_PCT
+        TOP_SL_PCT     = LIVE_SL_PCT
+        BOTLONG_SL_PCT = LIVE_SL_PCT
+        DUMP_SL_PCT    = LIVE_SL_PCT
+        HARD_TP_PCT    = LIVE_HARD_TP_PCT
+        LONG_HOLD_MIN  = LIVE_HOLD_H * 60
+        SHORT_HOLD_MIN = LIVE_HOLD_H * 60
+        CHASE_MAX_HOLD = LONG_HOLD_MIN
+        DUMP_MAX_HOLD  = SHORT_HOLD_MIN
+        TOP_HOLD_H     = LIVE_HOLD_H
+        BOTLONG_HOLD_H = LIVE_HOLD_H
+        log.info(
+            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh",
+            LIVE_SL_PCT * 100, LIVE_HARD_TP_PCT * 100, LIVE_LIMIT_OFFSET_PCT * 100, LIVE_HOLD_H,
+        )
+    except Exception as exc:
+        log.error("_load_live_config 失败，使用默认值: %s", exc)
+
 
 POLL_SECS       = 60
 TOPSHORT_EVERY  = 5
@@ -983,7 +1040,7 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
         return False
 
     h24, l24 = _get_24h_stats(cur, sym)
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
+    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
     tag = "topshort-climax" if bull_climax else "topshort-climax-wick"
     pid, oid, pending = open_order(
         sym,
@@ -1144,7 +1201,7 @@ def chase_tick(conn, sym):
     price = get_price(sym)
     h24, l24 = _get_24h_stats(cur, sym)
     cur.close()
-    lp = _calc_limit_price("LONG", price, h24, l24, pct=0.03)
+    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
     pid, oid, pending = open_order(sym, "LONG", price, HARD_TP_PCT, CHASE_SL_PCT,
                                    CHASE_MAX_HOLD, "chase-entry", lp)
     if not pid and not oid:
@@ -1328,7 +1385,7 @@ def topshort_tick(conn, active_syms):
                 log.info("TOPSHORT 跳过  %-18s  从峰值已跌%.0f%%, 回落过深", sym, dd * 100)
                 break
             h24, l24 = _get_24h_stats(cur, sym)
-            lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
+            lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
             pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, TOP_SL_PCT,
                                            TOP_HOLD_H * 60, "topshort", lp)
             if not pid and not oid:
@@ -1391,7 +1448,7 @@ def _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
         return False
 
     h24, l24 = _get_24h_stats(cur, sym)
-    lp = _calc_limit_price("LONG", price, h24, l24, pct=0.03)
+    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
     tag = "bottomlong-climax" if bear_climax else "bottomlong-climax-wick"
     pid, oid, pending = open_order(
         sym,
@@ -1629,7 +1686,7 @@ def dump_tick(conn, sym):
     price = get_price(sym)
     h24, l24 = _get_24h_stats(cur, sym)
     cur.close()
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=0.03)
+    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
     pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, DUMP_SL_PCT,
                                    DUMP_MAX_HOLD, "dump-entry", lp)
     if not pid and not oid:
@@ -1711,6 +1768,7 @@ def _sync_state(conn):
 
 # ── 主循环 ───────────────────────────────────────────────────────
 def main():
+    _load_live_config()
     log.info("=" * 56)
     log.info("Strategy Live Runner  实盘下单模式")
     log.info(
