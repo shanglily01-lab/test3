@@ -838,8 +838,12 @@ def main():
     log.info("Strategy Whale  庄家对抗策略  实盘模拟")
     log.info("A: 跟砸盘做空  B: 跟拉盘做多  账户=%d  杠杆=%dx  保证金=%.0fU",
              ACCOUNT_ID, LEVERAGE, MARGIN)
-    log.info("入场门槛: score>=%d  SL=%.0f%%  硬TP=%.0f%%  移动TP: >=%.0f%%后回落%.0f%%触发",
-             ENTRY_SCORE_MIN, SL_PCT*100, HARD_TP_PCT*100, TRAIL_TP_START*100, TRAIL_TP_PULLBACK*100)
+    trail_desc = " / ".join(f"peak>={t*100:.0f}%回落{p*100:.0f}%" for t, p in TRAIL_TP_TIERS)
+    log.info("入场门槛: score>=%d  硬SL=%.0f%%  早期SL=%.0f%%  保本SL(peak>=%.0f%%后回到%.1f%%)  硬TP=%.0f%%",
+             ENTRY_SCORE_MIN, SL_PCT*100, EARLY_SL_PCT*100,
+             BREAKEVEN_AFTER_PEAK_PCT*100, BREAKEVEN_SL_PCT*100,
+             HARD_TP_PCT*100)
+    log.info("动态移动止盈: %s", trail_desc)
     log.info("=" * 60)
 
     init_conn = get_db()
