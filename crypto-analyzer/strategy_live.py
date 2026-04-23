@@ -199,6 +199,11 @@ TOPSHORT_EVERY  = 5
 # 各子策略 LIMIT 挂单在 futures_orders 中保持 PENDING 的最长时间，超时由 _fill_pending_orders 标为取消
 LIMIT_PENDING_MAX_S = 60 * 60
 
+# 反向滑点熔断阈值：LIMIT 触发时若价格向不利方向偏离超过此幅度，撤单不填充
+# LONG  cur_p < limit_p*(1-X) → 价格继续下跌，追多是逆势
+# SHORT cur_p > limit_p*(1+X) → 价格继续上涨，做空是逆势
+REVERSE_SLIPPAGE_LIMIT = 0.015
+
 # ── 日志 ─────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -564,6 +569,21 @@ def _fill_pending_orders(conn):
         pos_side = side.replace('OPEN_', '') if side.startswith('OPEN_') else side
         triggered = (pos_side == 'LONG' and cur_p <= limit_p) or (pos_side == 'SHORT' and cur_p >= limit_p)
         if not triggered:
+            continue
+        # 反向滑点熔断：LIMIT 被反向穿越过大时撤单，避免逆势进场
+        if pos_side == 'LONG':
+            reverse_slip = (limit_p - cur_p) / limit_p
+        else:
+            reverse_slip = (cur_p - limit_p) / limit_p
+        if reverse_slip > REVERSE_SLIPPAGE_LIMIT:
+            c2 = conn.cursor()
+            c2.execute("""UPDATE futures_orders
+                SET status='CANCELLED', cancellation_reason=%s,
+                    canceled_at=NOW(), updated_at=NOW() WHERE id=%s""",
+                (f'reverse_slippage_{reverse_slip:.4f}', o['id']))
+            conn.commit(); c2.close()
+            log.info("反向滑点熔断撤单 %s %s limit=%.5f cur=%.5f 偏离=%.2f%% (>%.1f%%)",
+                     sym, side, limit_p, cur_p, reverse_slip * 100, REVERSE_SLIPPAGE_LIMIT * 100)
             continue
         # 先把订单标成 FILLING，防止同一订单被重复触发（API 超时/异常后下一 tick 再捞到）
         c2 = conn.cursor()

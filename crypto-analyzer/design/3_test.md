@@ -325,6 +325,45 @@
 
 ---
 
+#### TC-L-LIMIT-05 反向滑点熔断（SHORT 反向穿越过大）
+
+**前置条件：**
+- SHORT 挂单 limit_price = 0.09579（CHIP 4/23 05:19 重放）
+- 扫描时 cur_price = 0.09846，反向偏离 = (0.09846 - 0.09579) / 0.09579 = 2.79%
+- 大于 REVERSE_SLIPPAGE_LIMIT(0.015)
+
+**期望结果：** 订单不进入 FILLING；`status='CANCELLED'`，`cancellation_reason='reverse_slippage_0.0279'`；日志输出"反向滑点熔断撤单 ... 偏离=2.79%"
+
+---
+
+#### TC-L-LIMIT-06 反向滑点熔断（LONG 反向穿越过大）
+
+**前置条件：**
+- LONG 挂单 limit_price = 100
+- cur_price = 98.4，反向偏离 = (100 - 98.4) / 100 = 1.6%（> 1.5%）
+
+**期望结果：** CANCELLED，不填充
+
+---
+
+#### TC-L-LIMIT-07 反向滑点熔断边界（恰好 1.5%）
+
+**前置条件：**
+- SHORT 挂单 limit_price = 100，cur_price = 101.5（偏离恰好 1.5%）
+
+**期望结果：** **允许填充**（判断是 `> 0.015`，等于时通过）
+
+---
+
+#### TC-L-LIMIT-08 正常滑点不误伤
+
+**前置条件：**
+- SHORT 挂单 limit_price = 100，cur_price = 100.5（正向偏离 0.5%，在容忍范围内）
+
+**期望结果：** 正常填充；若偏离 > 0.1% 则触发 SL/TP 按成交价重算
+
+---
+
 ---
 
 ## 3. strategy_whale 测试用例
@@ -684,6 +723,7 @@ Body: {"live_trading_enabled": true}
 - [ ] CHASE 涨幅 12% 触发，11.9% 不触发
 - [ ] CHASE 耗竭过滤在高点回撤 > 6% 时生效
 - [ ] CHASE 慢速爬升过滤在单 bar 涨幅 < 3% 时生效
+- [ ] 反向滑点 > 1.5% 撤单不填；= 1.5% 允许填充；正向滑点不受影响
 - [ ] TOPSHORT Climax 放量 < 2x 时不触发
 - [ ] TOPSHORT Climax 信号 > 26h 自动撤单
 - [ ] DUMP 反弹 > 8% 时不触发

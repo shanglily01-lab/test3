@@ -317,17 +317,43 @@ def open_order(sym, direction, ...):
 ```python
 # 每主循环执行
 # 1. 查所有 PENDING LIMIT 订单
-# 2. 检查是否满足触发条件：
-#    LONG: cur_price <= limit_price
-#    SHORT: cur_price >= limit_price
-# 3. 超时检查：
+# 2. 超时检查：
 #    age_s = (now - created_at).total_seconds()
 #    IF age_s > LIMIT_PENDING_MAX_S(3600): 标记 CANCELLED
-# 4. 触发时：
+# 3. 检查是否满足触发条件：
+#    LONG: cur_price <= limit_price
+#    SHORT: cur_price >= limit_price
+# 4. 反向滑点熔断（见 3.8.1）：
+#    LONG:  reverse_slip = (limit_p - cur_p) / limit_p
+#    SHORT: reverse_slip = (cur_p - limit_p) / limit_p
+#    IF reverse_slip > REVERSE_SLIPPAGE_LIMIT(0.015):
+#        UPDATE status='CANCELLED', cancellation_reason='reverse_slippage_XXXX'
+#        continue  # 跳过本单，不进入 FILLING
+# 5. 触发且未熔断时：
 #    a. UPDATE status='FILLING'（乐观锁防并发）
-#    b. POST /api/futures/open with fill_price=cur_price
-#    c. UPDATE status='FILLED', position_id=pid
+#    b. 按成交价重算 SL/TP（偏离 > 0.1% 时，见 3.8.2）
+#    c. POST /api/futures/open with fill_price=cur_price
+#    d. UPDATE status='FILLED', position_id=pid
 ```
+
+#### 3.8.1 反向滑点熔断
+
+**动机：** 信号触发时价格合理，但挂单挂到成交的窗口内价格可能向不利方向跑 1-10%。原先只做 SL/TP 重算（被动补救），命中率仍然差——需要主动拒绝进场。
+
+**判断：**
+
+| 方向 | 意义 | 触发后反向偏离计算 | 阈值命中 → 动作 |
+|------|------|---------------------|------------------|
+| LONG | 挂低价等买 | `(limit_p - cur_p) / limit_p` | `> 0.015` → CANCELLED |
+| SHORT | 挂高价等卖 | `(cur_p - limit_p) / limit_p` | `> 0.015` → CANCELLED |
+
+**实例：** CHIP 4/23 05:19 SHORT dump-entry，limit=0.09579，cur=0.09846，反向偏离 2.79%（> 1.5%）→ 应撤单，避免 80 分钟后 -260 U 止损。
+
+**阈值取值理由：** strategy_live LIMIT_OFFSET_PCT = 3%，选其一半 1.5% 作为反向滑点阈值；太紧会误伤正常滑点（~0.5%），太松无法拦住反向动量单。
+
+#### 3.8.2 SL/TP 基于成交价重算
+
+保留原有机制：若 `abs(cur_p - limit_p) / limit_p > 0.001`，按原始 SL/TP 比例以 `cur_p` 为锚重算，防止限价被小幅穿越时 SL 幅度被压缩。
 
 ---
 
@@ -533,6 +559,8 @@ POST /api/futures/close/{position_id}
 | TRAIL_TP_PULLBACK | 0.02 | 固定 | 移动止盈回落触发 |
 | SYMBOL_MAX_DAILY_SL | 2 | 固定 | 日内止损熔断次数 |
 | POST_CLOSE_COOLDOWN_S | 14400 | 固定 | 平仓后冷却(4h) |
+| REVERSE_SLIPPAGE_LIMIT | 0.015 | 固定 | 反向滑点熔断阈值（_fill_pending_orders）|
+| LIMIT_PENDING_MAX_S | 3600 | 固定 | LIMIT 超时撤单阈值(s) |
 | TOPCLI_VOL_MULT | 2.0 | 固定 | Climax 放量倍数 |
 | TOPCLI_POST_LEADER_WAIT_BARS | 2 | 固定 | 领袖 K 后等待根数 |
 | ENTRY_SCORE_MIN | 5 | 固定 | Whale 评分入场门槛 |
