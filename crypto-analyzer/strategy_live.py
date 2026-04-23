@@ -90,6 +90,7 @@ TOPCLI_LOOKBACK_BARS   = 40
 TOPCLI_LEADER_LOOKBACK = 24
 TOPCLI_POST_LEADER_WAIT_BARS = 2
 TOPCLI_MAX_PENDING         = 1    # 全局最多同时挂几张 climax 限价单
+TOPCLI_ALLOW_WICK          = False  # 上影线变体胜率 0%，暂停使用
 TOPCLI_VOL_LOOKBACK    = 20
 TOPCLI_VOL_MULT        = 2.0
 TOPCLI_MIN_BODY_VS_O = 0.025
@@ -663,7 +664,8 @@ def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
             and (c - o) / hl >= TOPCLI_MIN_BODY_OF_RANGE
         )
         wick_climax = (
-            range_leader is not None
+            TOPCLI_ALLOW_WICK
+            and range_leader is not None
             and ci == range_leader
             and rng >= TOPCLI_MIN_RANGE_FULL_PCT
             and upper_ratio >= TOPCLI_MIN_UPPER_WICK_OF_RANGE
