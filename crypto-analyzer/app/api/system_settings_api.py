@@ -487,7 +487,23 @@ async def update_trading_services(data: TradingServicesUpdate):
                     updated_at = NOW()
             """, (value,))
             status = '启动' if data.live_trading_enabled else '暂停'
-            updates.append(f"实盘合约服务: {status}")
+            # Bug 修复 (2026-04-23): 打开实盘开关时，paper_limit_sync 会追溯同步过去 2h
+            # 所有 live_sync_status IS NULL 的 FILLED 订单。用户期望是"开启后新开单才同步"，
+            # 所以此处把"已 FILLED 但未同步"的历史订单标记为 SKIPPED，阻止追溯。
+            # PENDING 订单不动（它们将来 FILLED 仍算"新开单"，正常同步）。
+            skipped_count = 0
+            if data.live_trading_enabled:
+                cursor.execute("""
+                    UPDATE futures_orders
+                    SET live_sync_status='SKIPPED', live_synced_at=NOW()
+                    WHERE live_sync_status IS NULL
+                      AND status='FILLED'
+                """)
+                skipped_count = cursor.rowcount or 0
+            if skipped_count:
+                updates.append(f"实盘合约服务: {status} (跳过 {skipped_count} 笔已成交历史订单不追溯同步)")
+            else:
+                updates.append(f"实盘合约服务: {status}")
 
         if data.predictor_enabled is not None:
             value = '1' if data.predictor_enabled else '0'
