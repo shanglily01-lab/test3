@@ -227,10 +227,17 @@
         <p class="text-[10px] text-on-surface-variant uppercase tracking-widest">总浮盈</p>
         <p id="pos-header-pnl" class="font-mono text-sm font-bold text-on-surface-variant">--</p>
       </div>
-      <button onclick="closeAllPositions()" id="close-all-btn"
+      <button onclick="closeAllPositions(false)" id="close-all-btn"
+        title="仅平模拟盘，不动实盘"
         class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#ff716c]/10 border border-[#ff716c]/30 text-[#ff716c] text-xs font-bold hover:bg-[#ff716c]/20 transition-colors active:scale-95">
         <span class="material-symbols-outlined text-[14px]">close_fullscreen</span>
         一键平仓
+      </button>
+      <button onclick="closeAllPositions(true)" id="close-all-sync-btn"
+        title="一键平模拟盘并同步平所有实盘仓位"
+        class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-colors active:scale-95">
+        <span class="material-symbols-outlined text-[14px]">sync_alt</span>
+        一键平仓+实盘
       </button>
     </div>
     <!-- 限价单 controls -->
@@ -560,10 +567,18 @@ async function loadPositions() {
                 (pos.entry_score ? '<div class="text-[10px] text-on-surface-variant/60">' + pos.entry_score + ' pt</div>' : '') +
             '</td>' +
             '<td class="px-6 py-4">' +
-                '<button onclick="closePosition(' + posId + ', \'' + sym + '\')" ' +
-                    'class="px-4 py-1.5 bg-[#ff716c]/10 hover:bg-[#ff716c]/20 text-[#ff716c] rounded-lg text-xs font-bold transition-all">' +
+                '<div class="flex items-center gap-1">' +
+                '<button onclick="closePosition(' + posId + ', \'' + sym + '\', false)" ' +
+                    'title="仅平模拟盘，不动实盘" ' +
+                    'class="px-3 py-1.5 bg-[#ff716c]/10 hover:bg-[#ff716c]/20 text-[#ff716c] rounded-lg text-xs font-bold transition-all">' +
                     '平仓' +
                 '</button>' +
+                '<button onclick="closePosition(' + posId + ', \'' + sym + '\', true)" ' +
+                    'title="平模拟盘并同步平实盘" ' +
+                    'class="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs font-bold transition-all">' +
+                    '平仓+实盘' +
+                '</button>' +
+                '</div>' +
             '</td>' +
         '</tr>';
     });
@@ -586,26 +601,34 @@ async function loadPositions() {
 
 var _lastPositions = [];
 
-async function closeAllPositions() {
+async function closeAllPositions(syncLive) {
+    syncLive = !!syncLive;
     var cnt = _lastPositions.length;
     if (cnt === 0) { await showAlert('当前无持仓', 'info'); return; }
-    if (!(await showConfirm('将市价关闭所有 ' + cnt + ' 笔持仓，操作不可撤销！', {title: '确认一键平仓', confirmText: '确认平仓', type: 'warning'}))) return;
-    var btn = document.getElementById('close-all-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '平仓中...'; }
+    var confirmMsg = syncLive
+        ? '将市价关闭所有 ' + cnt + ' 笔持仓，并同步平实盘，操作不可撤销！'
+        : '将市价关闭所有 ' + cnt + ' 笔模拟盘持仓（不动实盘），操作不可撤销！';
+    var confirmTitle = syncLive ? '确认一键平仓并同步实盘' : '确认一键平仓（仅模拟）';
+    if (!(await showConfirm(confirmMsg, {title: confirmTitle, confirmText: '确认平仓', type: 'warning'}))) return;
+    var mainBtn = document.getElementById('close-all-btn');
+    var syncBtn = document.getElementById('close-all-sync-btn');
+    if (mainBtn) { mainBtn.disabled = true; }
+    if (syncBtn) { syncBtn.disabled = true; }
     try {
         var ids = _lastPositions.map(function(p) { return p.id || p.position_id; }).filter(Boolean);
         var resp = await fetch('/api/futures/close-batch', {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || localStorage.getItem('access_token') || '')},
-            body: JSON.stringify({position_ids: ids, reason: 'manual_close_all'})
+            body: JSON.stringify({position_ids: ids, reason: 'manual_close_all', sync_live: syncLive})
         });
         var data = await resp.json();
-        await showAlert(data.message || '一键平仓完成', 'success');
+        await showAlert((data.message || '一键平仓完成') + (syncLive ? '（含实盘）' : ''), 'success');
         setTimeout(loadAll, 800);
     } catch(e) {
         await showAlert('请求失败: ' + e.message, 'error');
     } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-[14px]">close_fullscreen</span> 一键平仓'; }
+        if (mainBtn) { mainBtn.disabled = false; mainBtn.innerHTML = '<span class="material-symbols-outlined text-[14px]">close_fullscreen</span> 一键平仓'; }
+        if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = '<span class="material-symbols-outlined text-[14px]">sync_alt</span> 一键平仓+实盘'; }
     }
 }
 
@@ -889,19 +912,24 @@ function onToggleAllowShort(el) {
 
 // ---- 平仓 ----
 
-async function closePosition(id, symbol) {
+async function closePosition(id, symbol, syncLive) {
     if (!id || isNaN(parseInt(id))) { showToast('持仓ID无效', 'error'); return; }
-    var ok = await showConfirm('确定要平仓 ' + symbol + ' ?', {title: '确认平仓', confirmText: '确认平仓', type: 'warning'});
+    syncLive = !!syncLive;
+    var confirmMsg = syncLive
+        ? '确定要平仓 ' + symbol + ' 并同步平实盘？'
+        : '确定要平仓 ' + symbol + '（仅模拟盘，不动实盘）？';
+    var confirmTitle = syncLive ? '确认平仓并同步实盘' : '确认平仓（仅模拟）';
+    var ok = await showConfirm(confirmMsg, {title: confirmTitle, confirmText: '确认平仓', type: 'warning'});
     if (!ok) return;
     try {
         var res = await fetch('/api/futures/close/' + id, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
+            body: JSON.stringify({sync_live: syncLive})
         });
         var data = await res.json();
         if (data.success || res.ok) {
-            showToast(symbol + ' 平仓成功', 'success');
+            showToast(symbol + ' 平仓成功' + (syncLive ? '（含实盘）' : ''), 'success');
             setTimeout(loadAll, 500);
         } else {
             throw new Error(data.message || data.detail || '平仓失败');

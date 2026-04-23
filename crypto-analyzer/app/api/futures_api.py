@@ -200,12 +200,22 @@ class ClosePositionRequest(BaseModel):
     close_quantity: Optional[float] = Field(None, description="平仓数量，不填则全部平仓")
     reason: str = Field(default='manual', description="原因: manual, stop_loss, take_profit, liquidation")
     close_price: Optional[float] = Field(None, description="指定平仓价格（SL/TP 监控触发时传入，跳过重新拉价）")
+    sync_live: Optional[bool] = Field(
+        None,
+        description=(
+            "是否同步平仓到实盘。None=按策略/默认规则；True=强制同步；False=强制不同步。"
+            "UI 'Close' 按钮传 False，'Close & Sync Live' 按钮传 True。"
+        ),
+    )
 
 
 class BatchCloseRequest(BaseModel):
     """批量平仓请求"""
     position_ids: List[int] = Field(..., description="持仓ID列表")
     reason: str = Field(default='manual_close_all', description="平仓原因")
+    sync_live: Optional[bool] = Field(
+        None, description="批量平仓时是否同步实盘；见 ClosePositionRequest.sync_live"
+    )
 
 
 class AutoOpenRequest(BaseModel):
@@ -1008,6 +1018,7 @@ async def close_position(
             close_quantity=close_quantity,
             reason=request.reason or 'manual',
             close_price=close_price,
+            sync_live=request.sync_live,
         )
 
         if result['success']:
@@ -1040,6 +1051,7 @@ async def close_positions_batch(request: BatchCloseRequest):
 
     position_ids = request.position_ids
     reason = request.reason
+    sync_live = request.sync_live
 
     if not position_ids:
         return {'success': True, 'message': '没有持仓需要平仓', 'results': []}
@@ -1054,7 +1066,8 @@ async def close_positions_batch(request: BatchCloseRequest):
             result = engine.close_position(
                 position_id=pos_id,
                 close_quantity=None,
-                reason=reason
+                reason=reason,
+                sync_live=sync_live,
             )
             return {'position_id': pos_id, 'success': result.get('success', False), 'data': result}
         except Exception as e:

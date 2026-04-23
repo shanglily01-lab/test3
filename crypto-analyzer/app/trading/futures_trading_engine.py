@@ -1004,6 +1004,7 @@ class FuturesTradingEngine:
         close_quantity: Optional[Decimal] = None,  # 🔥 保留参数以兼容旧代码，但总是全部平仓
         reason: str = 'manual',
         close_price: Optional[Decimal] = None,
+        sync_live: Optional[bool] = None,
         _deadlock_retry: int = 0
     ) -> Dict:
         """
@@ -1378,11 +1379,19 @@ class FuturesTradingEngine:
                 if not (self.live_engine and live_trading_enabled):
                     logger.debug(f"[同步实盘] 跳过: live_engine={self.live_engine is not None}, live_trading_enabled={live_trading_enabled}")
                 elif self.live_engine and live_trading_enabled:
-                    # 首先检查策略配置（如果有 strategy_id）
+                    # 平仓同步决策优先级：
+                    # 1. 调用方传了 sync_live（UI 按钮 / API 明确指定）→ 以它为准
+                    # 2. 没传且有 strategy_id（策略平仓）→ 查 trading_strategies.config.syncLive
+                    # 3. 没传且无 strategy_id（手动平仓无按钮信息）→ 默认 **不** 同步（保护性默认，避免误平实盘）
                     should_sync = False
                     strategy_id = position.get('strategy_id')
 
-                    if strategy_id:
+                    if sync_live is not None:
+                        should_sync = bool(sync_live)
+                        logger.info(
+                            f"[同步实盘] {symbol} {position_side} 按调用方显式参数 sync_live={should_sync}"
+                        )
+                    elif strategy_id:
                         # 查询策略配置
                         cursor = connection.cursor()
                         cursor.execute(
@@ -1416,9 +1425,9 @@ class FuturesTradingEngine:
                         else:
                             logger.warning(f"[同步实盘] 策略 {strategy_id} 无配置信息")
                     else:
-                        # 没有 strategy_id（手动开仓），默认同步实盘
-                        should_sync = True
-                        logger.info(f"[同步实盘] {symbol} {position_side} 无策略ID，默认同步实盘平仓")
+                        # 没有 strategy_id 且调用方未指定 → 保守默认不同步
+                        # 旧行为是这里默认 True，已变更；需要同步请在 UI 用 "平仓并同步实盘" 按钮
+                        logger.info(f"[同步实盘] {symbol} {position_side} 无 strategy_id 且未指定 sync_live，默认不同步")
 
                     if should_sync:
                         # 同步实盘平仓（全部平仓，不传数量，避免因精度差异导致残留）
