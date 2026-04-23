@@ -149,40 +149,6 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
                 </div>
                 <label class="custom-toggle"><input id="usdtToggle" type="checkbox" onchange="autoSave('services')"/><span class="slider"></span></label>
             </div>
-            <div class="setting-row flex items-center justify-between px-4 border-b border-outline-variant/10">
-                <div class="flex flex-col py-3 pr-4">
-                    <span class="text-sm font-medium">币本位合约</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5">COIN-M Auto Execution</span>
-                </div>
-                <label class="custom-toggle"><input id="coinToggle" type="checkbox" onchange="autoSave('services')"/><span class="slider"></span></label>
-            </div>
-            <div class="setting-row flex items-center justify-between px-4 border-b border-outline-variant/10">
-                <span class="text-sm font-medium">做多</span>
-                <label class="custom-toggle"><input id="longToggle" type="checkbox" onchange="autoSave('direction')"/><span class="slider"></span></label>
-            </div>
-            <div class="setting-row flex items-center justify-between px-4">
-                <span class="text-sm font-medium">做空</span>
-                <label class="custom-toggle"><input id="shortToggle" type="checkbox" onchange="autoSave('direction')"/><span class="slider"></span></label>
-            </div>
-        </div>
-    </section>
-
-    <!-- 策略开关 -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">策略开关</h2>
-        <div class="settings-card rounded-2xl overflow-hidden">
-            <div class="setting-row flex items-center justify-between px-4 border-b border-outline-variant/10">
-                <span class="text-sm font-medium">BTC动量跟随</span>
-                <label class="custom-toggle"><input id="btcMomentumToggle" type="checkbox" onchange="autoSave('services')"/><span class="slider"></span></label>
-            </div>
-            <div class="setting-row flex items-center justify-between px-4 border-b border-outline-variant/10">
-                <span class="text-sm font-medium">预测器</span>
-                <label class="custom-toggle"><input id="predictorToggle" type="checkbox" onchange="autoSave('services')"/><span class="slider"></span></label>
-            </div>
-            <div class="setting-row flex items-center justify-between px-4">
-                <span class="text-sm font-medium">U本位破位策略</span>
-                <label class="custom-toggle"><input id="uCoinStyleToggle" type="checkbox" onchange="autoSave('services')"/><span class="slider"></span></label>
-            </div>
         </div>
     </section>
 
@@ -190,10 +156,6 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">过滤器</h2>
         <div class="settings-card rounded-2xl overflow-hidden">
-            <div class="setting-row flex items-center justify-between px-4 border-b border-outline-variant/10">
-                <span class="text-sm font-medium">Big4趋势过滤</span>
-                <label class="custom-toggle"><input id="big4Toggle" type="checkbox" onchange="autoSave('big4')"/><span class="slider"></span></label>
-            </div>
             <div class="setting-row flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-1">
                 <div class="flex flex-col py-2 min-w-0 pr-2">
                     <span class="text-sm font-medium">最大持仓时间</span>
