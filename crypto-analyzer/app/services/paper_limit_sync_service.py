@@ -166,16 +166,42 @@ class PaperLimitSyncService:
                 self._mark(conn, order_id, "FAILED", None)
                 return
 
-            sl = order["stop_loss_price"]
-            tp = order["take_profit_price"]
+            # 将纸面 SL/TP 转为百分比，基于实盘实际成交价重算绝对价格
+            # 避免纸面绝对价与实盘成交价偏差导致 SL/TP 验证失败
+            paper_fill = float(order["avg_fill_price"] or 0)
+            paper_sl = float(order["stop_loss_price"] or 0)
+            paper_tp = float(order["take_profit_price"] or 0)
+
+            sl_pct: Optional[Decimal] = None
+            tp_pct: Optional[Decimal] = None
+
+            if paper_fill > 0:
+                if paper_sl > 0:
+                    raw_sl = (paper_fill - paper_sl) / paper_fill * 100 if pos_side == "LONG" \
+                        else (paper_sl - paper_fill) / paper_fill * 100
+                    if raw_sl > 0:
+                        sl_pct = Decimal(str(round(raw_sl, 4)))
+                if paper_tp > 0:
+                    raw_tp = (paper_tp - paper_fill) / paper_fill * 100 if pos_side == "LONG" \
+                        else (paper_fill - paper_tp) / paper_fill * 100
+                    if raw_tp > 0:
+                        tp_pct = Decimal(str(round(raw_tp, 4)))
+
+            if paper_fill <= 0 or sl_pct is None or tp_pct is None:
+                logger.warning(
+                    "[PaperSync] order_id=%s %s 无法计算SL/TP百分比 "
+                    "fill=%.6f sl=%.6f tp=%.6f sl_pct=%s tp_pct=%s",
+                    order_id, symbol, paper_fill, paper_sl, paper_tp, sl_pct, tp_pct,
+                )
+
             result = engine.open_position(
                 account_id=live_account_id,
                 symbol=symbol,
                 position_side=pos_side,
                 quantity=quantity,
                 leverage=leverage,
-                stop_loss_price=Decimal(str(sl)) if sl else None,
-                take_profit_price=Decimal(str(tp)) if tp else None,
+                stop_loss_pct=sl_pct,
+                take_profit_pct=tp_pct,
                 source=f"paper-limit-sync:{order.get('order_source', '')}",
                 paper_position_id=order.get("position_id"),
             )
