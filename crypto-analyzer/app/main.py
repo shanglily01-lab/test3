@@ -406,6 +406,15 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️  模拟盘->实盘同步服务启动失败: {e}")
         paper_limit_sync = None
 
+    # 启动 /api/futures/price 内存字典刷新 task（每3s 从 realtime_prices 批量读）
+    realtime_price_task = None
+    try:
+        from app.api.futures_api import _refresh_realtime_price_map_loop
+        realtime_price_task = asyncio.create_task(_refresh_realtime_price_map_loop())
+        logger.info("✅ /price L2 内存字典刷新 task 已启动（每3秒批量从 realtime_prices 表刷新）")
+    except Exception as e:
+        logger.warning(f"⚠️  /price 内存字典刷新 task 启动失败: {e}")
+
     # 启动信号分析后台服务（每6小时执行一次）
     signal_analysis_service = None
     try:
