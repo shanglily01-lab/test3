@@ -311,13 +311,22 @@ def _close_overdue(conn):
         return
     for r in rows:
         try:
+            # 用本地 WS 价格平仓，避免 paper engine 去调 Binance API 失败导致无法平仓
+            close_price = None
+            try:
+                close_price = get_price(r['symbol'])
+            except Exception as pe:
+                log.warning("超时平仓取价失败 %s: %s，不传 close_price 让引擎自行获取", r['symbol'], pe)
+            payload = {"reason": "timeout"}
+            if close_price:
+                payload["close_price"] = close_price
             resp = req.post(
                 f"{API_BASE}/api/futures/close/{r['id']}",
-                json={"reason": "timeout"},
+                json=payload,
                 timeout=10,
             )
             if resp.ok:
-                log.info("超时平仓: %s %s pid=%d", r['symbol'], r['position_side'], r['id'])
+                log.info("超时平仓: %s %s pid=%d @ %.6f", r['symbol'], r['position_side'], r['id'], close_price or 0)
             else:
                 log.warning("超时平仓失败 pid=%d: %s", r['id'], resp.text[:100])
         except Exception as e:
