@@ -58,13 +58,16 @@ def get_active_symbols(cur) -> list:
 # 追击参数
 CHASE_PUMP_BARS = 24
 CHASE_PUMP_PCT  = 0.12
-CHASE_SL_PCT    = 0.08
+CHASE_SL_PCT             = 0.08
+CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
+CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
 LONG_HOLD_MIN   = 6 * 60
 SHORT_HOLD_MIN  = 6 * 60
 CHASE_MAX_HOLD  = LONG_HOLD_MIN
 # 各子策略平仓/撤单后同标的再开仓最短间隔（秒）
 POST_CLOSE_COOLDOWN_S = 4 * 3600
 CHASE_COOLDOWN = POST_CLOSE_COOLDOWN_S
+SYMBOL_MAX_DAILY_SL = 2   # 同标的当日止损 >= 2 次则暂停该标的当日所有新开仓
 
 # 顶部做空参数
 TOP_PUMP_THRESH = 0.80
@@ -164,6 +167,38 @@ def get_price(sym):
     d = _api("GET", f"/api/futures/price/{sym}")
     return float(d["price"])
 
+def _symbol_daily_sl_count(sym: str) -> int:
+    """查询该标的今日（UTC）已止损平仓次数，用于日内熔断。"""
+    try:
+        conn = pymysql.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "3306")),
+            user=os.getenv("DB_USER", ""),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", ""),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS cnt FROM futures_positions "
+                    "WHERE account_id=%s AND symbol=%s "
+                    "  AND status='closed' "
+                    "  AND close_time >= CURDATE() "
+                    "  AND notes='stop_loss'",
+                    (ACCOUNT_ID, sym),
+                )
+                row = cur.fetchone()
+                return int(row["cnt"]) if row else 0
+        finally:
+            conn.close()
+    except Exception as e:
+        log.error("_symbol_daily_sl_count %s error: %s", sym, e)
+        return 0
+
+
 def _has_any_open(sym: str) -> bool:
     """检查 DB 里是否已有任意方向的 open 持仓或 PENDING 挂单。有则返回 True。"""
     try:
@@ -203,6 +238,10 @@ def open_order(sym, direction, entry_price, tp_pct, sl_pct, hold_min, tag, limit
     """开仓. 返回 (position_id, order_id, is_pending)"""
     if _has_any_open(sym):
         log.info("跳过开%s %s: 已有持仓", direction, sym)
+        return None, None, False
+    daily_sl = _symbol_daily_sl_count(sym)
+    if daily_sl >= SYMBOL_MAX_DAILY_SL:
+        log.info("跳过开%s %s: 今日已止损 %d 次，暂停当日交易", direction, sym, daily_sl)
         return None, None, False
     price_ref = limit_price if (limit_price and limit_price > 0) else entry_price
     qty = round(MARGIN * LEVERAGE / price_ref, 6)
@@ -1042,6 +1081,13 @@ def chase_tick(conn, sym):
     if s != 'IDLE':
         return
 
+    # 顶空仓位冲突检查：同标的已有 topshort 持仓/挂单时，不追多，避免双向对冲
+    ts_row = get_or_create(conn, 'live', sym, 'topshort', {'state': 'IDLE'})
+    ts_state = (ts_row.get('state') or 'IDLE').upper()
+    if ts_state not in ('IDLE', 'DONE'):
+        log.info("CHASE 跳过 %-18s: 顶空 state=%s，避免双向对冲", sym, ts_state)
+        return
+
     now_ms = int(now_s() * 1000)
     BAR_MS = 5 * 60 * 1000
     cur = conn.cursor()
@@ -1065,6 +1111,27 @@ def chase_tick(conn, sym):
     wo = float(completed[max(0, i - CHASE_PUMP_BARS)]['open_price'])
     pump = (c[i] - wo) / wo
     if pump < CHASE_PUMP_PCT:
+        cur.close()
+        return
+
+    # 耗竭过滤：若当前收盘已从窗口内最高点回撤超过阈值，视为顶部反转，不追
+    window_bars = completed[max(0, i - CHASE_PUMP_BARS):]
+    recent_high = max(float(b['high_price']) for b in window_bars)
+    dd_from_peak = (recent_high - c[i]) / recent_high if recent_high > 0 else 0
+    if dd_from_peak > CHASE_EXHAUST_MAX_DD:
+        log.info("CHASE 跳过 %-18s: 高点回撤 %.1f%% > %.0f%%，疑似顶部耗竭",
+                 sym, dd_from_peak * 100, CHASE_EXHAUST_MAX_DD * 100)
+        cur.close()
+        return
+
+    # 急拉验证：窗口内须有至少一根 5m bar 单 bar 涨幅 >= 阈值，排除慢速爬升
+    leader_gain = max(
+        (float(b['close_price']) - float(b['open_price'])) / float(b['open_price'])
+        for b in window_bars
+    )
+    if leader_gain < CHASE_LEADER_BAR_MIN_PCT:
+        log.info("CHASE 跳过 %-18s: 最大单 bar 涨幅 %.1f%% < %.0f%%，慢速爬升不追",
+                 sym, leader_gain * 100, CHASE_LEADER_BAR_MIN_PCT * 100)
         cur.close()
         return
 
