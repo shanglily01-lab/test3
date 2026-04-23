@@ -282,41 +282,55 @@ Step 4: 开仓
 
 ---
 
-### 3.6 动态移动止盈（strategy_live / strategy_whale / bigmid MID 共用）
+### 3.6 出场逻辑总览（strategy_live / strategy_whale / bigmid MID 共用）
 
-**动机**：原 `peak ≥ 12% 回落 2%` 单档阈值启动太晚——策略入场方向多数是对的，但很多单在浮盈 3-8% 的区间就遇上反向动能，没到 12% 就被反向扫回 SL。
+**动机**：原单档 trail（peak ≥ 12% 回落 2%）启动太晚；硬 SL 10% 太宽，单笔最大亏损相当于 50% margin（5x 杠杆下）。加**早期止损**和**保本止损**两条兜底，配合动态 trail 形成完整出场链。
 
-**分档规则（TRAIL_TP_TIERS）**：
+**执行顺序（仅在 DISABLE_SL_TP_HOLD=OFF 时）**：
+
+| 优先级 | 规则 | 触发条件 | 关闭原因 |
+|--------|------|----------|----------|
+| 1 | hard-tp | `pnl ≥ 20%` | `hard-tp` |
+| 2 | trail-tp（动态分档） | peak 分档对应回落阈值触发（见下表） | `trail-tp` |
+| 3 | breakeven-sl | `peak ≥ 3%` 且 `pnl ≤ -0.5%` | `breakeven-sl` |
+| 4 | early-sl | `pnl ≤ -3%` | `early-sl` |
+| 5 | stop_loss（paper engine 兜底） | `pnl ≤ -10%` | `stop_loss` |
+
+**动态 trail 分档（TRAIL_TP_TIERS）**：
 
 | peak 区间 | 回落阈值 | 设计意图 |
 |-----------|----------|----------|
-| `[3%, 5%)` | 1% | 小赚紧盯：浮盈小回撤 1% 即平，保证落袋 |
-| `[5%, 10%)` | 2% | 中赚放松：允许 2% 回撤给后续上涨空间 |
-| `≥ 10%` | 3% | 大赚奔跑：只有深度回撤才平 |
-| `< 3%` | ∞（不触发） | 靠 SL 兜底 |
+| `[3%, 5%)` | 1% | 小赚紧盯 |
+| `[5%, 10%)` | 2% | 中赚放松 |
+| `≥ 10%` | 3% | 大赚奔跑 |
+| `< 3%` | ∞（不触发） | |
+
+**早期止损 / 保本止损常量**：
+- `EARLY_SL_PCT = 0.03`         单笔价格反向 3% 立即平，单笔最大亏损降到 15% margin
+- `BREAKEVEN_AFTER_PEAK_PCT = 0.03` peak 达 3% 后进入"赚过钱"状态
+- `BREAKEVEN_SL_PCT = -0.005`   赚过钱的单若回吐到 -0.5% 立即平（防盈利单翻亏）
 
 **伪代码**：
 
 ```python
-def _dynamic_trail_pullback(peak_pct: float) -> float:
-    for threshold, pullback in [(0.10, 0.03), (0.05, 0.02), (0.03, 0.01)]:
-        if peak_pct >= threshold:
-            return pullback
-    return float('inf')  # peak < 3% 不启动
-
-def _check_trail_tp(pid, pnl_pct, peak_pnl_pct):
+def _check_exit(pid, pnl_pct, peak_pnl_pct):
+    if DISABLE_SL_TP_HOLD: return False    # 裸奔模式：任由自生自灭
     new_peak = max(pnl_pct, peak_pnl_pct)
     update_state(peak_pnl_pct=new_peak)
 
-    if pnl_pct >= HARD_TP_PCT(0.20):
-        close_order(pid, "hard-tp")
-
-    pullback_thresh = _dynamic_trail_pullback(new_peak)
-    if (new_peak - pnl_pct) >= pullback_thresh:
-        close_order(pid, "trail-tp")
+    if pnl_pct >= HARD_TP_PCT:                                    return close("hard-tp")
+    pullback = _dynamic_trail_pullback(new_peak)
+    if (new_peak - pnl_pct) >= pullback:                          return close("trail-tp")
+    if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+                                                                  return close("breakeven-sl")
+    if pnl_pct <= -EARLY_SL_PCT:                                  return close("early-sl")
+    return False   # 落到 SL 兜底
 ```
 
-**BIG 档（strategy_bigmid TIER_PARAMS["BIG"]）不适用**：TP 只有 2%，peak 基本到不了 3%，保留原有单档 `trail_tp_start=1.2%, trail_tp_pullback=0.3%` 作为兜底。
+**BIG 档（strategy_bigmid TIER_PARAMS["BIG"]）不适用**：
+- TP 只有 2%，peak 基本到不了 3%（动态 trail + 保本都不会触发）
+- SL 只有 1%，early-sl 3% 根本不会先触发
+- 保留原有单档 `trail_tp_start=1.2%, trail_tp_pullback=0.3%` 作为兜底
 
 ---
 

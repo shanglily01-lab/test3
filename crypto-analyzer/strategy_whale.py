@@ -90,6 +90,10 @@ TRAIL_TP_TIERS = [
     (0.05, 0.02),
     (0.03, 0.01),
 ]
+# 早期止损 / 保本止损（与 strategy_live 同）
+EARLY_SL_PCT             = 0.03
+BREAKEVEN_AFTER_PEAK_PCT = 0.03
+BREAKEVEN_SL_PCT         = -0.005
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
@@ -233,6 +237,17 @@ def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pc
         log.info("移动止盈 [WHALE] %-18s  pnl=+%.1f%%  peak=+%.1f%%  回撤%.1f%%  阈值%.1f%%",
                  sym, pnl_pct * 100, new_peak * 100,
                  (new_peak - pnl_pct) * 100, pullback_thresh * 100)
+        return True
+    # 保本止损（曾浮盈 >= 3% 的单，回吐到 -0.5% 即平）
+    if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+        _close_pos(pid, "breakeven-sl")
+        log.info("保本止损 [WHALE] %-18s  pnl=%.1f%%  peak=+%.1f%%",
+                 sym, pnl_pct * 100, new_peak * 100)
+        return True
+    # 早期止损（浮亏达 3%，比硬 SL 10% 提前）
+    if pnl_pct <= -EARLY_SL_PCT:
+        _close_pos(pid, "early-sl")
+        log.info("早期止损 [WHALE] %-18s  pnl=%.1f%%", sym, pnl_pct * 100)
         return True
     return False
 

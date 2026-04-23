@@ -142,6 +142,13 @@ TRAIL_TP_TIERS = [
     (0.05, 0.02),  # 中赚档
     (0.03, 0.01),  # 小赚档
 ]
+# 早期止损 / 保本止损
+#   EARLY_SL_PCT: 价格反向 3% 即早期止损（比硬 SL 10% 提前），单笔最大亏损从 10% 价格变动缩到 3%
+#   BREAKEVEN_AFTER_PEAK_PCT: 峰值浮盈达到此值后进入"赚过钱"状态
+#   BREAKEVEN_SL_PCT: 在"赚过钱"状态下，若回吐到此阈值（-0.5%）平仓保本
+EARLY_SL_PCT             = 0.03
+BREAKEVEN_AFTER_PEAK_PCT = 0.03
+BREAKEVEN_SL_PCT         = -0.005
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
@@ -733,6 +740,17 @@ def _trail_tp_check(conn, account, strategy, sym, pid, side, entry_p, peak_pct):
         log.info("移动止盈 [%s] %-18s  pnl=+%.1f%%  peak=+%.1f%%  回撤%.1f%%  阈值%.1f%%",
                  strategy.upper(), sym, pnl_pct * 100, new_peak * 100,
                  (new_peak - pnl_pct) * 100, pullback_thresh * 100)
+        return True
+    # 保本止损（曾浮盈 >= 3% 的单，回吐到 -0.5% 即平）
+    if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+        close_order(pid, "breakeven-sl")
+        log.info("保本止损 [%s] %-18s  pnl=%.1f%%  peak=+%.1f%%",
+                 strategy.upper(), sym, pnl_pct * 100, new_peak * 100)
+        return True
+    # 早期止损（浮亏达 3%，比硬 SL 10% 提前）
+    if pnl_pct <= -EARLY_SL_PCT:
+        close_order(pid, "early-sl")
+        log.info("早期止损 [%s] %-18s  pnl=%.1f%%", strategy.upper(), sym, pnl_pct * 100)
         return True
     return False
 

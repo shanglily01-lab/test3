@@ -98,6 +98,12 @@ def _dynamic_trail_pullback(peak_pct: float) -> float:
     return float('inf')
 
 
+# 早期止损 / 保本止损（MID 档适用；BIG 档 SL=1% 已比这严，不适用）
+EARLY_SL_PCT             = 0.03
+BREAKEVEN_AFTER_PEAK_PCT = 0.03
+BREAKEVEN_SL_PCT         = -0.005
+
+
 TIER_PARAMS = {
     # MID 档：沿用 CHASE/DUMP，阈值按小币波动 × 0.5 缩放
     "MID": {
@@ -933,6 +939,12 @@ def _monitor_positions(conn):
             pullback_thresh = _dynamic_trail_pullback(peak)
             if (peak - pnl_pct) >= pullback_thresh:
                 _close(r["id"], cur_p, "trail-tp"); continue
+            # 保本止损（曾浮盈 >= 3% 的单，回吐到 -0.5% 平）
+            if peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+                _close(r["id"], cur_p, "breakeven-sl"); continue
+            # 早期止损（浮亏达 3%，比 MID 档硬 SL 5% 提前）
+            if pnl_pct <= -EARLY_SL_PCT:
+                _close(r["id"], cur_p, "early-sl"); continue
 
 
 def _close(pid: int, close_p: float, reason: str):
