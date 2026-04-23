@@ -722,7 +722,7 @@ def whale_tick(conn, sym: str):
 
 # ── 品种列表 ──────────────────────────────────────────────────────────
 _sym_cache: dict = {'syms': [], 'ts': 0.0}
-_SYM_BLACKLIST = {'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT'}  # 币安即将下架
+_SYM_BLACKLIST = {'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT', 'Q/USDT', 'CHIP/USDT', 'SPK/USDT'}  # 币安即将下架 + 反复止损黑名单
 
 def get_universe(cur) -> list:
     """
