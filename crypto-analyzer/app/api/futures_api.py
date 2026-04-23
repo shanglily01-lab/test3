@@ -7,6 +7,7 @@ Futures Trading API
 """
 
 import sys
+import time as _time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -14,10 +15,17 @@ from fastapi import APIRouter, HTTPException, Body, Request, Query
 from pydantic import BaseModel, Field
 import yaml
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from loguru import logger
 import pymysql
+
+# ── /api/futures/price 内存缓存（防止多策略轮询打爆 Binance IP 限额） ──
+# 2026-04-23 事件：IP 被 Binance 封 1 小时（-1003 Too Many Requests）
+# 原因：策略 / paper_limit_sync / sl_tp_monitor 每秒多次透传 Binance，无缓存
+# 缓存键：symbol_clean (如 BTCUSDT)，值：(price, timestamp)，TTL 3s
+_PRICE_CACHE: Dict[str, Tuple[float, float]] = {}
+_PRICE_CACHE_TTL = 3.0
 
 from app.trading.futures_trading_engine import FuturesTradingEngine
 
@@ -1242,6 +1250,17 @@ async def get_futures_price(symbol: str):
         # 标准化交易对格式（处理URL编码的斜杠）
         symbol_clean = symbol.replace('/', '').replace('%2F', '').upper()
 
+        # 先查内存 TTL 缓存（3s），防止多策略并发透传 Binance
+        now_ts = _time.time()
+        cached = _PRICE_CACHE.get(symbol_clean)
+        if cached and (now_ts - cached[1]) < _PRICE_CACHE_TTL:
+            return {
+                'success': True,
+                'symbol': symbol,
+                'price': cached[0],
+                'source': 'cache',
+            }
+
         price = None
         source = None
 
@@ -1261,7 +1280,7 @@ async def get_futures_price(symbol: str):
                             price = float(data['price'])
                             source = 'binance_futures'
                             logger.debug(f"从Binance合约API获取 {symbol} 价格: {price}")
-                            # 成功获取，直接返回
+                            _PRICE_CACHE[symbol_clean] = (price, _time.time())
                             return {
                                 'success': True,
                                 'symbol': symbol,
@@ -1288,6 +1307,7 @@ async def get_futures_price(symbol: str):
                                 price = float(data[0]['last'])
                                 source = 'gateio_futures'
                                 logger.debug(f"从Gate.io合约API获取 {symbol} 价格: {price}")
+                                _PRICE_CACHE[symbol_clean] = (price, _time.time())
                                 return {
                                     'success': True,
                                     'symbol': symbol,
@@ -1313,6 +1333,7 @@ async def get_futures_price(symbol: str):
                 logger.debug(f"从数据库获取价格失败: {e}")
         
         if price and price > 0:
+            _PRICE_CACHE[symbol_clean] = (price, _time.time())
             return {
                 'success': True,
                 'symbol': symbol,
