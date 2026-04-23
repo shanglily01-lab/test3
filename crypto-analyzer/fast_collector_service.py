@@ -55,29 +55,109 @@ class SmartCollectorService:
 
         # 初始化智能采集器
         self.collector = SmartFuturesCollector(db_config)
+        # 保存 DB 配置供实时价格采集 task 使用
+        self.db_config = db_config
 
         # 检查间隔（秒）- 每5分钟检查一次，智能判断是否采集
         self.interval = 300  # 5分钟
 
-        logger.info("🧠 智能数据采集服务初始化完成")
-        logger.info(f"检查间隔: {self.interval}秒 (5分钟)")
-        logger.info("采集策略: 分层智能采集，节省93.5%资源")
+        # 实时价格采集间隔（秒）- Binance 全市场 ticker/price 权重 2
+        # 4s/次 = 15 次/分钟 × 权重 2 = 30 权重/分钟，远在 2400 限额内
+        self.realtime_price_interval = 4
+
+        logger.info("智能数据采集服务初始化完成")
+        logger.info(f"K线采集间隔: {self.interval}秒 (5分钟)")
+        logger.info(f"实时价格采集间隔: {self.realtime_price_interval}秒 (全市场 ticker/price)")
+
+    # ── 实时价格采集（集中化，避免各策略各自打 Binance） ────────────
+    async def realtime_price_loop(self):
+        """
+        每 4s 拉 Binance 全市场 /fapi/v1/ticker/price（权重 2），
+        批量 UPSERT 到 realtime_prices 表。
+        策略/API 读此表即可，不再透传 Binance。
+        """
+        import aiohttp
+        from aiohttp import ClientTimeout
+        import pymysql
+
+        url = "https://fapi.binance.com/fapi/v1/ticker/price"
+
+        def _bn_symbol_to_slash(bn_sym: str) -> str:
+            """BTCUSDT -> BTC/USDT；1000PEPEUSDT -> 1000PEPE/USDT"""
+            if bn_sym.endswith("USDT"):
+                return bn_sym[:-4] + "/USDT"
+            if bn_sym.endswith("USDC"):
+                return bn_sym[:-4] + "/USDC"
+            return bn_sym  # 未知后缀原样存
+
+        def _upsert_sync(rows):
+            """在线程里同步写库"""
+            cfg = self.db_config
+            conn = pymysql.connect(
+                host=cfg.get('host', 'localhost'),
+                port=int(cfg.get('port', 3306)),
+                user=cfg.get('user', ''),
+                password=cfg.get('password', ''),
+                database=cfg.get('database', ''),
+                charset='utf8mb4',
+                connect_timeout=5,
+            )
+            try:
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        """INSERT INTO realtime_prices (symbol, price, source)
+                           VALUES (%s, %s, 'binance_futures')
+                           ON DUPLICATE KEY UPDATE price=VALUES(price)""",
+                        rows,
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+        logger.info("实时价格采集 task 启动")
+        first_log = True
+        while True:
+            try:
+                async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
+                    async with session.get(url) as r:
+                        if r.status != 200:
+                            logger.warning(f"实时价格 HTTP {r.status}")
+                            await asyncio.sleep(self.realtime_price_interval)
+                            continue
+                        data = await r.json()
+                rows = []
+                for item in data:
+                    sym = item.get('symbol', '')
+                    price = item.get('price')
+                    if not sym or not price:
+                        continue
+                    rows.append((_bn_symbol_to_slash(sym), str(price)))
+                if rows:
+                    await asyncio.to_thread(_upsert_sync, rows)
+                    if first_log:
+                        logger.info(f"实时价格采集首轮成功，{len(rows)} 个品种")
+                        first_log = False
+            except Exception as e:
+                logger.error(f"实时价格采集异常: {e}")
+            await asyncio.sleep(self.realtime_price_interval)
 
     async def run_forever(self):
         """持续运行智能采集服务"""
         logger.info("=" * 60)
-        logger.info("🧠 智能数据采集服务启动")
-        logger.info("检查周期: 每5分钟")
-        logger.info("采集策略: 5m(每次) / 15m(每3次) / 1h(每12次) / 1d(每288次)")
-        logger.info("实时价格: 由 WebSocket 服务提供")
+        logger.info("智能数据采集服务启动")
+        logger.info("K线采集: 5m(每次) / 15m(每3次) / 1h(每12次) / 1d(每288次)")
+        logger.info(f"实时价格: 每 {self.realtime_price_interval}s 拉全市场 ticker/price")
         logger.info("=" * 60)
+
+        # 并行启动实时价格采集 task
+        price_task = asyncio.create_task(self.realtime_price_loop())
 
         cycle_count = 0
 
         while True:
             try:
                 cycle_count += 1
-                logger.info(f"\n【第 {cycle_count} 次采集】")
+                logger.info(f"\n【第 {cycle_count} 次 K 线采集】")
 
                 # 执行采集
                 await self.collector.run_collection_cycle()
@@ -88,6 +168,7 @@ class SmartCollectorService:
 
             except KeyboardInterrupt:
                 logger.info("收到停止信号，服务退出")
+                price_task.cancel()
                 break
             except Exception as e:
                 logger.error(f"采集周期异常: {e}")

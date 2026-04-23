@@ -20,12 +20,16 @@ from datetime import datetime
 from loguru import logger
 import pymysql
 
-# ── /api/futures/price 内存缓存（防止多策略轮询打爆 Binance IP 限额） ──
+# ── /api/futures/price 多层价格查询策略（避免打爆 Binance IP 限额） ──
 # 2026-04-23 事件：IP 被 Binance 封 1 小时（-1003 Too Many Requests）
-# 原因：策略 / paper_limit_sync / sl_tp_monitor 每秒多次透传 Binance，无缓存
-# 缓存键：symbol_clean (如 BTCUSDT)，值：(price, timestamp)，TTL 3s
+# 分层读取优先级（先命中先返回）：
+#   L1 进程内 3s TTL 缓存（同一 symbol 并发请求折叠）
+#   L2 realtime_prices 表（fast_collector_service 每 4s 批量 UPSERT，全市场采集）
+#   L3 直连 Binance /fapi/v1/ticker/price（兜底）
+#   L4 数据库 kline 5m close（fallback）
 _PRICE_CACHE: Dict[str, Tuple[float, float]] = {}
 _PRICE_CACHE_TTL = 3.0
+_REALTIME_PRICE_MAX_AGE_S = 15.0   # realtime_prices 超过 15s 视为过期（采集周期 4s）
 
 from app.trading.futures_trading_engine import FuturesTradingEngine
 
@@ -1250,7 +1254,7 @@ async def get_futures_price(symbol: str):
         # 标准化交易对格式（处理URL编码的斜杠）
         symbol_clean = symbol.replace('/', '').replace('%2F', '').upper()
 
-        # 先查内存 TTL 缓存（3s），防止多策略并发透传 Binance
+        # L1: 进程内 3s TTL 缓存
         now_ts = _time.time()
         cached = _PRICE_CACHE.get(symbol_clean)
         if cached and (now_ts - cached[1]) < _PRICE_CACHE_TTL:
@@ -1261,10 +1265,59 @@ async def get_futures_price(symbol: str):
                 'source': 'cache',
             }
 
+        # L2: realtime_prices 表（fast_collector_service 4s 批量更新）
+        # 用 BTC/USDT 格式（表里存的就是这种），异步查避免阻塞事件循环
+        try:
+            import asyncio as _asyncio
+            import pymysql
+            from app.utils.config_loader import load_config
+
+            def _read_realtime(sym_slash: str):
+                cfg = load_config().get('database', {}).get('mysql', {})
+                conn = pymysql.connect(
+                    host=cfg.get('host', 'localhost'),
+                    port=int(cfg.get('port', 3306)),
+                    user=cfg.get('user', ''),
+                    password=cfg.get('password', ''),
+                    database=cfg.get('database', ''),
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor,
+                    connect_timeout=2,
+                )
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT price, UNIX_TIMESTAMP(updated_at) AS ts "
+                            "FROM realtime_prices WHERE symbol=%s LIMIT 1",
+                            (sym_slash,),
+                        )
+                        return cur.fetchone()
+                finally:
+                    conn.close()
+
+            sym_slash = symbol if '/' in symbol else (
+                symbol_clean[:-4] + '/USDT' if symbol_clean.endswith('USDT') else symbol_clean
+            )
+            row = await _asyncio.to_thread(_read_realtime, sym_slash)
+            if row and row.get('price') and row.get('ts'):
+                age_s = _time.time() - float(row['ts'])
+                if age_s < _REALTIME_PRICE_MAX_AGE_S:
+                    price_val = float(row['price'])
+                    _PRICE_CACHE[symbol_clean] = (price_val, _time.time())
+                    return {
+                        'success': True,
+                        'symbol': symbol,
+                        'price': price_val,
+                        'source': 'realtime_db',
+                        'age_s': round(age_s, 1),
+                    }
+        except Exception as e:
+            logger.debug(f"realtime_prices 表查询失败 {symbol}: {e}")
+
         price = None
         source = None
 
-        # 使用较短的超时时间，快速失败并回退
+        # L3/L4: 原有 Binance -> Gate.io -> kline 兜底
         quick_timeout = ClientTimeout(total=2)  # 2秒快速超时
 
         # 1. 优先从Binance合约API获取（快速）
