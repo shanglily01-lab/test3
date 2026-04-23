@@ -1,0 +1,695 @@
+# 测试文档 — 量化交易系统
+
+版本：v1.0  
+更新日期：2026-04-23  
+覆盖范围：strategy_live（趋势跟踪引擎）、strategy_whale（庄家对抗引擎）
+
+---
+
+## 1. 测试策略概览
+
+| 测试层级 | 方式 | 目标 |
+|----------|------|------|
+| 单元测试 | 函数级别，构造最小输入 | 验证每个条件分支的判断正确 |
+| 集成测试 | 回放历史 K 线，对比信号输出 | 验证策略在真实数据上的行为 |
+| 边界测试 | 阈值边界值±1档 | 验证阈值精确生效 |
+| 风控测试 | 模拟止损/熔断场景 | 验证熔断机制正确保护 |
+| 配置热更新测试 | 修改 system_settings 后观察 | 验证参数加载逻辑 |
+
+---
+
+## 2. strategy_live 测试用例
+
+### 2.1 CHASE 子策略
+
+#### TC-L-CHASE-01 基础触发：涨幅刚好到达阈值
+
+**前置条件：**
+- 构造 24 根 5m K 线，`close[-1] = open[0] * 1.12`（恰好 +12%）
+- 窗口内最大单 bar 涨幅 = 5%（> 3%）
+- 从高点回撤 = 0%（无耗竭）
+- topshort state = IDLE，chase state = IDLE
+
+**期望结果：** 触发开仓，state 变为 PENDING，挂多单，限价 = close * 0.97
+
+---
+
+#### TC-L-CHASE-02 涨幅不足：未达 12% 阈值
+
+**前置条件：**
+- 24 根 5m，close[-1] = open[0] * 1.119（+11.9%）
+
+**期望结果：** 不开仓，state 保持 IDLE
+
+---
+
+#### TC-L-CHASE-03 耗竭过滤：高点回撤 > 6%
+
+**前置条件：**
+- 涨幅 +15%，但窗口高点在 close[-1] * 1.08 处（从高点回撤 7.4%）
+
+**期望结果：** 不开仓，日志输出"高点回撤 X.X% > 6%，疑似顶部耗竭"
+
+---
+
+#### TC-L-CHASE-04 耗竭过滤边界：高点回撤 = 6%（恰好等于阈值）
+
+**前置条件：**
+- 从高点回撤精确等于 0.06
+
+**期望结果：** 不开仓（判断为 `> 0.06`，等于时应通过，验证代码是 `> CHASE_EXHAUST_MAX_DD`）
+
+> 注：代码为 `if dd_from_peak > CHASE_EXHAUST_MAX_DD`，等于时仍可开仓。
+
+---
+
+#### TC-L-CHASE-05 慢速爬升过滤：无单 bar 涨 3%
+
+**前置条件：**
+- 24 根 5m 总涨幅 +14%，但每根 bar 涨幅最大仅 2.9%（慢速攀升）
+
+**期望结果：** 不开仓，日志输出"最大单 bar 涨幅 X.X% < 3%，慢速爬升不追"
+
+---
+
+#### TC-L-CHASE-06 方向冲突：topshort 持仓中
+
+**前置条件：**
+- 追涨信号满足全部条件
+- 同标的 topshort state = 'SHORT'（持仓中）
+
+**期望结果：** 不开仓，日志输出"顶空 state=SHORT，避免双向对冲"
+
+---
+
+#### TC-L-CHASE-07 日内熔断：当日已 2 次止损
+
+**前置条件：**
+- `futures_positions` 中同标的今日 notes='stop_loss' 的记录 = 2 条
+- 追涨信号满足
+
+**期望结果：** 不开仓，日志输出"今日已止损 2 次，暂停当日交易"
+
+---
+
+#### TC-L-CHASE-08 日内熔断边界：当日仅 1 次止损
+
+**前置条件：**
+- 同标的今日 stop_loss 记录 = 1 条
+
+**期望结果：** 正常开仓（熔断阈值为 >= 2）
+
+---
+
+#### TC-L-CHASE-09 冷却机制：平仓后未满 4h
+
+**前置条件：**
+- state = DONE，done_time = now - 3h（未满 4h 冷却）
+
+**期望结果：** 不开仓，state 保持 DONE
+
+---
+
+#### TC-L-CHASE-10 冷却到期后正常重入
+
+**前置条件：**
+- state = DONE，done_time = now - 5h（超过 4h）
+
+**期望结果：** state 重置为 IDLE，若当前信号满足则可开仓
+
+---
+
+### 2.2 TOPSHORT Climax 子策略
+
+#### TC-L-TOPSHORT-01 基础触发：标准大阳线顶部
+
+**前置条件：**
+- 构造 1h K 线序列，领袖 K 满足：
+  - body_pct = 3%（> 2.5%）
+  - range_pct = 5%（> 4.5%）
+  - body_ratio = 0.60（> 0.42）
+  - volume = 3x 前 20 根均量（> 2x）
+  - 领袖 K 是 24 根内振幅最大阳线
+  - 领袖 K 后已有 2 根 1h K 未超越
+  - 现价从高点回落 3%（1.2% ~ 48% 区间内）
+  - 信号年龄 10h（< 22h）
+
+**期望结果：** 挂空单，state = PENDING
+
+---
+
+#### TC-L-TOPSHORT-02 放量不足：成交量 < 2 倍均量
+
+**前置条件：**
+- 领袖 K 所有形态条件满足，但 volume = 1.8x 均量
+
+**期望结果：** 不挂单
+
+---
+
+#### TC-L-TOPSHORT-03 领袖 K 等待不足：后续仅 1 根 1h
+
+**前置条件：**
+- 领袖 K 后仅过了 1 根 1h（POST_LEADER_WAIT_BARS = 2）
+
+**期望结果：** 不挂单，等待第 2 根 1h 收盘后才允许判断
+
+---
+
+#### TC-L-TOPSHORT-04 信号超时：领袖 K 已过 26h
+
+**前置条件：**
+- 领袖 K 收盘时间 = now - 27h
+
+**期望结果：** 已挂单的撤单，未挂单的不允许新挂
+
+---
+
+#### TC-L-TOPSHORT-05 现价跌破区间：回撤 > 48%
+
+**前置条件：**
+- 领袖 K 高点 = 100，现价 = 49（回撤 51%）
+
+**期望结果：** 跳过，不挂单（已跌透，无做空价值）
+
+---
+
+#### TC-L-TOPSHORT-06 历史数据不足：品种上架时间 < 1.25 天
+
+**前置条件：**
+- 1h K 线最早一根距今 < 1.25 天（Climax 条件）
+
+**期望结果：** 跳过，不挂单
+
+---
+
+### 2.3 BOTTOMLONG 子策略
+
+#### TC-L-BOTLONG-01 基础触发：标准大阴线底部（实体模式）
+
+**前置条件：**
+- 领袖 K：阴线实体 3%，振幅 5%，实体占振幅 0.60，放量 3x
+- 现价从低点反弹 2%（1.2% ~ 48% 区间内）
+- 后续已有 2 根 1h K
+
+**期望结果：** 挂多单，state = PENDING
+
+---
+
+#### TC-L-BOTLONG-02 下影线模式触发
+
+**前置条件：**
+- 领袖 K：下影占振幅 40%（> 34%），(O-L)/O = 3%（> 2%）
+- 振幅 >= 4.5%，放量 >= 2x
+
+**期望结果：** 触发底部做多信号
+
+---
+
+#### TC-L-BOTLONG-03 反弹过深：现价距低点 > 48%
+
+**前置条件：**
+- 底部形态成立，但现价已从低点反弹 50%
+
+**期望结果：** 不挂单
+
+---
+
+### 2.4 DUMP 子策略
+
+#### TC-L-DUMP-01 基础触发：4h 跌幅恰好 10%
+
+**前置条件：**
+- 48 根 5m K 线，open[0] = 100，close[-1] = 90（跌 10%）
+- 现价距最低点反弹 3%（< 8%）
+
+**期望结果：** 触发开空，限价 = close * 1.03
+
+---
+
+#### TC-L-DUMP-02 反弹过深：距低点反弹 > 8%
+
+**前置条件：**
+- 跌幅 -15%，但现价从最低点已反弹 9%
+
+**期望结果：** 不开仓
+
+---
+
+#### TC-L-DUMP-03 CHASE 持仓冲突
+
+**前置条件：**
+- 同标的 CHASE 已持多仓（_has_any_open = True）
+
+**期望结果：** 不开仓
+
+---
+
+### 2.5 移动止盈测试
+
+#### TC-L-TP-01 硬止盈触发
+
+**前置条件：**
+- 持仓中，pnl_pct = 0.201（> 0.20）
+
+**期望结果：** 立即平仓，reason = "hard-tp"
+
+---
+
+#### TC-L-TP-02 移动止盈触发
+
+**前置条件：**
+- peak_pnl_pct = 0.18，当前 pnl_pct = 0.155（回落 2.5% > 2%）
+- peak >= 0.12 已激活
+
+**期望结果：** 平仓，reason = "trail-tp"
+
+---
+
+#### TC-L-TP-03 移动止盈未激活：盈利未超 12%
+
+**前置条件：**
+- peak_pnl_pct = 0.10，当前 pnl_pct = 0.07（回落 3%）
+
+**期望结果：** 不平仓（peak < TRAIL_TP_START(0.12)，移动止盈未激活）
+
+---
+
+#### TC-L-TP-04 移动止盈边界：回落恰好 2%
+
+**前置条件：**
+- peak = 0.15，pnl = 0.13（回落 2%）
+
+**期望结果：** 触发平仓（`(new_peak - pnl_pct) >= 0.02`，等于时触发）
+
+---
+
+### 2.6 限价单填充测试
+
+#### TC-L-LIMIT-01 LONG 限价单成交触发
+
+**前置条件：**
+- 挂单 LONG，limit_price = 95
+- 当前价格 = 94（< 95）
+
+**期望结果：** 触发填充，status 变为 FILLING → FILLED
+
+---
+
+#### TC-L-LIMIT-02 SHORT 限价单成交触发
+
+**前置条件：**
+- 挂单 SHORT，limit_price = 105
+- 当前价格 = 106（> 105）
+
+**期望结果：** 触发填充
+
+---
+
+#### TC-L-LIMIT-03 限价单超时取消
+
+**前置条件：**
+- 挂单 PENDING，created_at = now - 3601s（超过 1h）
+
+**期望结果：** status 变为 CANCELLED
+
+---
+
+#### TC-L-LIMIT-04 LONG 限价单受 24h 最低价约束
+
+**前置条件：**
+- cur_price = 100，offset = 3%，计算 lp = 97
+- low_24h = 98
+
+**期望结果：** 实际挂单价 = max(97, 98) = 98
+
+---
+
+---
+
+## 3. strategy_whale 测试用例
+
+### 3.1 信号评分系统
+
+#### TC-W-SCORE-01 满分场景（做空，全部条件满足）
+
+**前置条件：**
+- funding_rate = 0.0006（> 0.0005）→ +3
+- long_pct = 0.68（> 0.65）→ +2
+- oi_chg_4h = -0.04（< -0.03）→ +2
+- vol_ratio = 3.0（> 2.5），price_chg = 0.5%（< 1.5%）→ +3
+- taker_buy_ratio = 0.38（< 0.42）→ +1
+- 触发器：大阴线 3%（> 2.5%）→ triggered = True
+- 总分 = 11
+
+**期望结果：** score = 11，triggered = True，开仓
+
+---
+
+#### TC-W-SCORE-02 恰好达到入场门槛
+
+**前置条件：**
+- funding_rate = 0.0003（+2），long_pct = 0.60（+1），oi_chg = -0.01（+1），vol_ratio = 2.0（价格滞，+2），触发器满足
+- 总分 = 6（> 5）
+
+**期望结果：** 开仓
+
+---
+
+#### TC-W-SCORE-03 评分不足：总分 4 分
+
+**前置条件：**
+- 仅有资金费率 +3，多空比 +1，触发器满足
+- 总分 = 4
+
+**期望结果：** 不开仓（< ENTRY_SCORE_MIN(5)）
+
+---
+
+#### TC-W-SCORE-04 触发器未满足：即使评分 >= 5
+
+**前置条件：**
+- 评分 = 8，但无大阴线（price_chg = -0.5%，< 2.5%），无跌破支撑（current > min_4h_low * 0.995）
+
+**期望结果：** 不开仓（triggered = False）
+
+---
+
+#### TC-W-SCORE-05 放量但价格变化过大：不计放量分
+
+**前置条件：**
+- vol_ratio = 3.0（放量），但 price_chg = -2.5%（超过 1.5% 的滞涨门槛）
+
+**期望结果：** 放量分 = 0，该评分维度不得分
+
+---
+
+#### TC-W-SCORE-06 资金费率边界：恰好 = 0.0001
+
+**前置条件：**
+- funding_rate = 0.0001（= FR_MILD_HIGH）
+
+**期望结果：** +1 分（判断为 `>= FR_MILD_HIGH`，等于时得分）
+
+---
+
+### 3.2 仓位管理
+
+#### TC-W-POS-01 单侧满仓：空头已有 3 个持仓
+
+**前置条件：**
+- 已有 3 个 SHORT 持仓，新信号评分满足
+
+**期望结果：** 不开仓（MAX_POS_PER_SIDE = 3，已达上限）
+
+---
+
+#### TC-W-POS-02 单侧未满：空头 2 个，可继续开仓
+
+**前置条件：**
+- 已有 2 个 SHORT 持仓，新信号满足
+
+**期望结果：** 正常开仓
+
+---
+
+### 3.3 冷却机制
+
+#### TC-W-CD-01 正常止盈后冷却 6h
+
+**前置条件：**
+- last_reason = "hard-tp"，done_time = now - 5h（未到 6h）
+
+**期望结果：** 不开仓
+
+---
+
+#### TC-W-CD-02 正常止盈冷却到期
+
+**前置条件：**
+- last_reason = "hard-tp"，done_time = now - 7h（超过 6h）
+
+**期望结果：** 允许进入评分判断流程
+
+---
+
+#### TC-W-CD-03 止损后惩罚性冷却 12h
+
+**前置条件：**
+- last_reason = "stop_loss"，done_time = now - 11h（未满 12h）
+
+**期望结果：** 不开仓（惩罚性冷却中）
+
+---
+
+#### TC-W-CD-04 止损后冷却到期
+
+**前置条件：**
+- last_reason = "stop_loss"，done_time = now - 13h（超过 12h）
+
+**期望结果：** 允许进入评分
+
+---
+
+#### TC-W-CD-05 止损冷却 vs 普通冷却边界对比
+
+**前置条件：**
+- 场景 A：last_reason="trail-tp"，done_time = now - 6.5h → 应允许进场
+- 场景 B：last_reason="stop_loss"，done_time = now - 6.5h → 应仍在冷却
+
+**期望结果：** A 允许，B 不允许
+
+---
+
+### 3.4 限价单测试（Whale）
+
+#### TC-W-LIMIT-01 SHORT 挂单偏移 0.3%
+
+**前置条件：**
+- cur_price = 1000，WHALE_LIMIT_OFFSET_PCT = 0.003
+- high_24h = 1010
+
+**期望结果：** limit_price = min(1000 * 1.003, 1010) = min(1003, 1010) = 1003
+
+---
+
+#### TC-W-LIMIT-02 SHORT 受 24h 最高价压制
+
+**前置条件：**
+- cur_price = 1000，high_24h = 1001（偏移后 1003 > 1001）
+
+**期望结果：** limit_price = 1001（受 high_24h 约束）
+
+---
+
+#### TC-W-LIMIT-03 Whale 限价单超时 2h 撤单
+
+**前置条件：**
+- 挂单 PENDING，created_at = now - 7201s（> 2h）
+
+**期望结果：** 自动撤单，state 重置为 IDLE
+
+---
+
+### 3.5 移动止盈（Whale）
+
+#### TC-W-TP-01 硬止盈 20%
+
+**前置条件：**
+- 持仓中，pnl_pct = 0.201
+
+**期望结果：** 平仓，reason = "hard-tp"
+
+---
+
+#### TC-W-TP-02 移动止盈激活并触发
+
+**前置条件：**
+- peak = 0.15，当前 pnl = 0.128（回落 2.2% >= 2%）
+
+**期望结果：** 平仓，reason = "trail-tp"
+
+---
+
+---
+
+## 4. 配置加载测试
+
+#### TC-CFG-01 strategy_live 从 DB 加载参数
+
+**测试步骤：**
+1. 在 system_settings 表写入 `live_sl_pct = 0.08`
+2. 重启 strategy_live 进程
+3. 观察启动日志
+
+**期望结果：** 日志输出"SL=8% TP=20% offset=X% hold=Xh"，CHASE_SL_PCT 等于 0.08
+
+---
+
+#### TC-CFG-02 strategy_whale 从 DB 加载参数
+
+**测试步骤：**
+1. 在 system_settings 表写入 `whale_sl_pct = 0.12`
+2. 重启 strategy_whale
+3. 观察启动日志
+
+**期望结果：** 日志输出"SL=12%"，SL_PCT 等于 0.12
+
+---
+
+#### TC-CFG-03 DB 读取失败时使用默认值
+
+**测试步骤：**
+1. 修改 DB_HOST 为无效值，重启进程
+
+**期望结果：** 日志输出"_load_live_config 失败，使用默认值"，进程正常启动，使用代码内默认值
+
+---
+
+#### TC-CFG-04 Web UI 保存参数后 DB 更新
+
+**测试步骤：**
+1. 在 system_settings 页面设置趋势跟踪引擎止损 = 12%，保存
+2. 查询 system_settings 表 `live_sl_pct`
+
+**期望结果：** DB 中 setting_value = '0.12'
+
+---
+
+---
+
+## 5. 风险控制专项测试
+
+#### TC-RISK-01 同标的持仓去重
+
+**前置条件：**
+- BTC/USDT 已有 CHASE LONG 持仓
+
+**期望结果：** BTC/USDT 的 DUMP SHORT 信号被 `_has_any_open` 拦截，不开仓
+
+---
+
+#### TC-RISK-02 日内熔断全流程
+
+**步骤：**
+1. 模拟 BTC/USDT 第 1 次止损：写入 futures_positions，notes='stop_loss', close_time=TODAY
+2. 触发 BTC/USDT 新信号，期望正常开仓
+3. 模拟第 2 次止损
+4. 再次触发信号，期望被熔断拦截
+
+**期望结果：** 第 3 次信号被拦截，日志输出"今日已止损 2 次"
+
+---
+
+#### TC-RISK-03 超时平仓全流程
+
+**前置条件：**
+- 持仓 futures_positions，timeout_at = now - 1min（已超时）
+
+**期望结果：** 策略检测到超时，调用 POST /api/futures/close，reason = "timeout"
+
+---
+
+#### TC-RISK-04 限价单并发防护（FILLING 中间态）
+
+**前置条件：**
+- 同一订单同时被两个循环检查（模拟并发）
+
+**期望结果：** 只有第一个 UPDATE status='FILLING' 成功（乐观锁），第二个 UPDATE 影响行数 = 0，拒绝重复填充
+
+---
+
+---
+
+## 6. 回测验证用例（历史数据）
+
+以下用例需基于实际历史 K 线数据验证策略信号准确性：
+
+| 用例 | 标的 | 日期 | 预期信号类型 | 说明 |
+|------|------|------|--------------|------|
+| TV-01 | PEPE/USDT | 2026-04 | CHASE | 2h 急涨 15%，无耗竭 |
+| TV-02 | Q/USDT | 2026-04-22 | CHASE 被过滤 | 涨幅满足但从高点回撤 > 6%，耗竭过滤生效 |
+| TV-03 | BLUR/USDT | 2026-04-22 | CHASE 被过滤 | 涨幅满足但单 bar 最大涨幅 < 3%，慢速爬升过滤 |
+| TV-04 | SPK/USDT | 2026-04-22 | CHASE 被过滤 | 追涨信号满足但 topshort 已持空单，冲突过滤 |
+| TV-05 | CHIP/USDT | 2026-04-22 | CHASE 熔断 | 当日 2 次止损，后续信号被日内熔断拦截 |
+
+---
+
+## 7. API 集成测试
+
+#### TC-API-01 strategy-config GET
+
+```
+GET /api/system/strategy-config
+期望返回：
+{
+  "success": true,
+  "data": {
+    "live_sl_pct": 0.10,
+    "live_hard_tp_pct": 0.20,
+    "live_limit_offset_pct": 0.03,
+    "live_hold_hours": 6,
+    "whale_sl_pct": 0.10,
+    "whale_hard_tp_pct": 0.20,
+    "whale_limit_offset_pct": 0.003,
+    "whale_hold_hours": 6
+  }
+}
+```
+
+---
+
+#### TC-API-02 strategy-config PUT
+
+```
+PUT /api/system/strategy-config
+Body: {"live_sl_pct": 0.08, "whale_hold_hours": 8}
+
+期望返回：
+{"success": true, "message": "策略参数已保存，重载配置后生效"}
+
+验证：SELECT setting_value FROM system_settings WHERE setting_key='live_sl_pct'
+期望：'0.08'
+```
+
+---
+
+#### TC-API-03 trading-services PUT 只保留 live_trading_enabled
+
+```
+PUT /api/system/trading-services
+Body: {"live_trading_enabled": true}
+
+期望：仅更新 live_trading_enabled，不影响其他字段
+```
+
+---
+
+## 8. 测试环境要求
+
+| 项目 | 要求 |
+|------|------|
+| 数据库 | MySQL 8.0+，含 kline_data / futures_positions / strategy_state / system_settings |
+| Python | 3.10+，依赖 pymysql / requests / python-dotenv |
+| FastAPI 服务 | 本地 port 9021 运行 |
+| 历史 K 线 | kline_data 至少包含测试标的 30 天 5m/1h 数据 |
+| 测试账户 | account_id=2，初始余额足够开 5 笔 MARGIN=500 的仓位 |
+
+---
+
+## 9. 回归测试检查清单
+
+每次修改策略代码后需验证：
+
+- [ ] CHASE 涨幅 12% 触发，11.9% 不触发
+- [ ] CHASE 耗竭过滤在高点回撤 > 6% 时生效
+- [ ] CHASE 慢速爬升过滤在单 bar 涨幅 < 3% 时生效
+- [ ] TOPSHORT Climax 放量 < 2x 时不触发
+- [ ] TOPSHORT Climax 信号 > 26h 自动撤单
+- [ ] DUMP 反弹 > 8% 时不触发
+- [ ] 硬止盈 20% 平仓正确
+- [ ] 移动止盈 peak >= 12% 激活，回落 >= 2% 触发
+- [ ] 日内熔断第 2 次止损后第 3 次信号被拦截
+- [ ] Whale 评分 4 分不开仓，5 分无触发器不开仓
+- [ ] Whale 止损后冷却 12h > 普通冷却 6h
+- [ ] system_settings 参数加载正确覆盖默认值
