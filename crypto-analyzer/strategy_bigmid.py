@@ -148,6 +148,10 @@ TIER_PARAMS = {
 }
 
 
+# ── 从 system_settings 动态加载的参数 ──────────────────────────
+DISABLE_SL_TP_HOLD = False  # 总开关: 新开仓不设 SL/TP/timeout, 且跳过进程内硬TP/SL/移动TP检查
+
+
 # ── 日志 ────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -159,6 +163,29 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("strategy_bigmid")
+
+
+def _load_bigmid_config() -> None:
+    """从 system_settings 读取总开关。进程启动时调用一次。"""
+    global DISABLE_SL_TP_HOLD
+    try:
+        conn = _db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT setting_key, setting_value FROM system_settings "
+                    "WHERE setting_key='disable_sl_tp_hold'"
+                )
+                rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
+        finally:
+            conn.close()
+        _raw = str(rows.get('disable_sl_tp_hold', '0')).strip().lower()
+        DISABLE_SL_TP_HOLD = _raw in ('1', 'true', 'yes', 'on')
+        log.info("strategy_bigmid 参数已加载: disable_sl_tp_hold=%s", DISABLE_SL_TP_HOLD)
+        if DISABLE_SL_TP_HOLD:
+            log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/SL/移动TP检查跳过 !!!")
+    except Exception as exc:
+        log.error("_load_bigmid_config 失败，使用默认值: %s", exc)
 
 
 # ── DB 工具 ─────────────────────────────────────────────────────
@@ -309,15 +336,21 @@ def open_order(sym: str, direction: str, entry_p: float, tier: str, tag: str,
         tp = round(price_ref * (1 - p["hard_tp_pct"]), 8)
         sl = round(price_ref * (1 + p["sl_pct"]), 8)
 
+    # 总开关 disable_sl_tp_hold 开启时: 裸奔,不写 SL/TP/timeout
+    if DISABLE_SL_TP_HOLD:
+        sl_out, tp_out, hold_out = None, None, 0
+    else:
+        sl_out, tp_out, hold_out = sl, tp, p["hold_min"]
+
     payload = {
         "account_id":        ACCOUNT_ID,
         "symbol":            sym,
         "position_side":     direction,
         "quantity":          qty,
         "leverage":          LEVERAGE,
-        "stop_loss_price":   sl,
-        "take_profit_price": tp,
-        "max_hold_minutes":  p["hold_min"],
+        "stop_loss_price":   sl_out,
+        "take_profit_price": tp_out,
+        "max_hold_minutes":  hold_out,
         "source":            f"strategy_bigmid:{tag}",
     }
     if limit_p and limit_p > 0:
@@ -505,7 +538,7 @@ def big_whale_tick(conn, cur, sym: str):
     ss = get_or_create(conn, "bigmid", sym, "whale",
                        {"state": "IDLE", "pid": 0, "order_id": 0, "entry_p": 0.0,
                         "peak_pnl_pct": 0.0, "entry_time": 0.0, "done_time": 0.0,
-                        "last_reason": "", "tier": "BIG"})
+                        "last_reason": ""})
     if ss["state"] != "IDLE":
         return
     if ss.get("done_time") and time.time() - float(ss["done_time"]) < COOLDOWN_S_WHALE:
@@ -545,7 +578,7 @@ def big_whale_tick(conn, cur, sym: str):
         update_state(conn, "bigmid", sym, "whale",
                      state="PENDING" if pending else direction,
                      pid=pid or 0, order_id=oid or 0,
-                     entry_p=price, entry_time=time.time(), tier="BIG")
+                     entry_p=price, entry_time=time.time())
 
 
 # BIG Whale 冷却（平仓后）
@@ -560,7 +593,7 @@ def _load_bars(cur, sym: str, tf: str, n: int) -> list:
         "ORDER BY open_time DESC LIMIT %s",
         (sym, tf, n + 2),
     )
-    rows = cur.fetchall()
+    rows = list(cur.fetchall())  # pymysql 某些版本 fetchall 返回 tuple，强转 list 以便排序
     rows.sort(key=lambda r: r["open_time"])
     # 丢弃最新一根（可能未收盘）
     return rows[:-1] if rows else []
@@ -599,7 +632,7 @@ def chase_tick(conn, cur, sym: str, tier: str):
     ss = get_or_create(conn, "bigmid", sym, "chase",
                        {"state": "IDLE", "pid": 0, "order_id": 0, "entry_p": 0.0,
                         "peak_pnl_pct": 0.0, "entry_time": 0.0, "done_time": 0.0,
-                        "last_reason": "", "tier": tier})
+                        "last_reason": ""})
     if ss["state"] != "IDLE":
         return
     # 冷却（平仓后等 4h）
@@ -625,7 +658,7 @@ def chase_tick(conn, cur, sym: str, tier: str):
     if oid:
         update_state(conn, "bigmid", sym, "chase",
                      state="PENDING", pid=pid or 0, order_id=oid,
-                     entry_p=lp, entry_time=time.time(), tier=tier)
+                     entry_p=lp, entry_time=time.time())
 
 
 # ── 主信号：DUMP（追跌）─────────────────────────────────────────
@@ -654,7 +687,7 @@ def dump_tick(conn, cur, sym: str, tier: str):
     ss = get_or_create(conn, "bigmid", sym, "dump",
                        {"state": "IDLE", "pid": 0, "order_id": 0, "entry_p": 0.0,
                         "peak_pnl_pct": 0.0, "entry_time": 0.0, "done_time": 0.0,
-                        "last_reason": "", "tier": tier})
+                        "last_reason": ""})
     if ss["state"] != "IDLE":
         return
     if ss.get("done_time") and time.time() - float(ss["done_time"]) < 4 * 3600:
@@ -678,7 +711,7 @@ def dump_tick(conn, cur, sym: str, tier: str):
     if oid:
         update_state(conn, "bigmid", sym, "dump",
                      state="PENDING", pid=pid or 0, order_id=oid,
-                     entry_p=lp, entry_time=time.time(), tier=tier)
+                     entry_p=lp, entry_time=time.time())
 
 
 # ── 限价填充 + 反向滑点熔断 ─────────────────────────────────────
@@ -783,13 +816,18 @@ def _fill_pending_orders(conn):
         try:
             qty = float(o["quantity"] or 0)
             lev = int(o["leverage"] or LEVERAGE)
+            # 总开关: 裸奔模式下,限价单成交也不写 SL/TP/timeout
+            if DISABLE_SL_TP_HOLD:
+                sl_out, tp_out, hold_out = None, None, 0
+            else:
+                sl_out, tp_out, hold_out = sl, tp, TIER_PARAMS[tier]["hold_min"]
             payload = {
                 "account_id": ACCOUNT_ID, "symbol": sym,
                 "position_side": pos_side, "quantity": qty, "leverage": lev,
-                "stop_loss_price": sl, "take_profit_price": tp,
+                "stop_loss_price": sl_out, "take_profit_price": tp_out,
                 "source": o.get("order_source") or "strategy_bigmid:limit-fill",
                 "fill_price": cur_p,
-                "max_hold_minutes": TIER_PARAMS[tier]["hold_min"],
+                "max_hold_minutes": hold_out,
             }
             res  = _api("POST", "/api/futures/open", json=payload)
             data = res.get("data") or {}
@@ -822,7 +860,7 @@ def _monitor_positions(conn):
     cur = conn.cursor()
     cur.execute("""
         SELECT id, symbol, position_side, entry_price, stop_loss_price, take_profit_price,
-               source, opened_at, timeout_at
+               source, open_time, timeout_at
         FROM futures_positions
         WHERE account_id=%s AND status='open'
           AND source LIKE 'strategy_bigmid:%%'
@@ -840,6 +878,10 @@ def _monitor_positions(conn):
             continue
 
         pnl_pct = (cur_p - entry) / entry if side == "LONG" else (entry - cur_p) / entry
+
+        # 总开关开启: 裸奔,不执行硬TP/SL/移动TP检查(存量仓 SL/TP 由 PositionSLTPMonitor 服务按行内价格触发,不受此影响)
+        if DISABLE_SL_TP_HOLD:
+            continue
 
         # tier 参数
         c2 = conn.cursor()
@@ -911,6 +953,7 @@ def _settle_closed_positions(conn):
 
 # ── 主循环 ──────────────────────────────────────────────────────
 def main():
+    _load_bigmid_config()
     log.info("=" * 60)
     log.info("strategy_bigmid 启动 account=%d LEVERAGE=%dx MARGIN=%.0f",
              ACCOUNT_ID, LEVERAGE, MARGIN)

@@ -1961,6 +1961,18 @@ CREATE TABLE `system_settings` (
   KEY `idx_setting_key` (`setting_key`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=2903 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='系统配置表'
 
+-- 常用 setting_key 说明（非穷举，便于排查）:
+--   live_sl_pct / live_hard_tp_pct / live_limit_offset_pct / live_hold_hours
+--     → strategy_live.py 进程启动时读取，覆盖止损/硬止盈/限价偏移/持仓时长
+--   whale_sl_pct / whale_hard_tp_pct / whale_limit_offset_pct / whale_hold_hours
+--     → strategy_whale.py 同上
+--   max_positions           → 全局最大持仓数量（UI "2.3 全局限制"）
+--   batch_entry_strategy    → 'kline_pullback'(V2) / 'price_percentile'(V1)
+--   big4_filter_enabled     → 'true' / 'false'
+--   disable_sl_tp_hold      → '0'/'1' 总开关: 开启时 live/whale/bigmid 三个策略
+--                             新开仓不写 SL/TP/timeout, 且进程内硬TP/移动TP/SL 检查全跳过
+--                             仅影响新开仓，存量仓位保留原 SL/TP/timeout；修改后需重启策略进程
+
 
 ================================================================================
 表名: trade_data

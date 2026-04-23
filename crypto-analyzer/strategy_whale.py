@@ -92,12 +92,14 @@ WHALE_SL_PCT           = SL_PCT
 WHALE_HARD_TP_PCT      = HARD_TP_PCT
 WHALE_LIMIT_OFFSET_PCT = 0.003  # 限价单挂单偏移（0.3%）
 WHALE_HOLD_H           = 6
+DISABLE_SL_TP_HOLD     = False  # 总开关: 新开仓不设 SL/TP/timeout, 且跳过进程内硬TP/移动TP检查
 
 
 def _load_whale_config() -> None:
     """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
     global WHALE_SL_PCT, WHALE_HARD_TP_PCT, WHALE_LIMIT_OFFSET_PCT, WHALE_HOLD_H
     global SL_PCT, HARD_TP_PCT, SHORT_HOLD_H, LONG_HOLD_H
+    global DISABLE_SL_TP_HOLD
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -115,7 +117,7 @@ def _load_whale_config() -> None:
                 cur.execute(
                     "SELECT setting_key, setting_value FROM system_settings "
                     "WHERE setting_key IN ('whale_sl_pct','whale_hard_tp_pct',"
-                    "'whale_limit_offset_pct','whale_hold_hours')"
+                    "'whale_limit_offset_pct','whale_hold_hours','disable_sl_tp_hold')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -124,14 +126,19 @@ def _load_whale_config() -> None:
         WHALE_HARD_TP_PCT      = float(rows.get('whale_hard_tp_pct',      WHALE_HARD_TP_PCT))
         WHALE_LIMIT_OFFSET_PCT = float(rows.get('whale_limit_offset_pct', WHALE_LIMIT_OFFSET_PCT))
         WHALE_HOLD_H           = int(  rows.get('whale_hold_hours',        WHALE_HOLD_H))
+        _raw_disable = str(rows.get('disable_sl_tp_hold', '0')).strip().lower()
+        DISABLE_SL_TP_HOLD = _raw_disable in ('1', 'true', 'yes', 'on')
         SL_PCT      = WHALE_SL_PCT
         HARD_TP_PCT = WHALE_HARD_TP_PCT
         SHORT_HOLD_H = WHALE_HOLD_H
         LONG_HOLD_H  = WHALE_HOLD_H
         log.info(
-            "strategy_whale 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh",
+            "strategy_whale 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh disable_sl_tp_hold=%s",
             WHALE_SL_PCT * 100, WHALE_HARD_TP_PCT * 100, WHALE_LIMIT_OFFSET_PCT * 100, WHALE_HOLD_H,
+            DISABLE_SL_TP_HOLD,
         )
+        if DISABLE_SL_TP_HOLD:
+            log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/移动TP检查跳过 !!!")
     except Exception as exc:
         log.error("_load_whale_config 失败，使用默认值: %s", exc)
 
@@ -189,6 +196,9 @@ def _close_pos(pid: int, reason: str = "manual"):
 def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pct: float) -> bool:
     """移动止盈/硬止盈检查。触发则平仓并返回 True。"""
     if not entry_p:
+        return False
+    # 总开关开启: 裸奔,不执行硬TP/移动TP检查
+    if DISABLE_SL_TP_HOLD:
         return False
     try:
         cur_p = get_price(sym)
@@ -287,11 +297,16 @@ def open_order(sym, side, price, tp_pct, sl_pct, hold_min, tag, limit_price=None
     else:
         tp = round(price_ref * (1 - tp_pct), 6)
         sl = round(price_ref * (1 + sl_pct), 6)
+    # 总开关 disable_sl_tp_hold 开启时: 裸奔,不写 SL/TP/timeout
+    if DISABLE_SL_TP_HOLD:
+        sl_out, tp_out, hold_out = None, None, 0
+    else:
+        sl_out, tp_out, hold_out = sl, tp, hold_min
     payload = {
         "account_id": ACCOUNT_ID, "symbol": sym,
         "position_side": side, "quantity": qty, "leverage": LEVERAGE,
-        "stop_loss_price": sl, "take_profit_price": tp,
-        "max_hold_minutes": hold_min,
+        "stop_loss_price": sl_out, "take_profit_price": tp_out,
+        "max_hold_minutes": hold_out,
         "source": f"strategy_whale:{tag}",
     }
     if limit_price and limit_price > 0:
@@ -417,15 +432,22 @@ def _fill_pending_orders(conn):
         pos_id = None
         try:
             max_hold = LONG_HOLD_H * 60 if pos_side == 'LONG' else SHORT_HOLD_H * 60
+            _sl_raw = float(o['stop_loss_price']  or 0) or None
+            _tp_raw = float(o['take_profit_price'] or 0) or None
+            # 总开关: 裸奔模式下,限价单成交也不写 SL/TP/timeout
+            if DISABLE_SL_TP_HOLD:
+                sl_out, tp_out, hold_out = None, None, 0
+            else:
+                sl_out, tp_out, hold_out = _sl_raw, _tp_raw, max_hold
             payload = {
                 "account_id": ACCOUNT_ID, "symbol": sym,
                 "position_side": pos_side,
                 "quantity": float(o['quantity'] or 0),
                 "leverage": int(o['leverage'] or LEVERAGE),
-                "stop_loss_price":   float(o['stop_loss_price']  or 0) or None,
-                "take_profit_price": float(o['take_profit_price'] or 0) or None,
+                "stop_loss_price":   sl_out,
+                "take_profit_price": tp_out,
                 "source": (o.get('order_source') or 'strategy_whale:limit-fill'),
-                "fill_price": cur_p, "max_hold_minutes": max_hold,
+                "fill_price": cur_p, "max_hold_minutes": hold_out,
             }
             res    = _api("POST", "/api/futures/open", json=payload)
             data   = res.get("data") or {}

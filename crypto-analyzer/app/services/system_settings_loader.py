@@ -80,3 +80,19 @@ def get_big4_filter_enabled() -> bool:
     """
     settings = get_system_settings()
     return settings.get('big4_filter_enabled', True)
+
+
+def get_disable_sl_tp_hold() -> bool:
+    """
+    获取"不设止盈/止损/持仓时间"总开关。
+    开启后策略引擎 (live/whale/bigmid) 新开仓时不写 SL/TP/timeout,
+    且进程内的硬止盈、移动止盈检查会跳过。仅影响新开仓,存量仓位不变。
+
+    Returns:
+        True=裸奔(不设SL/TP/持仓) / False=正常
+    """
+    settings = get_system_settings()
+    val = settings.get('disable_sl_tp_hold', False)
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ('1', 'true', 'yes', 'on')

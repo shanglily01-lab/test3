@@ -141,6 +141,7 @@ LIVE_SL_PCT           = 0.10   # 统一止损（覆盖各子策略 *_SL_PCT）
 LIVE_HARD_TP_PCT      = HARD_TP_PCT
 LIVE_LIMIT_OFFSET_PCT = 0.03   # 限价单挂单偏移
 LIVE_HOLD_H           = 6      # 最大持仓时长（小时）
+DISABLE_SL_TP_HOLD    = False  # 总开关: 新开仓不设 SL/TP/timeout, 且跳过进程内硬TP/移动TP检查
 
 
 def _load_live_config() -> None:
@@ -149,6 +150,7 @@ def _load_live_config() -> None:
     global CHASE_SL_PCT, TOP_SL_PCT, BOTLONG_SL_PCT, DUMP_SL_PCT
     global HARD_TP_PCT, LONG_HOLD_MIN, SHORT_HOLD_MIN
     global CHASE_MAX_HOLD, DUMP_MAX_HOLD, TOP_HOLD_H, BOTLONG_HOLD_H
+    global DISABLE_SL_TP_HOLD
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -166,7 +168,7 @@ def _load_live_config() -> None:
                 cur.execute(
                     "SELECT setting_key, setting_value FROM system_settings "
                     "WHERE setting_key IN ('live_sl_pct','live_hard_tp_pct',"
-                    "'live_limit_offset_pct','live_hold_hours')"
+                    "'live_limit_offset_pct','live_hold_hours','disable_sl_tp_hold')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -175,6 +177,8 @@ def _load_live_config() -> None:
         LIVE_HARD_TP_PCT      = float(rows.get('live_hard_tp_pct',      LIVE_HARD_TP_PCT))
         LIVE_LIMIT_OFFSET_PCT = float(rows.get('live_limit_offset_pct', LIVE_LIMIT_OFFSET_PCT))
         LIVE_HOLD_H           = int(  rows.get('live_hold_hours',        LIVE_HOLD_H))
+        _raw_disable = str(rows.get('disable_sl_tp_hold', '0')).strip().lower()
+        DISABLE_SL_TP_HOLD = _raw_disable in ('1', 'true', 'yes', 'on')
         CHASE_SL_PCT   = LIVE_SL_PCT
         TOP_SL_PCT     = LIVE_SL_PCT
         BOTLONG_SL_PCT = LIVE_SL_PCT
@@ -187,9 +191,12 @@ def _load_live_config() -> None:
         TOP_HOLD_H     = LIVE_HOLD_H
         BOTLONG_HOLD_H = LIVE_HOLD_H
         log.info(
-            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh",
+            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh disable_sl_tp_hold=%s",
             LIVE_SL_PCT * 100, LIVE_HARD_TP_PCT * 100, LIVE_LIMIT_OFFSET_PCT * 100, LIVE_HOLD_H,
+            DISABLE_SL_TP_HOLD,
         )
+        if DISABLE_SL_TP_HOLD:
+            log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/移动TP检查跳过 !!!")
     except Exception as exc:
         log.error("_load_live_config 失败，使用默认值: %s", exc)
 
@@ -349,15 +356,20 @@ def open_order(sym, direction, entry_price, tp_pct, sl_pct, hold_min, tag, limit
     else:
         tp = round(price_ref * (1 - tp_pct), 6)
         sl = round(price_ref * (1 + sl_pct), 6)
+    # 总开关 disable_sl_tp_hold 开启时: 裸奔,不写 SL/TP/timeout
+    if DISABLE_SL_TP_HOLD:
+        sl_out, tp_out, hold_out = None, None, 0
+    else:
+        sl_out, tp_out, hold_out = sl, tp, hold_min
     payload = {
         "account_id":        ACCOUNT_ID,
         "symbol":            sym,
         "position_side":     direction,
         "quantity":          qty,
         "leverage":          LEVERAGE,
-        "stop_loss_price":   sl,
-        "take_profit_price": tp,
-        "max_hold_minutes":  hold_min,
+        "stop_loss_price":   sl_out,
+        "take_profit_price": tp_out,
+        "max_hold_minutes":  hold_out,
         "source":            f"strategy_live:{tag}",
     }
     if limit_price and limit_price > 0:
@@ -622,11 +634,16 @@ def _fill_pending_orders(conn):
                              sym, side, cur_p, limit_p, orig_sl, sl, orig_tp, tp)
             src = (o.get('order_source') or 'strategy_live:limit-fill')
             max_hold = LONG_HOLD_MIN if pos_side == 'LONG' else SHORT_HOLD_MIN
+            # 总开关: 裸奔模式下,限价单成交也不写 SL/TP/timeout
+            if DISABLE_SL_TP_HOLD:
+                sl_out, tp_out, hold_out = None, None, 0
+            else:
+                sl_out, tp_out, hold_out = sl, tp, max_hold
             payload = {
                 "account_id": ACCOUNT_ID, "symbol": sym,
                 "position_side": pos_side, "quantity": qty, "leverage": lev,
-                "stop_loss_price": sl, "take_profit_price": tp, "source": src,
-                "fill_price": cur_p, "max_hold_minutes": max_hold,
+                "stop_loss_price": sl_out, "take_profit_price": tp_out, "source": src,
+                "fill_price": cur_p, "max_hold_minutes": hold_out,
             }
             res    = _api("POST", "/api/futures/open", json=payload)
             data   = res.get("data") or {}
@@ -677,6 +694,9 @@ def close_order(pid, reason="manual"):
 def _trail_tp_check(conn, account, strategy, sym, pid, side, entry_p, peak_pct):
     """移动止盈/硬止盈检查。触发则平仓并返回 True。"""
     if not entry_p:
+        return False
+    # 总开关开启: 裸奔,不执行硬TP/移动TP检查
+    if DISABLE_SL_TP_HOLD:
         return False
     try:
         cur_p = get_price(sym)
