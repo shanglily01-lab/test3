@@ -472,7 +472,7 @@
                 const exchangeName = k.exchange ? String(k.exchange).toUpperCase() : '-';
                 const accountType = k.account_type || k.permissions || '';
                 const createdAt = k.created_at ? new Date(k.created_at).toLocaleDateString('zh-CN') : '-';
-                const maxMargin = k.max_position_value != null ? parseFloat(k.max_position_value).toFixed(0) + ' U' : '-';
+                const maxMargin = k.margin_per_trade != null ? parseFloat(k.margin_per_trade).toFixed(0) + ' U' : '-';
                 const maxLev = k.max_leverage != null ? k.max_leverage + 'x' : '-';
                 const maxLoss = k.max_daily_loss != null ? parseFloat(k.max_daily_loss).toFixed(0) + ' U' : '-';
 
@@ -590,7 +590,7 @@
                 const resp = await fetch(API_BASE + '/update-risk', {
                     method: 'PUT',
                     headers: authHeaders(),
-                    body: JSON.stringify({ api_key_id: parseInt(editId), max_leverage: maxLeverage, max_position_value: maxMargin, max_daily_loss: maxDailyLoss }),
+                    body: JSON.stringify({ api_key_id: parseInt(editId), max_leverage: maxLeverage, margin_per_trade: maxMargin, max_daily_loss: maxDailyLoss }),
                 });
                 const result = await resp.json();
                 if (result.success) {
@@ -615,7 +615,7 @@
             permissions:        (document.getElementById('input-account-type').value || '').trim(),
             api_key:            apiKey,
             api_secret:         secretKey,
-            max_position_value: maxMargin,
+            margin_per_trade:   maxMargin,
             max_leverage:       maxLeverage,
             max_daily_loss:     maxDailyLoss,
         };
@@ -666,7 +666,7 @@
         document.getElementById('input-account-type').value = k.account_type || k.permissions || 'U本位合约';
         document.getElementById('input-api-key').value = '';
         document.getElementById('input-secret-key').value = '';
-        document.getElementById('input-max-margin').value = k.max_position_value != null ? parseFloat(k.max_position_value) : 400;
+        document.getElementById('input-max-margin').value = k.margin_per_trade != null ? parseFloat(k.margin_per_trade) : 40;
         document.getElementById('input-max-leverage').value = k.max_leverage != null ? k.max_leverage : 10;
         document.getElementById('input-max-daily-loss').value = k.max_daily_loss != null ? parseFloat(k.max_daily_loss) : 100;
         // 编辑模式：API字段不必填，显示取消按钮

@@ -77,7 +77,7 @@ class UpdateRiskRequest(BaseModel):
     """更新风控参数"""
     api_key_id: int
     max_leverage: int = Field(ge=1, le=125)
-    max_position_value: float = Field(ge=0)
+    margin_per_trade: float = Field(gt=0, description='每笔实盘保证金(USDT)')
     max_daily_loss: float = Field(ge=0)
 
 
@@ -372,9 +372,9 @@ async def update_risk(request: UpdateRiskRequest):
         if not cur.fetchone():
             raise HTTPException(status_code=403, detail="无权限或密钥不存在")
         cur.execute("""UPDATE user_api_keys
-            SET max_leverage=%s, max_position_value=%s, max_daily_loss=%s, updated_at=NOW()
+            SET max_leverage=%s, margin_per_trade=%s, max_daily_loss=%s, updated_at=NOW()
             WHERE id=%s""",
-            (request.max_leverage, request.max_position_value, request.max_daily_loss, request.api_key_id))
+            (request.max_leverage, request.margin_per_trade, request.max_daily_loss, request.api_key_id))
         conn.commit(); cur.close(); conn.close()
         return {'success': True, 'message': '风控参数已更新'}
     except HTTPException:
