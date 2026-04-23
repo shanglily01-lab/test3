@@ -1004,7 +1004,6 @@ class FuturesTradingEngine:
         close_quantity: Optional[Decimal] = None,  # 🔥 保留参数以兼容旧代码，但总是全部平仓
         reason: str = 'manual',
         close_price: Optional[Decimal] = None,
-        sync_live: Optional[bool] = None,
         _deadlock_retry: int = 0
     ) -> Dict:
         """
@@ -1362,91 +1361,38 @@ class FuturesTradingEngine:
             # ========== Telegram 通知结束 ==========
 
             # ========== 同步实盘平仓 ==========
-            # 检查是否需要同步实盘平仓
+            # 决策只看系统全局开关 close_sync_live_enabled（独立于 live_trading_enabled）
+            # - live_trading_enabled        控制"开仓同步到实盘"
+            # - close_sync_live_enabled     控制"平仓同步到实盘"（本路径）
+            # 两个开关都不看 strategy_id.config.syncLive（已废弃该字段对平仓的影响）
             try:
-                # 先检查 live_trading_enabled 开关（控制模拟盘与实盘的关联）
-                live_trading_enabled = True
-                try:
-                    chk_cur = connection.cursor()
-                    chk_cur.execute("SELECT setting_value FROM system_settings WHERE setting_key='live_trading_enabled'")
-                    row = chk_cur.fetchone()
-                    chk_cur.close()
-                    if row:
-                        live_trading_enabled = str(row.get('setting_value', '1')) in ('1', 'true', 'True', 'yes')
-                except Exception:
-                    pass
-
-                if not (self.live_engine and live_trading_enabled):
-                    logger.debug(f"[同步实盘] 跳过: live_engine={self.live_engine is not None}, live_trading_enabled={live_trading_enabled}")
-                elif self.live_engine and live_trading_enabled:
-                    # 平仓同步决策优先级：
-                    # 1. 调用方传了 sync_live（UI 按钮 / API 明确指定）→ 以它为准
-                    # 2. 没传且有 strategy_id（策略平仓）→ 查 trading_strategies.config.syncLive
-                    # 3. 没传且无 strategy_id（手动平仓无按钮信息）→ 默认 **不** 同步（保护性默认，避免误平实盘）
-                    should_sync = False
-                    strategy_id = position.get('strategy_id')
-
-                    if sync_live is not None:
-                        should_sync = bool(sync_live)
-                        logger.info(
-                            f"[同步实盘] {symbol} {position_side} 按调用方显式参数 sync_live={should_sync}"
-                        )
-                    elif strategy_id:
-                        # 查询策略配置
-                        cursor = connection.cursor()
-                        cursor.execute(
-                            "SELECT config FROM trading_strategies WHERE id = %s",
-                            (strategy_id,)
-                        )
-                        strategy_row = cursor.fetchone()
-                        cursor.close()
-
-                        logger.info(f"[同步实盘] 策略配置查询结果: strategy_id={strategy_id}, found={strategy_row is not None}")
-
-                        if strategy_row and strategy_row.get('config'):
-                            # 解析策略配置
-                            import json
-                            config = strategy_row['config']
-                            parse_attempts = 0
-                            while isinstance(config, str) and parse_attempts < 3:
-                                try:
-                                    config = json.loads(config)
-                                    parse_attempts += 1
-                                except json.JSONDecodeError:
-                                    break
-
-                            if isinstance(config, dict):
-                                sync_value = config.get('syncLive', False)
-                                # 兼容多种格式: true, 1, "1", "true"
-                                should_sync = sync_value in (True, 1, "1", "true", "True")
-                                logger.info(f"[同步实盘] 策略 {strategy_id} syncLive原始值={sync_value}, 解析结果={should_sync}")
-                            else:
-                                logger.warning(f"[同步实盘] 策略配置解析失败，config类型: {type(config)}")
-                        else:
-                            logger.warning(f"[同步实盘] 策略 {strategy_id} 无配置信息")
-                    else:
-                        # 没有 strategy_id 且调用方未指定 → 保守默认不同步
-                        # 旧行为是这里默认 True，已变更；需要同步请在 UI 用 "平仓并同步实盘" 按钮
-                        logger.info(f"[同步实盘] {symbol} {position_side} 无 strategy_id 且未指定 sync_live，默认不同步")
+                if not self.live_engine:
+                    logger.debug(f"[同步实盘] {symbol} {position_side} 跳过: live_engine 未绑定")
+                else:
+                    try:
+                        from app.services.system_settings_loader import get_close_sync_live_enabled
+                        should_sync = get_close_sync_live_enabled()
+                    except Exception as e:
+                        logger.warning(f"[同步实盘] 读取 close_sync_live_enabled 失败: {e}，默认不同步")
+                        should_sync = False
 
                     if should_sync:
-                        # 同步实盘平仓（全部平仓，不传数量，避免因精度差异导致残留）
-                        logger.info(f"[同步实盘] {symbol} {position_side} 开始平仓同步 (原因: {reason})")
-
+                        logger.info(
+                            f"[同步实盘] {symbol} {position_side} close_sync_live_enabled=True，开始平仓 (原因: {reason})"
+                        )
                         live_result = self.live_engine.close_position_by_symbol(
                             symbol=symbol,
                             position_side=position_side,
-                            close_quantity=None,  # 全部平仓，避免残留
+                            close_quantity=None,  # 全部平仓，避免精度残留
                             reason=f'paper_sync_{reason}'
                         )
-
                         if live_result.get('success'):
                             logger.info(f"[同步实盘] ✅ {symbol} {position_side} 平仓成功")
                         else:
                             live_error = live_result.get('error', live_result.get('message', '未知错误'))
                             logger.error(f"[同步实盘] ❌ {symbol} {position_side} 平仓失败: {live_error}")
                     else:
-                        logger.debug(f"[同步实盘] {symbol} {position_side} 策略未启用实盘同步，跳过")
+                        logger.debug(f"[同步实盘] {symbol} {position_side} close_sync_live_enabled=False，跳过")
             except Exception as live_ex:
                 logger.error(f"[同步实盘] ❌ {symbol} {position_side} 平仓异常: {live_ex}")
             # ========== 同步实盘平仓结束 ==========

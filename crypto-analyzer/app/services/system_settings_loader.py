@@ -96,3 +96,22 @@ def get_disable_sl_tp_hold() -> bool:
     if isinstance(val, bool):
         return val
     return str(val).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def get_close_sync_live_enabled() -> bool:
+    """
+    获取"平仓同步实盘"总开关。
+    与 live_trading_enabled（开仓同步）独立：
+    - live_trading_enabled        → paper 开仓时同步在实盘开同向仓
+    - close_sync_live_enabled     → paper 平仓时同步平 Binance 对应仓位
+
+    默认 False：paper 平仓不牵连实盘，必须显式勾选才开启。
+
+    Returns:
+        True=平仓时同步实盘 / False=不同步
+    """
+    settings = get_system_settings()
+    val = settings.get('close_sync_live_enabled', False)
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ('1', 'true', 'yes', 'on')
