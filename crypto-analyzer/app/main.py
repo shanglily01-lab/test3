@@ -1038,6 +1038,13 @@ except Exception as e:
 
 # 信号黑名单管理API路由
 try:
+    from app.api.symbol_blacklist_api import router as symbol_blacklist_router
+    app.include_router(symbol_blacklist_router)
+    logger.info("symbol_blacklist API registered (/api/symbol_blacklist)")
+except Exception as e:
+    logger.warning(f"symbol_blacklist API 注册失败: {e}")
+
+try:
     from app.api.signal_blacklist_api import router as signal_blacklist_router
     app.include_router(signal_blacklist_router)
     logger.info("signal_blacklist API registered (/api/signal_blacklist)")

@@ -36,6 +36,20 @@
 订单/持仓按 source 前缀区分，互不干扰。
 ```
 
+### 1.3 品种黑名单动态管理
+
+```
+有效黑名单 = 硬编码 BASE（模块顶部 set）∪ symbol_blacklist 表（is_active=1）
+```
+
+- BASE 是"系统永久级"（下架币、已知坏币），写死在代码
+- `symbol_blacklist` 表（023 迁移）是"运行时动态"，UI 可增删
+- 每个策略进程 5 分钟（`_DB_BLACKLIST_REFRESH_S=300`）从 DB 刷新缓存
+- 品种池刷新时使用合并后的黑名单
+
+API: `GET/POST/DELETE /api/symbol_blacklist`
+UI: `/symbol_blacklist` 页面顶部卡片
+
 ### 1.1 进程模型
 
 - 每个引擎是独立 Python 进程，定时轮询，无 web 框架。

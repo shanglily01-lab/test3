@@ -55,11 +55,34 @@ BIGMID_EXCLUDES = {
 MEME_1000_WHITELIST = {"1000PEPE/USDT"}
 
 # 与 strategy_live.SYMBOL_BLACKLIST 同步（反复止损 / 即将下架）
-SHARED_BLACKLIST = {
+SHARED_BLACKLIST_BASE = {
     "DENT/USDT", "XAN/USDT", "SUPER/USDT", "GUN/USDT", "UAI/USDT",
     "AAVE/USD", "BTC/USD", "XVG/USDT", "TRU/USDT", "DEGO/USDT",
     "ZRO/USDT", "RIVER/USDT", "Q/USDT", "CHIP/USDT", "SPK/USDT", "UB/USDT",
 }
+_db_bl_cache_bm = {'syms': set(), 'ts': 0.0}
+_DB_BL_REFRESH_S_BM = 300.0
+
+def _refresh_db_bl_bm() -> set:
+    import time as _t
+    now = _t.time()
+    if (now - _db_bl_cache_bm['ts']) < _DB_BL_REFRESH_S_BM:
+        return _db_bl_cache_bm['syms']
+    try:
+        conn2 = _db_conn()
+        try:
+            with conn2.cursor() as c:
+                c.execute("SELECT symbol FROM symbol_blacklist WHERE is_active=1")
+                _db_bl_cache_bm['syms'] = {r['symbol'] for r in c.fetchall()}
+        finally:
+            conn2.close()
+        _db_bl_cache_bm['ts'] = now
+    except Exception as e:
+        log.debug("读 symbol_blacklist 失败(旧缓存): %s", e)
+    return _db_bl_cache_bm['syms']
+
+def _effective_blacklist_bm() -> set:
+    return SHARED_BLACKLIST_BASE | _refresh_db_bl_bm()
 
 # BIG 档硬白名单：只信这些长期稳定的主流币
 # 即便成交量达到 BIG 门槛，不在此白名单也降级到 MID 档（或直接排除，见 refresh_symbols）
@@ -269,6 +292,7 @@ def refresh_symbols(cur) -> tuple[list, list, dict]:
     rows = cur.fetchall()
 
     bigs, mids, vol_map = [], [], {}
+    _bl = _effective_blacklist_bm()  # 合并硬编码 BASE + DB 表（5 分钟缓存）
     for r in rows:
         sym = r["symbol"]
         vol = float(r["quote_volume_24h"] or 0)
@@ -276,8 +300,8 @@ def refresh_symbols(cur) -> tuple[list, list, dict]:
         # 1) 基础硬排除（股票/衍生品/数据不全）
         if sym in BIGMID_EXCLUDES:
             continue
-        # 2) 与 strategy_live 共享的反复止损黑名单
-        if sym in SHARED_BLACKLIST:
+        # 2) 与 strategy_live 共享的反复止损黑名单（含 DB 动态黑名单）
+        if sym in _bl:
             continue
         # 3) 1000* meme 前缀（除白名单）
         if sym.startswith("1000") and sym not in MEME_1000_WHITELIST:

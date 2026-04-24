@@ -776,7 +776,35 @@ def whale_tick(conn, sym: str):
 
 # ── 品种列表 ──────────────────────────────────────────────────────────
 _sym_cache: dict = {'syms': [], 'ts': 0.0}
-_SYM_BLACKLIST = {'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT', 'Q/USDT', 'CHIP/USDT', 'SPK/USDT', 'UB/USDT'}  # 币安即将下架 + 反复止损黑名单
+_SYM_BLACKLIST_BASE = {'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT', 'Q/USDT', 'CHIP/USDT', 'SPK/USDT', 'UB/USDT'}  # 币安即将下架 + 反复止损
+_db_bl_cache = {'syms': set(), 'ts': 0.0}
+_DB_BL_REFRESH_S = 300.0
+
+def _refresh_db_bl() -> set:
+    import time as _t
+    now = _t.time()
+    if (now - _db_bl_cache['ts']) < _DB_BL_REFRESH_S:
+        return _db_bl_cache['syms']
+    try:
+        c2 = pymysql.connect(
+            host=os.getenv("DB_HOST","localhost"), port=int(os.getenv("DB_PORT","3306")),
+            user=os.getenv("DB_USER",""), password=os.getenv("DB_PASSWORD",""),
+            db=os.getenv("DB_NAME",""), charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor, connect_timeout=3,
+        )
+        try:
+            with c2.cursor() as cc:
+                cc.execute("SELECT symbol FROM symbol_blacklist WHERE is_active=1")
+                _db_bl_cache['syms'] = {r['symbol'] for r in cc.fetchall()}
+        finally:
+            c2.close()
+        _db_bl_cache['ts'] = now
+    except Exception as e:
+        log.debug("读 symbol_blacklist 失败(旧缓存): %s", e)
+    return _db_bl_cache['syms']
+
+def _effective_blacklist() -> set:
+    return _SYM_BLACKLIST_BASE | _refresh_db_bl()
 
 def get_universe(cur) -> list:
     """
@@ -794,7 +822,8 @@ def get_universe(cur) -> list:
         ORDER BY quote_volume_24h DESC
         LIMIT 200
     """)
-    syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _SYM_BLACKLIST]
+    _bl = _effective_blacklist()
+    syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _bl]
 
     # 补充: 活跃 kline 品种 (防 price_stats 尚未更新)
     if len(syms) < 10:
@@ -804,7 +833,8 @@ def get_universe(cur) -> list:
               AND open_time >= UNIX_TIMESTAMP(NOW()-INTERVAL 3 HOUR)*1000
             LIMIT 200
         """)
-        syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _SYM_BLACKLIST]
+        _bl = _effective_blacklist()
+    syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _bl]
 
     _sym_cache.update({'syms': syms, 'ts': now})
     log.info("品种列表刷新: %d 个", len(syms))

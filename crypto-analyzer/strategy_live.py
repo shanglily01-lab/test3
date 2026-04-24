@@ -29,8 +29,38 @@ ACCOUNT_ID  = 2
 LEVERAGE    = 5
 MARGIN      = 500.0   # 每笔保证金 (USDT)
 
-# 品种黑名单
-SYMBOL_BLACKLIST = {'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT', 'AAVE/USD', 'BTC/USD', 'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'Q/USDT', 'CHIP/USDT', 'SPK/USDT', 'UB/USDT'}
+# 品种黑名单（BASE 硬编码 + DB 动态：symbol_blacklist 表每 5 分钟刷新，合并生效）
+SYMBOL_BLACKLIST_BASE = {'DENT/USDT', 'XAN/USDT', 'SUPER/USDT', 'GUN/USDT', 'UAI/USDT', 'AAVE/USD', 'BTC/USD', 'XVG/USDT', 'TRU/USDT', 'DEGO/USDT', 'ZRO/USDT', 'RIVER/USDT', 'Q/USDT', 'CHIP/USDT', 'SPK/USDT', 'UB/USDT'}
+_db_blacklist_cache = {'syms': set(), 'ts': 0.0}
+_DB_BLACKLIST_REFRESH_S = 300.0  # 5 分钟刷新一次
+
+def _refresh_db_blacklist() -> set:
+    """每 5 分钟从 symbol_blacklist 表读 is_active=1 的记录"""
+    import time as _t
+    now = _t.time()
+    if (now - _db_blacklist_cache['ts']) < _DB_BLACKLIST_REFRESH_S:
+        return _db_blacklist_cache['syms']
+    try:
+        conn2 = pymysql.connect(
+            host=os.getenv("DB_HOST","localhost"), port=int(os.getenv("DB_PORT","3306")),
+            user=os.getenv("DB_USER",""), password=os.getenv("DB_PASSWORD",""),
+            database=os.getenv("DB_NAME",""), charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor, connect_timeout=3,
+        )
+        try:
+            with conn2.cursor() as c2:
+                c2.execute("SELECT symbol FROM symbol_blacklist WHERE is_active=1")
+                _db_blacklist_cache['syms'] = {r['symbol'] for r in c2.fetchall()}
+        finally:
+            conn2.close()
+        _db_blacklist_cache['ts'] = now
+    except Exception as e:
+        log.debug("读 symbol_blacklist 失败(使用旧缓存): %s", e)
+    return _db_blacklist_cache['syms']
+
+def get_effective_blacklist() -> set:
+    """合并 BASE + DB（供品种池筛选用）"""
+    return SYMBOL_BLACKLIST_BASE | _refresh_db_blacklist()
 
 # 动态品种缓存
 _sym_cache: dict = {'syms': [], 'updated_at': 0.0}
@@ -48,8 +78,9 @@ def get_active_symbols(cur) -> list:
           AND open_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 MINUTE) * 1000
         ORDER BY symbol
     """)
+    _bl = get_effective_blacklist()
     syms = [r['symbol'] for r in cur.fetchall()
-            if r['symbol'] not in SYMBOL_BLACKLIST]
+            if r['symbol'] not in _bl]
     _sym_cache['syms'] = syms
     _sym_cache['updated_at'] = now
     log.info("品种列表刷新: %d 个活跃品种", len(syms))

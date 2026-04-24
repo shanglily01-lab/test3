@@ -138,6 +138,27 @@
       </div>
     </div>
 
+    <!-- Strategy Blacklist Section (strategy_live / whale / bigmid 即时生效，5 分钟内刷新) -->
+    <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-lg font-bold font-headline text-white">策略永久禁用</h3>
+          <p class="text-xs text-gray-500 mt-1">加入后 <span class="text-[#49f4c8]">strategy_live / whale / bigmid</span> 的品种池立即排除此币（最多 5 分钟生效）。不影响上方 rating 评级系统。</p>
+        </div>
+        <span id="sbl-count" class="font-mono text-xl text-[#49f4c8]">0</span>
+      </div>
+      <!-- Input -->
+      <div class="flex items-center gap-3 mb-4">
+        <input id="sbl-symbol" type="text" placeholder="BTC/USDT" class="flex-1 bg-[#0d1117] border border-gray-800 rounded-lg px-3 py-2 font-mono text-sm focus:border-[#49f4c8] focus:ring-0 text-white outline-none uppercase" />
+        <input id="sbl-reason" type="text" placeholder="原因（可选）" class="flex-[2] bg-[#0d1117] border border-gray-800 rounded-lg px-3 py-2 text-sm focus:border-[#49f4c8] focus:ring-0 text-white outline-none" />
+        <button onclick="sblAdd()" class="px-4 py-2 rounded-lg bg-[#49f4c8] hover:bg-[#3de2b8] text-[#070b10] font-bold text-sm whitespace-nowrap">拉黑</button>
+      </div>
+      <!-- List -->
+      <div id="sbl-list" class="space-y-2 max-h-80 overflow-y-auto">
+        <div class="text-gray-500 text-sm text-center py-6">加载中...</div>
+      </div>
+    </div>
+
     <!-- Tab Bar -->
     <div class="border-b border-gray-800 mb-8 flex items-center gap-6 px-2 font-mono text-sm">
       <button id="tab-all" onclick="setTab('all')" class="tab-btn pb-4 text-[#49f4c8] border-b-2 border-[#49f4c8] font-bold">全部 <span id="cnt-all">0</span></button>
@@ -433,6 +454,88 @@ document.getElementById('modal-symbol').addEventListener('input', function() {
 });
 
 loadData();
+
+// ==================== 策略永久禁用（新加，独立于 rating 系统）====================
+async function sblLoad() {
+  const list = document.getElementById('sbl-list');
+  try {
+    const r = await fetch('/api/symbol_blacklist?active_only=1');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.detail || '加载失败');
+    document.getElementById('sbl-count').textContent = d.total || 0;
+    if (!d.data.length) {
+      list.innerHTML = '<div class="text-gray-500 text-sm text-center py-6">暂无策略禁用记录</div>';
+      return;
+    }
+    list.innerHTML = d.data.map(function(row){
+      const reason = row.reason ? '<span class="text-xs text-gray-400">&nbsp;·&nbsp;' + escapeHtml(row.reason) + '</span>' : '';
+      const by = row.created_by || '-';
+      return (
+        '<div class="flex items-center justify-between bg-[#0d1117] border border-gray-800 rounded-lg px-3 py-2">' +
+          '<div class="flex items-center gap-2 min-w-0">' +
+            '<span class="material-symbols-outlined text-status-danger text-[16px]">block</span>' +
+            '<span class="font-mono text-sm text-white">' + escapeHtml(row.symbol) + '</span>' +
+            reason +
+            '<span class="text-xs text-gray-600 ml-2">[' + by + ']</span>' +
+          '</div>' +
+          '<button onclick="sblRemove(\'' + encodeURIComponent(row.symbol) + '\')" class="text-gray-500 hover:text-status-danger transition-all px-2 py-1 rounded text-xs">解除</button>' +
+        '</div>'
+      );
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="text-red-400 text-sm text-center py-6">加载失败: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function sblAdd() {
+  const sym = (document.getElementById('sbl-symbol').value || '').trim().toUpperCase();
+  const reason = (document.getElementById('sbl-reason').value || '').trim();
+  if (!sym) { showToast('请输入交易对', true); return; }
+  // 容错：用户如果只输入 BTCUSDT，自动补 /USDT
+  let s = sym;
+  if (s.indexOf('/') < 0) {
+    if (s.endsWith('USDT')) s = s.slice(0, -4) + '/USDT';
+    else if (s.endsWith('USDC')) s = s.slice(0, -4) + '/USDC';
+  }
+  try {
+    const r = await fetch('/api/symbol_blacklist', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({symbol: s, reason: reason})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '添加失败');
+    showToast(s + ' 已加入策略黑名单');
+    document.getElementById('sbl-symbol').value = '';
+    document.getElementById('sbl-reason').value = '';
+    sblLoad();
+  } catch(e) {
+    showToast(e.message, true);
+  }
+}
+
+async function sblRemove(encodedSym) {
+  const sym = decodeURIComponent(encodedSym);
+  if (!confirm('解除 ' + sym + ' 的策略禁用？（策略 5 分钟内会重新允许开该币）')) return;
+  try {
+    // URL 里的 / 要保留——用 path 方式
+    const r = await fetch('/api/symbol_blacklist/' + encodedSym, {method: 'DELETE'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '解除失败');
+    showToast(sym + ' 已解除');
+    sblLoad();
+  } catch(e) {
+    showToast(e.message, true);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+sblLoad();
 </script>
 </body>
 </html>

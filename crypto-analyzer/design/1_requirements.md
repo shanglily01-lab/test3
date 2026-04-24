@@ -126,7 +126,8 @@
 | F-L-05-02 | 同标的任何策略有持仓时，拒绝重复开仓（含跨子策略） |
 | F-L-05-03 | 超时平仓：持仓达到最大时长自动市价平仓 |
 | F-L-05-04 | 限价单挂单超过 1h 未成交自动撤单 |
-| F-L-05-05 | 品种黑名单：DENT/XAN/SUPER/GUN/UAI/AAVE_USD/BTC_USD/XVG/TRU/DEGO/ZRO/RIVER/Q/CHIP/SPK/UB |
+| F-L-05-05 | 品种黑名单 = 硬编码 BASE **∪** DB 表 `symbol_blacklist`（WHERE is_active=1）。三个策略每 5 分钟从 DB 刷新一次缓存。BASE 里是历史列表（DENT/XAN/SUPER/GUN/UAI/AAVE_USD/BTC_USD/XVG/TRU/DEGO/ZRO/RIVER/Q/CHIP/SPK/UB），DB 供运行时动态增删 |
+| F-L-05-05a | UI：`/symbol_blacklist` 页面顶部"策略永久禁用"卡片，支持添加 / 解除；即时写 DB，策略 5 分钟内生效；无需改代码 / commit / 重启进程 |
 | F-L-05-06 | 反向滑点熔断：限价被反向穿越且偏离 > 1.5% 时撤单不填，避免逆势进场（LONG 价跌太深，SHORT 价涨太高）|
 
 ---
