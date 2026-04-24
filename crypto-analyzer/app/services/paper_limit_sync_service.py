@@ -142,6 +142,31 @@ class PaperLimitSyncService:
         user_id = order["user_id"]
         pos_side = "LONG" if "LONG" in str(order["side"]) else "SHORT"
 
+        # 原子级兄弟单去重（2026-04-24）：_fetch_pending_sync 的 NOT EXISTS 是批次快照，
+        # 同一 paper_pid 的 LIMIT+MARKET 若同批进入，第一笔写 SYNCED 后第二笔仍用旧 dict，
+        # 会重复开仓。这里在 engine.open_position 前再查一次，命中则挂上兄弟的 live_pid 标 SYNCED 退出。
+        paper_pid = order.get("position_id")
+        if paper_pid is not None:
+            try:
+                with conn.cursor() as _cur:
+                    _cur.execute(
+                        """SELECT id, live_position_id FROM futures_orders
+                        WHERE position_id=%s AND id<>%s
+                          AND live_sync_status='SYNCED' LIMIT 1""",
+                        (paper_pid, order_id),
+                    )
+                    sibling = _cur.fetchone()
+            except Exception as e:
+                logger.warning(f"[PaperSync] 兄弟单校验异常 order_id={order_id}: {e}")
+                sibling = None
+            if sibling:
+                logger.info(
+                    f"[PaperSync] order_id={order_id} 同 paper_pid={paper_pid} 兄弟单 {sibling['id']} "
+                    f"已 SYNCED (live_pid={sibling.get('live_position_id')}), 跳过避免双开"
+                )
+                self._mark(conn, order_id, "SYNCED", sibling.get("live_position_id"))
+                return
+
         try:
             api_cfg = self._get_api_config(user_id)
             if api_cfg is None:
