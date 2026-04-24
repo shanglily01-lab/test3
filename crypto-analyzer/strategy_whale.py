@@ -119,11 +119,11 @@ COOLDOWN_SL_S = 12 * 3600
 #   6. 当前价 > 颈线 C × 1.01（突破确认）
 WB_DATA_MIN_BARS       = 14 * 24     # 至少 14 天 1h K 线
 WB_REBOUND_MIN_PCT     = 0.05        # 颈线反弹幅度最小 5%
-WB_BOTTOM_DIFF_PCT     = 0.03        # 两底价差 ± 3%
+WB_BOTTOM_DIFF_PCT     = 0.05        # 两底价差 ± 5%（2026-04-24 从 3% 放宽：满币池扫描命中 0，小币波动两底精确对齐 3% 内几乎不存在）
 WB_B2_TO_NECK_MIN_H    = 4           # B2 距颈线至少 4h
 WB_TIME_GAP_MIN_H      = 24          # B1→B2 最少 1 天
 WB_TIME_GAP_MAX_H      = 14 * 24     # B1→B2 最多 14 天
-WB_BREAK_NECK_PCT      = 0.01        # 突破颈线 +1% 确认
+WB_BREAK_NECK_PCT      = 0.005       # 突破颈线 +0.5% 确认（2026-04-24 从 1% 放宽）
 WB_HOLD_MIN            = 3 * 24 * 60 # 持仓上限 3 天（timeout 兜底）
 WB_COOLDOWN_S          = 3 * 24 * 3600  # 同品种触发后冷却 3 天
 WB_MAX_OPEN_POSITIONS  = 3           # W 双底子策略全局最多同时 3 笔
