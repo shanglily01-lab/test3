@@ -580,7 +580,7 @@ MEME_1000_WHITELIST = {"1000PEPE/USDT"}
 | 策略类型 kind | whale | trend | 路由按 kind 分发 |
 | tf | 1h | 15m | 时间框架 |
 | 入场逻辑 | 多维评分 + 触发器 | CHASE/DUMP 单指标 | |
-| 入场评分门槛 | 4 分 | n/a | |
+| 入场评分门槛 | **3 分**（2026-04-24 放宽自 4 分） | n/a | |
 | sl_pct | 1% | 5% | |
 | hard_tp_pct | 2% | 10% | |
 | trail_tp_start / pullback | 1.2% / 0.3% | 6% / 1% | |
@@ -622,11 +622,15 @@ BIG Whale 参数（TIER_PARAMS["BIG"]）:
     taker_buy_thresh  0.55  # +1 做多
 
   触发器（必须满足）:
-    trigger_candle_pct 0.008  # 1h 实体 ≥ 0.8% (BTC p92)
+    trigger_candle_pct 0.005  # 1h 实体 ≥ 0.5%（2026-04-24 放宽自 0.8%）
     trigger_breakout   0.0015 # 跌破/突破 4h 高低点 0.15%
 
-  入场门槛 entry_score_min = 4
+  入场门槛 entry_score_min = 3（2026-04-24 放宽自 4）
 ```
+
+**2026-04-24 放宽记录**：首日上线后 48h 只触发 1 笔（主流币日内 1h 实体极少超 0.8%）。
+放宽到 0.5%（覆盖 BTC/SOL/BNB/DOGE/ADA/SUI 的常见日内动能）+ 门槛降到 3 分，
+预期每日 3-5 笔 BIG 信号。代价是信号质量下降，需观察胜率变化。
 
 ### 4a.5 big_whale_tick 信号流
 

@@ -153,10 +153,12 @@ TIER_PARAMS = {
         "taker_sell_thresh":   0.45,        # +1 做空
         "taker_buy_thresh":    0.55,        # +1 做多
         # 触发器（BTC 1h body p99=1.44%, ETH=2.08%, SOL=1.42%）
-        "trigger_candle_pct":  0.008,       # 1h 实体 ≥ 0.8%
+        # 2026-04-24: 48h 只触发 1 笔信号，主流币日内 1h 实体极少超 0.8%
+        # 放宽到 0.5%（BTC/SOL/BNB/DOGE/ADA/SUI 单根 1h 都能到 0.5%+）
+        "trigger_candle_pct":  0.005,       # 1h 实体 ≥ 0.5%（放宽自 0.8%）
         "trigger_breakout":    0.0015,      # 突破 4h 高低点 0.15%
-        # 入场评分门槛（whale 原为 5，BIG 维度较少 + LSR 弱化 → 降到 4）
-        "entry_score_min":     4,
+        # 入场评分门槛（whale 原为 5，BIG 维度较少；2026-04-24 从 4 放宽到 3，配合 trigger 一起提高频率）
+        "entry_score_min":     3,
         # 风控：BTC/ETH 1h 波动 p99 ≈ 1.5%；SL 略宽一点避免被 p99 扫
         "sl_pct":              0.010,
         "hard_tp_pct":         0.020,
