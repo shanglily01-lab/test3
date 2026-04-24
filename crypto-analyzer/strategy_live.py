@@ -93,6 +93,15 @@ CHASE_SL_PCT             = 0.08
 CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
 CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
 CHASE_MIN_24H_CHANGE_PCT = -10.0 # 24h 跌幅超过阈值则不追（避免抓反弹飞刀，2026-04-24）
+CHASE_MAX_24H_CHANGE_PCT =  15.0 # 24h 涨幅超过阈值则不追（避免追顶接棒，2026-04-24）
+DUMP_MIN_24H_CHANGE_PCT  = -15.0 # dump SHORT: 24h 已跌超此阈值则不追跌（避免接飞刀）
+
+# 入场位置守卫 (所有子策略共用, 基于 3h 15m K 线区间百分位)
+ENTRY_POS_LOOKBACK_BARS  = 12     # 3h 回看 (12 根 15m)
+ENTRY_POS_LONG_MAX       = 90.0   # LONG: 入场位 > 90% 视为追高, 拒绝
+ENTRY_POS_SHORT_MIN      = 10.0   # SHORT: 入场位 < 10% 视为踩底, 拒绝
+# 破顶破底硬规则: pos > 100% 或 < 0% 任何方向都拒绝 (写死在 _check_entry_position)
+
 LONG_HOLD_MIN   = 6 * 60
 SHORT_HOLD_MIN  = 6 * 60
 CHASE_MAX_HOLD  = LONG_HOLD_MIN
@@ -560,6 +569,54 @@ def _calc_limit_price(side, cur_price, high_24h, low_24h, pct=0.003):
         if high_24h and high_24h > 0:
             lp = min(lp, float(high_24h))
     return round(lp, 8)
+
+
+# ── 入场位置守卫 (所有子策略共用) ────────────────────────────────
+def _entry_position_pct(cur, sym, cur_price, lookback_bars=ENTRY_POS_LOOKBACK_BARS):
+    """当前价在 15M 最近 lookback_bars 根 K 线区间的百分位 (0=最低, 100=最高).
+    > 100 表示已经突破区间上沿; < 0 表示已跌穿下沿. 无数据返回 None (放行).
+    """
+    import time as _t
+    now_ms = int(_t.time() * 1000)
+    start_ms = now_ms - lookback_bars * 15 * 60 * 1000
+    cur.execute(
+        """SELECT MAX(high_price) AS h, MIN(low_price) AS l
+           FROM kline_data
+           WHERE symbol=%s AND timeframe='15m'
+             AND open_time >= %s AND open_time < %s""",
+        (sym, start_ms, now_ms),
+    )
+    r = cur.fetchone()
+    if not r or r.get('h') is None or r.get('l') is None:
+        return None
+    hi = float(r['h']); lo = float(r['l'])
+    if hi <= lo:
+        return 50.0
+    return (cur_price - lo) / (hi - lo) * 100
+
+
+def _check_entry_position(cur, sym, side, cur_price, tag=''):
+    """入场位置守卫. 返回 (ok, reason).
+    规则 (2026-04-24 基于 strategy_live Phase C 回测):
+      - pos > 100: 破顶, 任何方向都拒绝 (已突破 3h 区间上沿)
+      - pos < 0:   破底, 任何方向都拒绝
+      - LONG pos > 90: 追高, 拒绝
+      - SHORT pos < 10: 踩底, 拒绝
+    kline 数据不足时放行 (ok=True, reason=None).
+    """
+    pct = _entry_position_pct(cur, sym, cur_price)
+    if pct is None:
+        return True, None
+    if pct > 100.0:
+        return False, "破顶 pos=%.0f%% %s" % (pct, tag)
+    if pct < 0.0:
+        return False, "破底 pos=%.0f%% %s" % (pct, tag)
+    if side == 'LONG' and pct > ENTRY_POS_LONG_MAX:
+        return False, "追高 pos=%.0f%% %s" % (pct, tag)
+    if side == 'SHORT' and pct < ENTRY_POS_SHORT_MIN:
+        return False, "踩底 pos=%.0f%% %s" % (pct, tag)
+    return True, None
+
 
 # ── 挂单检查 (DB 版) ─────────────────────────────────────────────
 def _check_pending_db(conn, sym, stype):
@@ -1211,6 +1268,12 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     if existing.get("entry_ts") == climax_open:
         return False
 
+    # 入场位置守卫 (2026-04-24)
+    ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='topshort-climax')
+    if not ok_pos:
+        log.info("TOPSHORT-CLIMAX 跳过 %-18s: %s", sym, reason)
+        return False
+
     h24, l24 = _get_24h_stats(cur, sym)
     lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
     tag = "topshort-climax"
@@ -1332,6 +1395,11 @@ def chase_tick(conn, sym):
                      sym, ch24, CHASE_MIN_24H_CHANGE_PCT)
             cur.close()
             return
+        if ch24 > CHASE_MAX_24H_CHANGE_PCT:
+            log.info("CHASE 跳过 %-18s: 24h=%.1f%% > %.0f%%，已涨过多不追顶",
+                     sym, ch24, CHASE_MAX_24H_CHANGE_PCT)
+            cur.close()
+            return
 
     bars = get_5m_bars(cur, sym, 80)
     if len(bars) < CHASE_PUMP_BARS + 2:
@@ -1384,6 +1452,12 @@ def chase_tick(conn, sym):
         return
 
     price = get_price(sym)
+    # 入场位置守卫: 追高 / 破顶 / 破底 过滤 (2026-04-24)
+    ok_pos, reason = _check_entry_position(cur, sym, 'LONG', price, tag='chase')
+    if not ok_pos:
+        log.info("CHASE 跳过 %-18s: %s", sym, reason)
+        cur.close()
+        return
     h24, l24 = _get_24h_stats(cur, sym)
     cur.close()
     lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
@@ -1570,6 +1644,11 @@ def topshort_tick(conn, active_syms):
             if dd > 0.50:
                 log.info("TOPSHORT 跳过  %-18s  从峰值已跌%.0f%%, 回落过深", sym, dd * 100)
                 break
+            # 入场位置守卫 (2026-04-24)
+            ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='topshort')
+            if not ok_pos:
+                log.info("TOPSHORT 跳过 %-18s: %s", sym, reason)
+                break
             h24, l24 = _get_24h_stats(cur, sym)
             lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
             pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, TOP_SL_PCT,
@@ -1631,6 +1710,14 @@ def _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
 
     existing = get_or_create(conn, "live", sym, "bottomlong", {})
     if existing.get("entry_ts") == climax_open:
+        return False
+
+    # 入场位置守卫 (2026-04-24)
+    ok_pos, reason = _check_entry_position(cur, sym, 'LONG', price,
+                                            tag=('bottomlong-climax' if bear_climax
+                                                 else 'bottomlong-climax-wick'))
+    if not ok_pos:
+        log.info("BOTTOMLONG 跳过 %-18s: %s", sym, reason)
         return False
 
     h24, l24 = _get_24h_stats(cur, sym)
@@ -1872,6 +1959,22 @@ def dump_tick(conn, sym):
         return
 
     price = get_price(sym)
+    # 24h 已跌过多不追 (避免接飞刀, 2026-04-24)
+    cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
+    _r = cur.fetchone()
+    if _r and _r.get('change_24h') is not None:
+        _ch24 = float(_r['change_24h'])
+        if _ch24 < DUMP_MIN_24H_CHANGE_PCT:
+            log.info("DUMP  跳过 %-18s: 24h=%.1f%% < %.0f%%，已跌过多不追",
+                     sym, _ch24, DUMP_MIN_24H_CHANGE_PCT)
+            cur.close()
+            return
+    # 入场位置守卫: 踩底 / 破顶 / 破底 过滤 (2026-04-24)
+    ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='dump')
+    if not ok_pos:
+        log.info("DUMP  跳过 %-18s: %s", sym, reason)
+        cur.close()
+        return
     h24, l24 = _get_24h_stats(cur, sym)
     cur.close()
     lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
