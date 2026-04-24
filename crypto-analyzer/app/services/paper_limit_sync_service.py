@@ -104,7 +104,10 @@ class PaperLimitSyncService:
         return str(row["setting_value"]).strip() == "1"
 
     def _fetch_pending_sync(self, cur) -> List[Dict]:
-        # side 过滤改为显式 OPEN_LONG/OPEN_SHORT，防止 CLOSE_* 单被误同步为开仓
+        # 去重两条线（2026-04-24 MARKET 扩展后必须加，否则历史市价兜底单会把已平/已同步的
+        # paper 仓位在 live 上再开一次）：
+        #   1) paper 仓位必须仍 open；已 closed 的 paper 禁止再同步
+        #   2) 同一 paper_pid 已经有别的订单 live_sync_status='SYNCED' 则跳过
         cur.execute(
             """
             SELECT
@@ -115,10 +118,18 @@ class PaperLimitSyncService:
                 fta.user_id
             FROM futures_orders fo
             JOIN futures_trading_accounts fta ON fta.id = fo.account_id
+            JOIN futures_positions fp        ON fp.id  = fo.position_id
             WHERE fo.status = 'FILLED'
               AND fo.side IN ('OPEN_LONG', 'OPEN_SHORT')
               AND fo.live_sync_status IS NULL
               AND fo.fill_time >= NOW() - INTERVAL 2 HOUR
+              AND fp.status = 'open'
+              AND NOT EXISTS (
+                  SELECT 1 FROM futures_orders fo2
+                  WHERE fo2.position_id = fo.position_id
+                    AND fo2.id <> fo.id
+                    AND fo2.live_sync_status = 'SYNCED'
+              )
             ORDER BY fo.fill_time ASC
             LIMIT 20
             """
