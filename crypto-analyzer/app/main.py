@@ -1236,6 +1236,45 @@ def _parse_mobile_session(request: Request):
     return int(user_id), role
 
 
+_auto_admin_cache: dict = {'user_id': None, 'role': None, 'token': None, 'ts': 0.0}
+_AUTO_ADMIN_TTL_S = 300
+
+
+def _get_auto_admin_session():
+    """自动 admin 登录（2026-04-24）：单机/内网部署免密码。
+
+    查 users 表取最小 id 的活跃 admin，签一份和 /api/mobile/login 完全兼容的
+    mobile_session token；缓存 5 分钟避免每次 DB 查询。"""
+    import time as _t, hmac as _hmac, os as _os
+    now = _t.time()
+    if _auto_admin_cache['token'] and (now - _auto_admin_cache['ts']) < _AUTO_ADMIN_TTL_S:
+        return _auto_admin_cache['user_id'], _auto_admin_cache['role'], _auto_admin_cache['token']
+    try:
+        conn = pymysql.connect(
+            host=_os.getenv("DB_HOST", "localhost"),
+            port=int(_os.getenv("DB_PORT", 3306)),
+            user=_os.getenv("DB_USER", "root"),
+            password=_os.getenv("DB_PASSWORD", ""),
+            database=_os.getenv("DB_NAME", "binance-data"),
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+        cur = conn.cursor()
+        cur.execute("SELECT id, role FROM users WHERE role='admin' AND status='active' ORDER BY id ASC LIMIT 1")
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if not row:
+            return None, None, None
+        secret = _os.getenv('SECRET_KEY', 'mobile_secret_2026').encode()
+        payload = f"{row['id']}:{row['role']}"
+        sig = _hmac.new(secret, payload.encode(), 'sha256').hexdigest()
+        token = f"{payload}:{sig}"
+        _auto_admin_cache.update({'user_id': row['id'], 'role': row['role'], 'token': token, 'ts': now})
+        return row['id'], row['role'], token
+    except Exception as e:
+        logger.error(f"_get_auto_admin_session 失败: {e}")
+        return None, None, None
+
+
 def _check_admin_cookie(request: Request) -> bool:
     """验证是否为admin：优先检查 mobile_session(role=admin)，其次检查旧 admin_token"""
     # 方式1：mobile_session cookie（新登录方式）
@@ -1280,12 +1319,16 @@ async def mobile_login_page():
 
 @app.get("/m/settings")
 async def mobile_settings_page(request: Request):
-    """手机端系统设置页面（仅admin可访问）"""
-    if not _check_admin_cookie(request):
-        return RedirectResponse(url="/m/login?next=/m/settings", status_code=302)
+    """手机端系统设置页面（2026-04-24：免密码，无 admin session 时自动签发）"""
     p = project_root / "templates" / "mobile_settings.html"
-    if p.exists(): return FileResponse(str(p))
-    raise HTTPException(status_code=404, detail="mobile_settings.html not found")
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="mobile_settings.html not found")
+    resp = FileResponse(str(p))
+    if not _check_admin_cookie(request):
+        _uid, _role, _tok = _get_auto_admin_session()
+        if _tok:
+            resp.set_cookie('mobile_session', _tok, max_age=86400 * 30, httponly=True, samesite='lax')
+    return resp
 
 
 @app.get("/m/futures")
@@ -1298,9 +1341,13 @@ async def mobile_futures_page():
 
 @app.get("/m/live")
 async def mobile_live_page(request: Request):
-    """手机端实盘合约页面（需登录，admin可见所有账号）"""
+    """手机端实盘合约页面（2026-04-24：免密码，无 session 时自动签发 admin）"""
     user_id, role = _parse_mobile_session(request)
+    auto_token = None
     if user_id is None:
+        user_id, role, auto_token = _get_auto_admin_session()
+    if user_id is None:
+        # 仍然拿不到 admin（users 表空或 DB 连不上）→ 回退到登录页
         return RedirectResponse(url="/m/login?next=/m/live", status_code=302)
     p = project_root / "templates" / "mobile_live.html"
     if not p.exists():
@@ -1325,7 +1372,10 @@ async def mobile_live_page(request: Request):
               f'window.__ACCESS_TOKEN__="{access_token}";</script>')
     html = html.replace("</head>", inject + "\n</head>", 1)
     from fastapi.responses import HTMLResponse
-    return HTMLResponse(html)
+    resp = HTMLResponse(html)
+    if auto_token:
+        resp.set_cookie('mobile_session', auto_token, max_age=86400 * 30, httponly=True, samesite='lax')
+    return resp
 
 
 @app.get("/health")

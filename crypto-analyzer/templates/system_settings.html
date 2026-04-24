@@ -403,6 +403,44 @@
 </div>
 </div>
 </div>
+
+<!-- 2.6 当前生效硬编码参数（2026-04-24 只读） -->
+<div class="mt-4 rounded-xl bg-[#0c1419]/70 border border-slate-700/40 p-4">
+<p class="cfg-l2-label text-slate-300 mb-3">2.6 当前生效参数（硬编码，改需 commit + 重启）</p>
+<p class="text-[11px] text-slate-500 mb-3">以下常量写死在策略代码中，不进 <code class="text-slate-400">system_settings</code> 表。这里只是展示当前值。</p>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+<div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
+<div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">入场保护期 (ENTRY_GRACE_MIN)</div>
+<div class="text-slate-100 font-mono text-sm"><span class="text-[#49f4c8]">45 分钟</span> <span class="text-slate-600">← 30 → 45（04-24）</span></div>
+<div class="text-slate-500 text-[10px] mt-1">live / whale / bigmid / monitor 均生效；前 45m early-sl 和 breakeven-sl 不触发</div>
+</div>
+<div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
+<div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">限价触发观察 (TRIGGER_CONFIRM_S)</div>
+<div class="text-slate-100 font-mono text-sm"><span class="text-[#49f4c8]">30 秒</span> <span class="text-slate-600">← 新增（04-24）</span></div>
+<div class="text-slate-500 text-[10px] mt-1">限价触发后等 30s 再看是否仍在触发侧才成交；回撤则清观察继续等</div>
+</div>
+<div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
+<div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">追涨 24h 过滤 (CHASE_MIN_24H_CHANGE_PCT)</div>
+<div class="text-slate-100 font-mono text-sm"><span class="text-[#49f4c8]">-10%</span> <span class="text-slate-600">← 新增（04-24）</span></div>
+<div class="text-slate-500 text-[10px] mt-1">24h 跌幅超此值的品种跳过 chase-entry，避免抓熊市反弹飞刀</div>
+</div>
+<div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
+<div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">W 底子策略（strategy_whale:w-bottom）</div>
+<div class="text-slate-100 font-mono text-sm"><span class="text-[#49f4c8]">15m × 3.5 天窗口，持仓 1 天</span> <span class="text-slate-600">← 04-24</span></div>
+<div class="text-slate-500 text-[10px] mt-1">原 1h × 14 天 + 3 天持仓；缩短尺度提高出单频率匹配更快节奏</div>
+</div>
+<div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
+<div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">反向滑点熔断 (REVERSE_SLIPPAGE_LIMIT)</div>
+<div class="text-slate-100 font-mono text-sm">1.5%</div>
+<div class="text-slate-500 text-[10px] mt-1">限价被反向穿越偏离超阈值则撤单不填</div>
+</div>
+<div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
+<div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">实盘同步（PaperLimitSyncService）</div>
+<div class="text-slate-100 font-mono text-sm"><span class="text-[#49f4c8]">LIMIT + MARKET 均同步</span> <span class="text-slate-600">← 04-24</span></div>
+<div class="text-slate-500 text-[10px] mt-1">去重：paper 仓 open + 同 paper_pid 未 SYNCED</div>
+</div>
+</div>
+</div>
 </section>
 
 </div>

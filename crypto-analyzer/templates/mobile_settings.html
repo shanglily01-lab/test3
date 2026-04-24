@@ -203,6 +203,56 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
+    <!-- 当前生效硬编码参数（2026-04-24 只读） -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">当前生效参数（只读）</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">以下写死在策略代码，改需 commit + 重启进程。</p>
+        <div class="settings-card rounded-2xl overflow-hidden px-4 py-3 space-y-2.5">
+            <div class="flex items-start justify-between gap-3 py-2 border-b border-outline-variant/10">
+                <div class="min-w-0">
+                    <div class="text-xs text-on-surface">入场保护期</div>
+                    <div class="text-[10px] text-on-surface-variant/70 mt-0.5">前 N 分钟 early-sl/breakeven 不触发</div>
+                </div>
+                <div class="mono-data text-sm text-primary shrink-0">45 分钟 <span class="text-on-surface-variant/50 text-[10px]">(30→45)</span></div>
+            </div>
+            <div class="flex items-start justify-between gap-3 py-2 border-b border-outline-variant/10">
+                <div class="min-w-0">
+                    <div class="text-xs text-on-surface">限价触发观察</div>
+                    <div class="text-[10px] text-on-surface-variant/70 mt-0.5">价格触发后等 N 秒再看是否仍触发</div>
+                </div>
+                <div class="mono-data text-sm text-primary shrink-0">30 秒 <span class="text-on-surface-variant/50 text-[10px]">(新)</span></div>
+            </div>
+            <div class="flex items-start justify-between gap-3 py-2 border-b border-outline-variant/10">
+                <div class="min-w-0">
+                    <div class="text-xs text-on-surface">追涨 24h 过滤</div>
+                    <div class="text-[10px] text-on-surface-variant/70 mt-0.5">日跌超阈值不追反弹</div>
+                </div>
+                <div class="mono-data text-sm text-primary shrink-0">-10% <span class="text-on-surface-variant/50 text-[10px]">(新)</span></div>
+            </div>
+            <div class="flex items-start justify-between gap-3 py-2 border-b border-outline-variant/10">
+                <div class="min-w-0">
+                    <div class="text-xs text-on-surface">W 底子策略</div>
+                    <div class="text-[10px] text-on-surface-variant/70 mt-0.5">K 线尺度 + 窗口 + 持仓</div>
+                </div>
+                <div class="mono-data text-sm text-primary shrink-0 text-right">15m × 3.5 天<br/><span class="text-on-surface-variant/50 text-[10px]">持仓 1 天 (3d→1d)</span></div>
+            </div>
+            <div class="flex items-start justify-between gap-3 py-2 border-b border-outline-variant/10">
+                <div class="min-w-0">
+                    <div class="text-xs text-on-surface">反向滑点熔断</div>
+                    <div class="text-[10px] text-on-surface-variant/70 mt-0.5">限价被反向穿越超阈值撤单</div>
+                </div>
+                <div class="mono-data text-sm text-on-surface shrink-0">1.5%</div>
+            </div>
+            <div class="flex items-start justify-between gap-3 py-2">
+                <div class="min-w-0">
+                    <div class="text-xs text-on-surface">实盘同步</div>
+                    <div class="text-[10px] text-on-surface-variant/70 mt-0.5">LIMIT + MARKET 都同步；去重 paper open + 无 SYNCED 兄弟单</div>
+                </div>
+                <div class="mono-data text-sm text-primary shrink-0">✓ 扩展</div>
+            </div>
+        </div>
+    </section>
+
     <!-- 系统状态 -->
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">系统状态</h2>
@@ -406,19 +456,9 @@ async function save(type) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────
+// 2026-04-24：已改为免密码访问，session 自动解锁；保留 lockPage() 手动锁定入口
 async function initLock() {
-    if (isUnlocked()) { unlockPage(); return; }
-    const exists = await checkPasswordExists();
-    if (!exists) {
-        _lockMode = 'setup';
-        document.getElementById('lockTitle').textContent = '首次设置密码';
-        document.getElementById('lockDesc').textContent = '请设置管理员密码以保护系统设置（至少4位）';
-        document.getElementById('lockConfirmWrap').style.display = 'block';
-        document.getElementById('lockInput').placeholder = '新密码';
-        document.getElementById('lockBtn').textContent = '确认';
-    }
-    document.getElementById('lockOverlay').classList.add('show');
-    setTimeout(() => document.getElementById('lockInput').focus(), 100);
+    unlockPage();  // 始终视为已解锁，不再弹密码框
 }
 
 initLock();
