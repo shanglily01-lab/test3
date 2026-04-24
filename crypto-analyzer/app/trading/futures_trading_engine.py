@@ -1584,14 +1584,27 @@ class FuturesTradingEngine:
                     unrealized_pnl_pct = (unrealized_pnl / margin * 100) if margin > 0 else Decimal('0')
 
                     # 更新数据库中的 mark_price 和未实现盈亏
+                    # max_profit_pct/price/time 同步刷新峰值 (取大值), 供前端/复盘展示
+                    pnl_pct_f = float(unrealized_pnl_pct)
                     cursor_update.execute(
                         """UPDATE futures_positions
                         SET mark_price = %s,
                             unrealized_pnl = %s,
                             unrealized_pnl_pct = %s,
-                            last_update_time = NOW()
+                            last_update_time = NOW(),
+                            max_profit_pct = GREATEST(COALESCE(max_profit_pct, 0), %s),
+                            max_profit_price = CASE
+                                WHEN %s > COALESCE(max_profit_pct, 0) THEN %s
+                                ELSE max_profit_price END,
+                            max_profit_time = CASE
+                                WHEN %s > COALESCE(max_profit_pct, 0) THEN NOW()
+                                ELSE max_profit_time END
                         WHERE id = %s""",
-                        (float(current_price), float(unrealized_pnl), float(unrealized_pnl_pct), pos['id'])
+                        (float(current_price), float(unrealized_pnl), pnl_pct_f,
+                         pnl_pct_f,
+                         pnl_pct_f, float(current_price),
+                         pnl_pct_f,
+                         pos['id'])
                     )
 
                     pos['current_price'] = float(current_price)
@@ -1663,14 +1676,27 @@ class FuturesTradingEngine:
                     unrealized_pnl_pct = (unrealized_pnl / margin * 100) if margin > 0 else Decimal('0')
                     
                     # 更新持仓的未实现盈亏
+                    # max_profit_pct/price/time 同步刷新峰值 (取大值), 供前端/复盘展示
+                    pnl_pct_f = float(unrealized_pnl_pct)
                     cursor.execute(
                         """UPDATE futures_positions
                         SET mark_price = %s,
                             unrealized_pnl = %s,
                             unrealized_pnl_pct = %s,
-                            last_update_time = NOW()
+                            last_update_time = NOW(),
+                            max_profit_pct = GREATEST(COALESCE(max_profit_pct, 0), %s),
+                            max_profit_price = CASE
+                                WHEN %s > COALESCE(max_profit_pct, 0) THEN %s
+                                ELSE max_profit_price END,
+                            max_profit_time = CASE
+                                WHEN %s > COALESCE(max_profit_pct, 0) THEN NOW()
+                                ELSE max_profit_time END
                         WHERE id = %s""",
-                        (float(current_price), float(unrealized_pnl), float(unrealized_pnl_pct), pos['id'])
+                        (float(current_price), float(unrealized_pnl), pnl_pct_f,
+                         pnl_pct_f,
+                         pnl_pct_f, float(current_price),
+                         pnl_pct_f,
+                         pos['id'])
                     )
                 except Exception as e:
                     logger.warning(f"更新持仓 {pos.get('symbol', 'unknown')} 未实现盈亏失败: {e}")
