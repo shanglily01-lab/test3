@@ -108,23 +108,24 @@ LONG_HOLD_H   = 6    # 做多持仓 6小时
 COOLDOWN_S    = 6 * 3600
 COOLDOWN_SL_S = 12 * 3600
 
-# ── W 型双底子策略（做多、长持、不设 SL/TP）────────────────────────────
-# 数据要求：至少 2 周 1h K 线（336 根）
-# 形态识别流程：
-#   1. 定位 2 周内最低点 B1
+# ── W 型双底子策略（做多、短持、不设 SL/TP）────────────────────────────
+# 数据要求：至少 3.5 天 15m K 线（336 根）
+# 形态识别流程（2026-04-24：从 1h 改为 15m，所有 bar 数常量不变，实际时间尺度变为 1/4）
+#   1. 定位 3.5 天内最低点 B1
 #   2. B1 之后反弹到颈线 C，幅度 ≥ 5%
-#   3. C 之后再次探底 B2，价格在 B1 ± 3%
-#   4. B2 距 C 至少 4h（过滤假探底）
-#   5. B1 → B2 时间间隔 1-14 天
-#   6. 当前价 > 颈线 C × 1.01（突破确认）
-WB_DATA_MIN_BARS       = 14 * 24     # 至少 14 天 1h K 线
+#   3. C 之后再次探底 B2，价格在 B1 ± 5%
+#   4. B2 距 C 至少 4 根（1h，过滤假探底）
+#   5. B1 → B2 时间间隔 6h - 3.5 天
+#   6. 当前价 > 颈线 C × 1.005（突破确认）
+# 注: 下方常量名保留 _H 后缀仅为历史兼容, 数值单位现在是 "15m K 线根数"
+WB_DATA_MIN_BARS       = 14 * 24     # 至少 336 根 15m K 线 = 3.5 天
 WB_REBOUND_MIN_PCT     = 0.05        # 颈线反弹幅度最小 5%
-WB_BOTTOM_DIFF_PCT     = 0.05        # 两底价差 ± 5%（2026-04-24 从 3% 放宽：满币池扫描命中 0，小币波动两底精确对齐 3% 内几乎不存在）
-WB_B2_TO_NECK_MIN_H    = 4           # B2 距颈线至少 4h
-WB_TIME_GAP_MIN_H      = 24          # B1→B2 最少 1 天
-WB_TIME_GAP_MAX_H      = 14 * 24     # B1→B2 最多 14 天
+WB_BOTTOM_DIFF_PCT     = 0.05        # 两底价差 ± 5%（2026-04-24 从 3% 放宽）
+WB_B2_TO_NECK_MIN_H    = 4           # B2 距颈线至少 4 根（1h）
+WB_TIME_GAP_MIN_H      = 24          # B1→B2 最少 24 根（6h）
+WB_TIME_GAP_MAX_H      = 14 * 24     # B1→B2 最多 336 根（3.5 天）
 WB_BREAK_NECK_PCT      = 0.005       # 突破颈线 +0.5% 确认（2026-04-24 从 1% 放宽）
-WB_HOLD_MIN            = 3 * 24 * 60 # 持仓上限 3 天（timeout 兜底）
+WB_HOLD_MIN            = 1 * 24 * 60 # 持仓上限 1 天（timeout 兜底，2026-04-24 从 3 天缩短）
 WB_COOLDOWN_S          = 3 * 24 * 3600  # 同品种触发后冷却 3 天
 WB_MAX_OPEN_POSITIONS  = 3           # W 双底子策略全局最多同时 3 笔
 
@@ -596,6 +597,19 @@ def _get_1h_bars(cur, sym: str, limit: int = 30) -> list:
     """, (sym, now_ms, limit))
     return list(reversed(cur.fetchall()))
 
+
+def _get_15m_bars(cur, sym: str, limit: int) -> list:
+    """最近 N 根完成的 15m K线（W 双底子策略专用）"""
+    now_ms = int(now_s() * 1000)
+    cur.execute("""
+        SELECT open_price, high_price, low_price, close_price, volume, taker_buy_base_volume
+        FROM kline_data
+        WHERE symbol=%s AND timeframe='15m'
+          AND open_time + 900000 < %s
+        ORDER BY open_time DESC LIMIT %s
+    """, (sym, now_ms, limit))
+    return list(reversed(cur.fetchall()))
+
 def _vol_divergence(bars: list, direction: str) -> tuple:
     """
     检测放量滞涨(direction='short')或放量滞跌(direction='long').
@@ -733,27 +747,27 @@ def compute_score(cur, sym: str, direction: str) -> tuple:
 
 
 # ── W 型双底检测 ──────────────────────────────────────────────────────
-def detect_w_bottom(bars_1h: list) -> dict | None:
+def detect_w_bottom(bars_15m: list) -> dict | None:
     """
-    识别最近 2 周的 W 型双底。
+    识别最近 3.5 天（336 根 15m K 线）的 W 型双底。
     返回 None 表示不成立；成立返回 dict 含各关键点位。
     """
-    n = len(bars_1h)
+    n = len(bars_15m)
     if n < WB_DATA_MIN_BARS:
         return None
 
-    lows   = [float(b['low_price'])   for b in bars_1h]
-    highs  = [float(b['high_price'])  for b in bars_1h]
-    closes = [float(b['close_price']) for b in bars_1h]
+    lows   = [float(b['low_price'])   for b in bars_15m]
+    highs  = [float(b['high_price'])  for b in bars_15m]
+    closes = [float(b['close_price']) for b in bars_15m]
 
-    # 1. 2 周最低点 B1
+    # 1. 3.5 天最低点 B1
     i1 = min(range(n), key=lambda i: lows[i])
     b1 = lows[i1]
     if b1 <= 0:
         return None
 
     # 2. B1 之后必须有足够空间形成颈线 + 二次探底
-    if n - i1 < 48:  # 至少 48h 后续
+    if n - i1 < 48:  # 至少 48 根后续 = 12h
         return None
 
     # 3. B1 之后的局部高点 = 颈线 C
@@ -841,10 +855,10 @@ def w_bottom_tick(conn, sym: str):
     if _wb_active_count(conn) >= WB_MAX_OPEN_POSITIONS:
         return
 
-    # 取 2 周 1h K 线
+    # 取 3.5 天 15m K 线（336 + 24 根缓冲）
     cur = conn.cursor()
     try:
-        bars = _get_1h_bars(cur, sym, limit=WB_DATA_MIN_BARS + 24)
+        bars = _get_15m_bars(cur, sym, limit=WB_DATA_MIN_BARS + 24)
     finally:
         cur.close()
     if len(bars) < WB_DATA_MIN_BARS:
@@ -877,10 +891,10 @@ def w_bottom_tick(conn, sym: str):
 
     log.info(
         "[W-BOTTOM] %s LONG  B1=%.6f B2=%.6f neck=%.6f cur=%.6f  "
-        "反弹%.1f%%  两底差%.2f%%  gap %dh  突破%.2f%%  lp=%.6f",
+        "反弹%.1f%%  两底差%.2f%%  gap %.1fh  突破%.2f%%  lp=%.6f",
         sym, sig['b1'], sig['b2'], sig['neck'], sig['cur_price'],
         sig['rebound_pct'] * 100, sig['bottom_diff'] * 100,
-        sig['gap_h'], sig['break_pct'] * 100, lp,
+        sig['gap_h'] * 0.25, sig['break_pct'] * 100, lp,  # 15m bar → 小时
     )
     update_state(
         conn, 'whale', sym, 'w-bottom',
