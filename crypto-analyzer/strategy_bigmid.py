@@ -123,11 +123,11 @@ def _dynamic_trail_pullback(peak_pct: float) -> float:
 
 # 早期止损 / 保本止损（MID 档适用；BIG 档 SL=1% 已比这严，不适用）
 # 2026-04-24 breakeven 启动门槛 3%→1.5%：补 peak 1-3% 的保护盲区
-# ENTRY_GRACE_MIN 入场保护期 30 分钟：前 30m 不触发 early-sl/breakeven，仅硬 SL 兜底
+# ENTRY_GRACE_MIN 入场保护期 45 分钟：前 45m 不触发 early-sl/breakeven，仅硬 SL 兜底
 EARLY_SL_PCT             = 0.03
 BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
-ENTRY_GRACE_MIN          = 30
+ENTRY_GRACE_MIN          = 45
 
 
 TIER_PARAMS = {

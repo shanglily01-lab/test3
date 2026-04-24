@@ -180,11 +180,11 @@ TRAIL_TP_TIERS = [
 #   BREAKEVEN_SL_PCT: 在"赚过钱"状态下，若回吐到此阈值（-0.5%）平仓保本
 #   ENTRY_GRACE_MIN: 入场保护期。前 N 分钟内 early-sl / breakeven 不触发，仅硬 SL 兜底
 #     2026-04-24 新增：数据显示 38% 的 early-sl 在 5m 内触发（入场瞬间均值回归），
-#     给仓位 15 分钟"呼吸空间"避免被瞬时抖动扫出局
+#     给仓位 45 分钟"呼吸空间"避免被瞬时抖动扫出局（从 30m 上调）
 EARLY_SL_PCT             = 0.03
 BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
-ENTRY_GRACE_MIN          = 30
+ENTRY_GRACE_MIN          = 45
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:

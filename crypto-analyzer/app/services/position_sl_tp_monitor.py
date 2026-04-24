@@ -47,7 +47,7 @@ BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005 # 保本线 -0.5%
 # 入场保护期：开仓 N 分钟内 early-sl/breakeven 不触发（硬 SL 兜底）
 # 2026-04-24：数据显示 38% early-sl 在 5m 内扎中（入场瞬间均值回归误杀）
-ENTRY_GRACE_MIN          = 30
+ENTRY_GRACE_MIN          = 45
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:

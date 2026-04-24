@@ -91,11 +91,11 @@ TRAIL_TP_TIERS = [
     (0.03, 0.01),
 ]
 # 早期止损 / 保本止损（与 strategy_live 同；2026-04-24 breakeven 启动 3%→1.5%）
-# ENTRY_GRACE_MIN 入场保护期：前 15 分钟 early-sl/breakeven 不触发，仅硬 SL 兜底
+# ENTRY_GRACE_MIN 入场保护期：前 45 分钟 early-sl/breakeven 不触发，仅硬 SL 兜底
 EARLY_SL_PCT             = 0.03
 BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
-ENTRY_GRACE_MIN          = 30
+ENTRY_GRACE_MIN          = 45
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
