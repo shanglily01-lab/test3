@@ -108,6 +108,11 @@ LONG_HOLD_H   = 6    # 做多持仓 6小时
 COOLDOWN_S    = 6 * 3600
 COOLDOWN_SL_S = 12 * 3600
 
+# 限价单触发后的观察确认期（2026-04-24）：价格穿过挂单价时不立即成交，等 N 秒再看是否仍触发
+# 避免急跌/急涨瞬穿即成交（接飞刀）。若价格在观察期内回撤到另一侧则清除观察、继续挂单。
+TRIGGER_CONFIRM_S = 30
+_trigger_first_seen: dict[int, float] = {}
+
 # ── W 型双底子策略（做多、短持、不设 SL/TP）────────────────────────────
 # 数据要求：至少 3.5 天 15m K 线（336 根）
 # 形态识别流程（2026-04-24：从 1h 改为 15m，所有 bar 数常量不变，实际时间尺度变为 1/4）
@@ -489,7 +494,20 @@ def _fill_pending_orders(conn):
         pos_side = side.replace('OPEN_', '') if side.startswith('OPEN_') else side
         triggered = (pos_side == 'LONG' and cur_p <= limit_p) or (pos_side == 'SHORT' and cur_p >= limit_p)
         if not triggered:
+            if _trigger_first_seen.pop(o['id'], None) is not None:
+                log.info("WHALE 限价单触发回撤，重新等待 %s %s cur=%.5f limit=%.5f",
+                         sym, side, cur_p, limit_p)
             continue
+        # 30 秒观察确认
+        first_seen = _trigger_first_seen.get(o['id'])
+        if first_seen is None:
+            _trigger_first_seen[o['id']] = time.time()
+            log.info("WHALE 限价单触发观察 %s %s cur=%.5f limit=%.5f（%ds 后确认）",
+                     sym, side, cur_p, limit_p, TRIGGER_CONFIRM_S)
+            continue
+        if time.time() - first_seen < TRIGGER_CONFIRM_S:
+            continue
+        _trigger_first_seen.pop(o['id'], None)
         # 先把订单标成 FILLING，防止同一订单被重复触发
         c2 = conn.cursor()
         affected = c2.execute("""UPDATE futures_orders

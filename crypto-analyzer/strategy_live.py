@@ -271,6 +271,12 @@ LIMIT_PENDING_MAX_S = 60 * 60
 # SHORT cur_p > limit_p*(1+X) → 价格继续上涨，做空是逆势
 REVERSE_SLIPPAGE_LIMIT = 0.015
 
+# 限价单触发后的观察确认期：价格触发挂单价后不立即成交，等 N 秒再看是否仍触发；
+# 若仍触发才成交（过滤瞬穿），若已回撤则清除观察、继续挂单。
+# 2026-04-24 新增：实测限价单在下跌/上涨途中被瞬穿成交，进场即接飞刀。
+TRIGGER_CONFIRM_S = 30
+_trigger_first_seen: dict[int, float] = {}
+
 # ── 日志 ─────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -641,7 +647,22 @@ def _fill_pending_orders(conn):
         pos_side = side.replace('OPEN_', '') if side.startswith('OPEN_') else side
         triggered = (pos_side == 'LONG' and cur_p <= limit_p) or (pos_side == 'SHORT' and cur_p >= limit_p)
         if not triggered:
+            # 价格回撤到触发线另一侧 → 清除已有观察记录，继续挂单等下次触发
+            if _trigger_first_seen.pop(o['id'], None) is not None:
+                log.info("限价单触发回撤，重新等待 %s %s cur=%.5f limit=%.5f",
+                         sym, side, cur_p, limit_p)
             continue
+        # 已触发：30 秒观察期确认
+        first_seen = _trigger_first_seen.get(o['id'])
+        if first_seen is None:
+            _trigger_first_seen[o['id']] = time.time()
+            log.info("限价单触发观察 %s %s cur=%.5f limit=%.5f（%ds 后确认）",
+                     sym, side, cur_p, limit_p, TRIGGER_CONFIRM_S)
+            continue
+        if time.time() - first_seen < TRIGGER_CONFIRM_S:
+            continue  # 观察窗内，静默等待
+        # 观察期已过且仍触发：清除观察记录，进入成交流程
+        _trigger_first_seen.pop(o['id'], None)
         # 反向滑点熔断：LIMIT 被反向穿越过大时撤单，避免逆势进场
         if pos_side == 'LONG':
             reverse_slip = (limit_p - cur_p) / limit_p

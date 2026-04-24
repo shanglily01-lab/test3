@@ -43,6 +43,11 @@ POLL_SECS              = 60
 SYM_REFRESH_SECS       = 15 * 60
 LIMIT_PENDING_MAX_S    = 2 * 3600   # 大币行动慢，限价挂 2h
 
+# 限价单触发后的观察确认期（2026-04-24）：价格穿过挂单价时不立即成交，等 N 秒再看
+# 是否仍触发，避免瞬穿即成交（接飞刀）。若观察期内价格回撤则清除观察、继续挂单。
+TRIGGER_CONFIRM_S = 30
+_trigger_first_seen: dict[int, float] = {}
+
 # 分档阈值（成交量 USDT）
 TIER_BIG_MIN_VOL = 500_000_000
 TIER_MID_MIN_VOL = 100_000_000
@@ -826,7 +831,21 @@ def _fill_pending_orders(conn):
         triggered = (pos_side == "LONG" and cur_p <= limit_p) or \
                     (pos_side == "SHORT" and cur_p >= limit_p)
         if not triggered:
+            if _trigger_first_seen.pop(o["id"], None) is not None:
+                log.info("BIGMID 限价单触发回撤，重新等待 %s %s cur=%.6f limit=%.6f",
+                         sym, side, cur_p, limit_p)
             continue
+
+        # 30 秒观察确认
+        first_seen = _trigger_first_seen.get(o["id"])
+        if first_seen is None:
+            _trigger_first_seen[o["id"]] = time.time()
+            log.info("BIGMID 限价单触发观察 %s %s cur=%.6f limit=%.6f（%ds 后确认）",
+                     sym, side, cur_p, limit_p, TRIGGER_CONFIRM_S)
+            continue
+        if time.time() - first_seen < TRIGGER_CONFIRM_S:
+            continue
+        _trigger_first_seen.pop(o["id"], None)
 
         # 反向滑点熔断
         rev_slip = ((limit_p - cur_p) / limit_p) if pos_side == "LONG" else ((cur_p - limit_p) / limit_p)
