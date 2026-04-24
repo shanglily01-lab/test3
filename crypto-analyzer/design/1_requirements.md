@@ -60,7 +60,8 @@
 | F-L-01-11 | 保本止损：曾浮盈 ≥ **1.5%** 的仓位（2026-04-24 从 3% 放宽），若回吐到 -0.5% 立即平仓（reason='breakeven-sl'），防盈利单翻亏 |
 | F-L-01-12 | 以上出场规则受 `disable_sl_tp_hold` 总开关控制，开启时全部跳过（裸奔自生自灭）|
 | F-L-01-13 | 出场规则同时由 `PositionSLTPMonitor`（1s 扫描） 和策略 `_trail_tp_check`（60s 轮询）双路执行，先触发者胜；小币快速穿越靠 monitor 兜底 |
-| F-L-01-14 | **入场保护期 ENTRY_GRACE_MIN=30 分钟**：仓位开仓后前 30 分钟 early-sl 和 breakeven-sl 均不触发（仅硬 SL 10% 兜底），给追涨/追跌入场的瞬时均值回归留缓冲；trail-tp 不受保护期影响 |
+| F-L-01-14 | **入场保护期 ENTRY_GRACE_MIN=45 分钟**（2026-04-24 从 30m 放宽）：仓位开仓后前 45 分钟 early-sl 和 breakeven-sl 均不触发（仅硬 SL 10% 兜底），给追涨/追跌入场的瞬时均值回归留缓冲；trail-tp 不受保护期影响 |
+| F-L-01-15 | **追涨 24h 趋势过滤**（2026-04-24 新增，chase-entry）：24h change < -10% 的品种直接跳过，不追熊市反弹（避免抓下跌趋势中的技术性反弹飞刀）|
 | F-L-01-09 | 平仓/撤单后 4h 冷却，同标的不重新进场 |
 
 #### F-L-02 顶部做空（TOPSHORT）
@@ -130,6 +131,7 @@
 | F-L-05-05 | 品种黑名单 = 硬编码 BASE **∪** DB 表 `symbol_blacklist`（WHERE is_active=1）。三个策略每 5 分钟从 DB 刷新一次缓存。BASE 里是历史列表（DENT/XAN/SUPER/GUN/UAI/AAVE_USD/BTC_USD/XVG/TRU/DEGO/ZRO/RIVER/Q/CHIP/SPK/UB），DB 供运行时动态增删 |
 | F-L-05-05a | UI：`/symbol_blacklist` 页面顶部"策略永久禁用"卡片，支持添加 / 解除；即时写 DB，策略 5 分钟内生效；无需改代码 / commit / 重启进程 |
 | F-L-05-06 | 反向滑点熔断：限价被反向穿越且偏离 > 1.5% 时撤单不填，避免逆势进场（LONG 价跌太深，SHORT 价涨太高）|
+| F-L-05-07 | **限价触发 30s 观察确认**（2026-04-24 新增，live/whale/bigmid 均生效）：价格穿过挂单价时不立即成交，记录首次触发时间；下一轮若价格仍在触发侧 且 ≥ 30s 才成交；若在观察期内回撤到另一侧则清除观察、继续挂单等下次触发。避免急跌/急涨瞬穿即成交（接飞刀） |
 
 ---
 
@@ -165,16 +167,18 @@
 | F-W-03-01 | 正常平仓后冷却 6h，同标的不再进场 |
 | F-W-03-02 | 止损平仓后冷却 12h（惩罚性冷却，比正常翻倍） |
 
-#### F-W-05 W 型双底子策略（做多、长持、不设 SL/TP）
+#### F-W-05 W 型双底子策略（做多、短持、不设 SL/TP）
+
+**2026-04-24 时间尺度调整**：从 1h K 线 + 14 天窗口 改为 **15m K 线 + 3.5 天窗口**；所有 bar 数常量数值不变（`_H` 后缀保留为历史兼容），实际时间尺度按 1/4 缩短。目的是抓更短周期的 W 形，出单更频繁以匹配更短的持仓节奏。
 
 | 需求项 | 描述 |
 |--------|------|
-| F-W-05-01 | 数据要求：至少 14 天（336 根）1h K 线 |
-| F-W-05-02 | 形态识别：最近 2 周最低点 B1 → 颈线反弹 ≥ 5% → 再次探底 B2 (B1 ± **5%**，2026-04-24 从 3% 放宽) → 突破颈线 **+0.5%**（2026-04-24 从 +1% 放宽） |
-| F-W-05-03 | B2 距颈线 C ≥ 4h（过滤假探底）；B1 → B2 时间间隔 1-14 天 |
+| F-W-05-01 | 数据要求：至少 **336 根 15m K 线 = 3.5 天**（2026-04-24 从 14 天 1h 改为 15m） |
+| F-W-05-02 | 形态识别：最近 **3.5 天**最低点 B1 → 颈线反弹 ≥ 5% → 再次探底 B2 (B1 ± **5%**，2026-04-24 从 3% 放宽) → 突破颈线 **+0.5%**（2026-04-24 从 +1% 放宽） |
+| F-W-05-03 | B2 距颈线 C ≥ 4 根（= 1h，过滤假探底）；B1 → B2 时间间隔 **6h - 3.5 天**（24 - 336 根 15m） |
 | F-W-05-04 | 方向：LONG；限价偏移 0.3%（同 whale） |
 | F-W-05-05 | **不设 SL**（浮亏不自动止损）/ **不设 TP**（不自动止盈）|
-| F-W-05-06 | 持仓上限 3 天（timeout 兜底自动平）|
+| F-W-05-06 | 持仓上限 **1 天**（2026-04-24 从 3 天缩短以匹配短周期形态，timeout 兜底自动平）|
 | F-W-05-07 | 全策略全局最多同时 3 笔 w-bottom 持仓 |
 | F-W-05-08 | 同品种触发后冷却 3 天 |
 | F-W-05-09 | state key：`(strategy='whale', symbol, stype='w-bottom')` |
@@ -298,3 +302,19 @@
 | whale_hold_hours | 6 | 庄家对抗引擎最大持仓时长(h) |
 | max_positions | 50 | 全局最大持仓数量 |
 | live_trading_enabled | false | 实盘下单总开关 |
+
+---
+
+### 4.X 模拟盘 → 实盘同步（PaperLimitSyncService）
+
+每 10s 扫描模拟盘新成交的开仓单，满足条件者在实盘同步开相同仓位（TP/SL 按百分比折算基于实盘成交价）。同步状态写 `futures_orders.live_sync_status`（NULL / SYNCED / FAILED）+ `live_position_id`。
+
+| 需求项 | 描述 |
+|--------|------|
+| F-PS-01 | 总开关 `system_settings.live_trading_enabled=1` 时才运行，否则每 tick 直接返回 |
+| F-PS-02 | 扫描条件（2026-04-24 扩展 + 去重）：`status='FILLED' AND side IN ('OPEN_LONG','OPEN_SHORT') AND live_sync_status IS NULL AND fill_time >= NOW() - INTERVAL 2 HOUR`，**LIMIT 和 MARKET 都同步**（之前仅 LIMIT，BIG 档市价单漏掉） |
+| F-PS-03 | **去重条件 1**：JOIN `futures_positions fp ON fp.id=fo.position_id` 且 `fp.status='open'`——paper 仓已关则不再同步（防历史兜底单被当新单开仓）|
+| F-PS-04 | **去重条件 2**：`NOT EXISTS (SELECT 1 FROM futures_orders fo2 WHERE fo2.position_id=fo.position_id AND fo2.id<>fo.id AND fo2.live_sync_status='SYNCED')`——同 paper_pid 已有别的 SYNCED 记录则跳过（防 LIMIT+MARKET 同一次成交被双开）|
+| F-PS-05 | 失败不重试：失败即写 `live_sync_status='FAILED'`，避免重复下单 |
+| F-PS-06 | 数量：`margin_per_trade × max_leverage / price`（实盘 API key 字段）|
+| F-PS-07 | TP/SL：基于 paper 的 avg_fill_price 折算百分比，按实盘实际成交价重算绝对价格，避免验证失败 |

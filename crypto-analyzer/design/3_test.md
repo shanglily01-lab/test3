@@ -345,23 +345,38 @@
 
 ### 2.6 限价单填充测试
 
-#### TC-L-LIMIT-01 LONG 限价单成交触发
+#### TC-L-LIMIT-01 LONG 限价单成交触发（含 30s 观察确认）
 
 **前置条件：**
 - 挂单 LONG，limit_price = 95
 - 当前价格 = 94（< 95）
 
-**期望结果：** 触发填充，status 变为 FILLING → FILLED
+**期望结果（2026-04-24 更新）：**
+- **第一次 tick**：记 `_trigger_first_seen[id]=now`，log "限价单触发观察"，**不成交**（status 仍 PENDING）
+- **30s 内再 tick 且仍 triggered**：continue，保持 PENDING
+- **30s 之后 tick 且仍 triggered**：删记录，走原成交流程 FILLING → FILLED
+- **30s 内价格回弹到 >= 95**：删记录，log "触发回撤，重新等待"，status 保持 PENDING
 
 ---
 
-#### TC-L-LIMIT-02 SHORT 限价单成交触发
+#### TC-L-LIMIT-02 SHORT 限价单成交触发（含 30s 观察确认）
 
 **前置条件：**
 - 挂单 SHORT，limit_price = 105
 - 当前价格 = 106（> 105）
 
-**期望结果：** 触发填充
+**期望结果（2026-04-24 更新）：** 同 TC-L-LIMIT-01 镜像逻辑，观察 30s 后仍 triggered 才进入成交流程
+
+---
+
+#### TC-L-LIMIT-01b 触发后观察期内回撤（2026-04-24 新增）
+
+**前置条件：**
+- 挂单 LONG，limit_price = 95
+- tick T0：cur=94，记录 first_seen
+- tick T1（T0+15s）：cur=96（回到 limit 上方）
+
+**期望结果：** T1 时 `_trigger_first_seen.pop(id)` 删记录，log "触发回撤，重新等待"，status 仍 PENDING；后续若再次 cur<=95 则重新进入 30s 观察
 
 ---
 
@@ -770,13 +785,15 @@
 
 ---
 
-### 3.6 W 型双底子策略
+### 3.6 W 型双底子策略（2026-04-24 改为 15m K 线）
+
+**时间尺度变更说明：** 2026-04-24 从 1h 改为 15m，所有 bar 数常量数值不变，实际时间尺度按 1/4 缩短。以下所有 "bar" 均指 15m K 线；持仓从 3 天缩到 1 天（`max_hold=1440min`）。
 
 #### TC-W-WB-01 标准 W 型触发
 
-**前置条件：** 336 根 1h K 线，i1=0 b1=100，ic=60 neck=108（反弹 8%），ib2=120 b2=101（±1%），cur=110（>108×1.01）
+**前置条件：** 336 根 15m K 线（=3.5 天），i1=0 b1=100，ic=60 neck=108（反弹 8%），ib2=120 b2=101（±1%），cur=110（>108×1.005）
 
-**期望结果：** 开 LONG，source=`strategy_whale:w-bottom`，无 SL/TP，max_hold=4320min
+**期望结果：** 开 LONG，source=`strategy_whale:w-bottom`，无 SL/TP，**max_hold=1440min（1 天）**
 
 ---
 
@@ -788,17 +805,17 @@
 
 ---
 
-#### TC-W-WB-03 两底价差过大
+#### TC-W-WB-03 两底价差过大（2026-04-24 阈值 5%）
 
-**前置条件：** b1=100, b2=104.5（4.5% > 3%）
+**前置条件：** b1=100, b2=106（6% > 5%）
 
 **期望结果：** 不触发
 
 ---
 
-#### TC-W-WB-04 未突破颈线
+#### TC-W-WB-04 未突破颈线（2026-04-24 阈值 +0.5%）
 
-**前置条件：** cur=107, neck=108（< 108×1.01）
+**前置条件：** cur=108.4, neck=108（108.4 / 108 = 1.0037 < 1.005）
 
 **期望结果：** 不触发
 
@@ -806,15 +823,15 @@
 
 #### TC-W-WB-05 B2 距颈线太近（假探底）
 
-**前置条件：** ic=60, ib2=62（只 2h < 4h）
+**前置条件：** ic=60, ib2=62（只 2 根 = 30min，< 4 根 = 1h）
 
 **期望结果：** 不触发
 
 ---
 
-#### TC-W-WB-06 数据不足 2 周
+#### TC-W-WB-06 数据不足 3.5 天（2026-04-24 更新）
 
-**前置条件：** 只有 300 根 1h K
+**前置条件：** 只有 300 根 15m K（< 336 根）
 
 **期望结果：** 不触发（数据不足）
 
@@ -997,6 +1014,96 @@ Body: {"live_trading_enabled": true}
 
 ---
 
+## 7A. 2026-04-24 新增测试用例
+
+### TC-CHASE-24H-01 24h 跌幅 > 10% 跳过追涨
+
+**前置条件：** 品种 24h change = -12%，5m pump 条件满足（+15%）
+
+**期望结果：** `chase_tick` 在 Step 0 即 return，log "CHASE 跳过 XXX: 24h=-12.0% < -10%，熊市反弹不追"
+
+---
+
+### TC-CHASE-24H-02 24h 跌幅边界
+
+**前置条件：** 品种 24h change = -9.9%
+
+**期望结果：** Step 0 通过，进入正常 pump 判断流程
+
+---
+
+### TC-CHASE-24H-03 24h 数据缺失
+
+**前置条件：** `price_stats_24h` 中 change_24h IS NULL
+
+**期望结果：** Step 0 跳过过滤，进入正常流程（向后兼容缺数据场景）
+
+---
+
+### TC-GRACE-45M-01 入场保护期 45 分钟
+
+**前置条件：** 开仓后 44 分钟，pnl_pct = -4%（超 early-sl 阈值 3%）
+
+**期望结果：** early-sl 不触发（仍在 grace 窗口），硬 SL 10% 兜底
+
+---
+
+### TC-GRACE-45M-02 保护期外触发
+
+**前置条件：** 开仓 46 分钟后，pnl_pct = -3.5%
+
+**期望结果：** early-sl 正常触发平仓
+
+---
+
+### TC-TRIG-CONFIRM-01 30s 观察期内成交拒绝
+
+**前置条件：** T0：LONG limit=95，cur=94（触发）；T0+20s：cur=93.5（仍触发）
+
+**期望结果：** T0 记录观察，T0+20s continue（未满 30s），T0+30s+ 才成交
+
+---
+
+### TC-TRIG-CONFIRM-02 观察期内价格回撤清除观察
+
+**前置条件：** T0：LONG limit=95，cur=94（触发，记录）；T0+15s：cur=95.5（回撤到触发线上方）
+
+**期望结果：** T0+15s 删除 `_trigger_first_seen[id]`，log "触发回撤，重新等待"，status 保持 PENDING
+
+---
+
+### TC-PSYNC-01 MARKET 开仓单同步（2026-04-24 扩展）
+
+**前置条件：** `live_trading_enabled=1`，有 FILLED OPEN_SHORT MARKET 单，paper_pid 对应的 `futures_positions.status='open'`，该 paper_pid 无其他 SYNCED 订单
+
+**期望结果：** 被扫描到、开实盘仓位、`live_sync_status=SYNCED` + `live_position_id` 写入
+
+---
+
+### TC-PSYNC-02 去重：paper 仓已关不同步
+
+**前置条件：** FILLED OPEN MARKET 单 live_sync_status IS NULL，但 paper_pid 对应的 `futures_positions.status='closed'`
+
+**期望结果：** JOIN + `fp.status='open'` 过滤，该订单**不被扫到**（仍保持 NULL，也不 SYNCED）
+
+---
+
+### TC-PSYNC-03 去重：同 paper_pid 已有 SYNCED 不双开
+
+**前置条件：** LIMIT 单 id=A live_sync_status=SYNCED live_position_id=1234；MARKET 单 id=B live_sync_status IS NULL，A 和 B 的 position_id 相同，fp.status='open'
+
+**期望结果：** `NOT EXISTS (SYNCED)` 过滤，B **不被扫到**，避免双开实盘仓位
+
+---
+
+### TC-PSYNC-04 CLOSE_* 订单不被误当开仓
+
+**前置条件：** FILLED CLOSE_LONG MARKET 单 live_sync_status IS NULL
+
+**期望结果：** `side IN ('OPEN_LONG','OPEN_SHORT')` 过滤排除，不同步
+
+---
+
 ## 8. 测试环境要求
 
 | 项目 | 要求 |
@@ -1031,8 +1138,13 @@ Body: {"live_trading_enabled": true}
 - [ ] 早期止损：浮亏 ≥ 3% 平仓 (reason='early-sl')；< 3% 不触发
 - [ ] 保本止损：peak ≥ **1.5%** 且 pnl ≤ -0.5% 平仓 (reason='breakeven-sl')；peak 不足 1.5% 时此规则不启动
 - [ ] DISABLE_SL_TP_HOLD=ON 时上述所有自动出场规则全部跳过
-- [ ] 入场 30 分钟保护期内，early-sl / breakeven-sl 不触发（仅硬 SL 兜底）；30 分钟后全部启用
+- [ ] 入场 **45 分钟**保护期内，early-sl / breakeven-sl 不触发（仅硬 SL 兜底）；45 分钟后全部启用（2026-04-24 从 30m 放宽）
 - [ ] 日内熔断第 2 次止损后第 3 次信号被拦截
 - [ ] Whale 评分 4 分不开仓，5 分无触发器不开仓
 - [ ] Whale 止损后冷却 12h > 普通冷却 6h
 - [ ] system_settings 参数加载正确覆盖默认值
+- [ ] **CHASE 24h 跌幅 > 10% 跳过**（2026-04-24 新增）
+- [ ] **限价单触发后 30s 观察确认**才成交（2026-04-24 新增，live/whale/bigmid 全部生效）；观察期内价格回撤则清除观察重等
+- [ ] **W 底改用 15m + 3.5 天窗口**（2026-04-24），持仓上限 1 天
+- [ ] **PaperLimitSyncService 同步 LIMIT + MARKET**（2026-04-24）
+- [ ] **PaperLimitSyncService 去重**：fp.status='open' 且 同 paper_pid 无 SYNCED 订单 才同步（防双开/复开）

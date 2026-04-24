@@ -136,6 +136,10 @@ LONG_HOLD_MIN = SHORT_HOLD_MIN = LIVE_HOLD_H * 60  # -> 360 min
 #### 3.2.2 信号判断流程
 
 ```
+Step 0: 24h 趋势过滤（2026-04-24 新增）
+  SELECT change_24h FROM price_stats_24h WHERE symbol=%s
+  IF change_24h < CHASE_MIN_24H_CHANGE_PCT(-10.0): return  # 日线大跌不追反弹（避免抓飞刀）
+
 Step 1: 涨幅检测
   window_bars = completed[-24:]  # 最近24根5m K线
   pump_pct = (close[-1] - open[window_bars[0]]) / open[window_bars[0]]
@@ -322,7 +326,7 @@ Step 4: 开仓
 **早期止损 / 保本止损常量**：
 - `EARLY_SL_PCT = 0.03`         单笔价格反向 3% 立即平，单笔最大亏损降到 15% margin
 - `BREAKEVEN_AFTER_PEAK_PCT = 0.015` peak 达 1.5% 后进入"赚过钱"状态（2026-04-24 从 3% 降低：补 peak 1-3% 保护盲区）
-- `ENTRY_GRACE_MIN = 30` 入场保护期 30 分钟（2026-04-24 新增）。前 30 分钟 early-sl/breakeven-sl 不触发，只靠硬 SL 10% 兜底。
+- `ENTRY_GRACE_MIN = 45` 入场保护期 45 分钟（2026-04-24 从 30m 放宽）。前 45 分钟 early-sl/breakeven-sl 不触发，只靠硬 SL 10% 兜底。
 - `BREAKEVEN_SL_PCT = -0.005`   赚过钱的单若回吐到 -0.5% 立即平（防盈利单翻亏）
 
 **伪代码**：
@@ -392,7 +396,7 @@ def open_order(sym, direction, ...):
 ### 3.8 限价单填充机制（_fill_pending_orders）
 
 ```python
-# 每主循环执行
+# 每主循环执行（live/whale/bigmid 三个策略文件各有独立实现，逻辑一致）
 # 1. 查所有 PENDING LIMIT 订单
 # 2. 超时检查：
 #    age_s = (now - created_at).total_seconds()
@@ -400,13 +404,18 @@ def open_order(sym, direction, ...):
 # 3. 检查是否满足触发条件：
 #    LONG: cur_price <= limit_price
 #    SHORT: cur_price >= limit_price
-# 4. 反向滑点熔断（见 3.8.1）：
+# 4. 触发后 30 秒观察确认（见 3.8.3，2026-04-24 新增）：
+#    IF 首次触发: 记 _trigger_first_seen[id]=now，continue（不成交）
+#    IF 仍在触发侧但 < 30s: continue（观察中）
+#    IF 价格回撤到另一侧: 清除观察记录，continue（继续挂单）
+#    IF >= 30s 且仍触发: 清除观察记录，进入步骤 5
+# 5. 反向滑点熔断（见 3.8.1）：
 #    LONG:  reverse_slip = (limit_p - cur_p) / limit_p
 #    SHORT: reverse_slip = (cur_p - limit_p) / limit_p
 #    IF reverse_slip > REVERSE_SLIPPAGE_LIMIT(0.015):
 #        UPDATE status='CANCELLED', cancellation_reason='reverse_slippage_XXXX'
 #        continue  # 跳过本单，不进入 FILLING
-# 5. 触发且未熔断时：
+# 6. 触发且未熔断时：
 #    a. UPDATE status='FILLING'（乐观锁防并发）
 #    b. 按成交价重算 SL/TP（偏离 > 0.1% 时，见 3.8.2）
 #    c. POST /api/futures/open with fill_price=cur_price
@@ -431,6 +440,77 @@ def open_order(sym, direction, ...):
 #### 3.8.2 SL/TP 基于成交价重算
 
 保留原有机制：若 `abs(cur_p - limit_p) / limit_p > 0.001`，按原始 SL/TP 比例以 `cur_p` 为锚重算，防止限价被小幅穿越时 SL 幅度被压缩。
+
+#### 3.8.3 限价触发 30 秒观察确认（2026-04-24 新增）
+
+**动机：** 实测限价单在下跌/上涨通道中被瞬穿成交，进场即处于不利方向的尾巴上（典型"接飞刀"）。每笔成交后账面立刻浮亏 0.X-1.X%，源于价格穿过 limit 后惯性未止。
+
+**实现：** 每个策略文件顶部加：
+
+```python
+TRIGGER_CONFIRM_S = 30
+_trigger_first_seen: dict[int, float] = {}   # order_id -> 首次触发时间戳
+```
+
+`_fill_pending_orders` 内触发判定后：
+
+| 当前状态 | 首次触发时间 | 动作 |
+|---------|-------------|------|
+| `triggered=False` | 有记录 | 删记录 + log "触发回撤，重新等待" + continue |
+| `triggered=False` | 无记录 | continue（正常未触发）|
+| `triggered=True` | 无记录 | 写入 now + log "触发观察中（30s 后确认）" + continue |
+| `triggered=True` | 有记录且 < 30s | continue（静默）|
+| `triggered=True` | 有记录且 ≥ 30s | 删记录 + 进入成交流程 |
+
+**内存副作用：** `_trigger_first_seen` 是模块级字典，进程重启后清空。重启时机下，原本在观察期的订单会重新观察一轮 30s，可接受。对长期运行无积累（订单一旦 FILLED/CANCELLED 后不再被扫描到，字典键会被自然地不再写入；超时撤单路径先走 age 检查）。
+
+**覆盖范围：** strategy_live.py、strategy_whale.py、strategy_bigmid.py 三个文件的 `_fill_pending_orders` 全部加。bigmid BIG 档发 MARKET 不走这条，不受影响。
+
+---
+
+### 3.9 模拟盘 → 实盘同步（PaperLimitSyncService）
+
+**文件：** `app/services/paper_limit_sync_service.py`
+**调用方：** `app/main.py` 启动时 `init_paper_limit_sync_service()`
+**频率：** 每 10 秒一次
+
+```python
+# 每 tick 流程
+# 1. 读 system_settings.live_trading_enabled，=1 才继续
+# 2. 扫描条件（2026-04-24 重构）：
+#    SELECT ... FROM futures_orders fo
+#    JOIN futures_trading_accounts fta ON fta.id = fo.account_id
+#    JOIN futures_positions fp ON fp.id = fo.position_id
+#    WHERE fo.status = 'FILLED'
+#      AND fo.side IN ('OPEN_LONG', 'OPEN_SHORT')        -- 仅开仓单（防 CLOSE_* 被当开仓同步）
+#      AND fo.live_sync_status IS NULL
+#      AND fo.fill_time >= NOW() - INTERVAL 2 HOUR       -- 时间窗口
+#      AND fp.status = 'open'                            -- paper 仓必须仍开着（防重开已关仓位）
+#      AND NOT EXISTS (                                  -- 同 paper_pid 未被同步过
+#          SELECT 1 FROM futures_orders fo2
+#          WHERE fo2.position_id = fo.position_id
+#            AND fo2.id <> fo.id
+#            AND fo2.live_sync_status = 'SYNCED'
+#      )
+# 3. 对每笔：
+#    a. 取 user API 配置 (margin_per_trade, max_leverage)
+#    b. 取实时价格，qty = margin × leverage / price
+#    c. 把 paper 的 SL/TP 绝对价折算成百分比，传给 live engine（实盘按实际成交价重算绝对值）
+#    d. engine.open_position(...) → 成功写 SYNCED+live_pid，失败写 FAILED（不重试）
+```
+
+**关键去重逻辑说明：**
+
+- `fp.status='open'` 防止"历史 MARKET 兜底单"被当新单同步——那些单曾经 `live_sync_status=NULL` 遗留堆积，若不校验 paper 状态则一开启扩展同步就会集中爆发重开大批已平仓位。
+- `NOT EXISTS ... SYNCED` 防止同一笔入场被双开——chase-entry 的 LIMIT + 成交事件 MARKET 共享同一 `position_id`，LIMIT 先 SYNCED 后 MARKET 再来会开第二个 live 仓位。
+
+**扩展历史：**
+
+| 时间 | 改动 | 提交 |
+|------|------|------|
+| 初版 | 仅同步 LIMIT 开仓单 | 见 README 历史 |
+| 2026-04-24 | 扩到 MARKET（BIG 档和 chase-entry 市价兜底）| `cc1225bf` |
+| 2026-04-24 | 加 `fp.status='open'` + `NOT EXISTS SYNCED` 去重（修 cc1225bf 缺陷，已致 5 笔实盘孤儿）| `f952cae9` |
 
 ---
 
@@ -552,27 +632,29 @@ def whale_tick(sym, conn):
 
 见 3.6。strategy_whale 的 `_trail_tp_check` 调用同一个 `_dynamic_trail_pullback(peak)` 分档表。
 
-### 4.6a W 型双底子策略（做多、长持）
+### 4.6a W 型双底子策略（做多、短持）
 
-**定位**：不同于 whale_short / whale_long（都靠评分系统），W 型双底是**纯形态识别**，抓"爆发前期"的反弹，长持等待拉升。
+**定位**：不同于 whale_short / whale_long（都靠评分系统），W 型双底是**纯形态识别**，抓"爆发前期"的反弹，短持等待拉升。
+
+**2026-04-24 时间尺度调整**：从 1h K 线 + 14 天窗口 改为 **15m K 线 + 3.5 天窗口**。所有 bar 数常量数值保持不变（名字保留 `_H` 后缀仅为历史兼容，实际单位已是 15m 根），实际时间尺度按 1/4 缩短以抓短周期 W 形。持仓从 3 天缩到 1 天匹配更短节奏。
 
 **数据与形态**：
 
 ```
         C (颈线高点)
-      /   \         /▲ 当前价 > C × 1.01
+      /   \         /▲ 当前价 > C × 1.005
      /     \       /
     /       \_____/
-   /         B2 (B1 ± 3%)
+   /         B2 (B1 ± 5%)
   /
- B1 ← 近 14 天 (336h) 最低点
+ B1 ← 近 3.5 天 (336 根 15m) 最低点
 ```
 
 **识别伪代码**：
 
 ```python
-def detect_w_bottom(bars_1h):        # 336+ 根
-    i1 = argmin(lows)                 # 2 周最低点
+def detect_w_bottom(bars_15m):       # 336+ 根 15m（3.5 天）
+    i1 = argmin(lows)                 # 3.5 天最低点
     b1 = lows[i1]
     # B1 之后的最大高点 = 颈线 C
     ic = i1 + 1 + argmax(highs[i1+1:])
@@ -581,14 +663,14 @@ def detect_w_bottom(bars_1h):        # 336+ 根
         return None
     # C 之后最低点 = B2
     ib2 = ic + 1 + argmin(lows[ic+1:])
-    if (ib2 - ic) < WB_B2_TO_NECK_MIN_H:  # 4h
+    if (ib2 - ic) < WB_B2_TO_NECK_MIN_H:  # 4 根 = 1h
         return None
-    if abs(lows[ib2] - b1) / b1 > WB_BOTTOM_DIFF_PCT:  # 3%
+    if abs(lows[ib2] - b1) / b1 > WB_BOTTOM_DIFF_PCT:  # 5%
         return None
-    gap = ib2 - i1
-    if gap < 24 or gap > 14*24:       # 1-14 天
+    gap = ib2 - i1                    # 单位：15m 根
+    if gap < 24 or gap > 14*24:       # 24 根(6h) ~ 336 根(3.5 天)
         return None
-    if closes[-1] < highs[ic] * (1 + WB_BREAK_NECK_PCT):  # +1%
+    if closes[-1] < highs[ic] * (1 + WB_BREAK_NECK_PCT):  # +0.5%
         return None
     return {...}
 ```
@@ -600,7 +682,7 @@ def detect_w_bottom(bars_1h):        # 336+ 根
 | 方向 | LONG 唯一 | |
 | SL | **None**（不设）| open_order 收到 sl_pct=None 直接不写 stop_loss_price |
 | TP | **None**（不设）| 同上 |
-| 持仓上限 | 3 天 | `timeout_at` 由开仓时的 `max_hold_minutes=4320` 决定 |
+| 持仓上限 | **1 天** | 2026-04-24 从 3 天缩短；`max_hold_minutes=1440` |
 | 限价偏移 | 0.3% | 沿用 whale 档 |
 | 全局持仓数 | 3 | 独立于 whale_short/long 的 3 笔 |
 | 同品种冷却 | 3 天 | 防反复触发 |
@@ -612,18 +694,18 @@ def detect_w_bottom(bars_1h):        # 336+ 根
 - W 双底仓位两个字段都是 NULL → **monitor 不扫它** → 真正的"裸奔"
 - timeout 仍由 paper engine 的 `_close_overdue` 处理
 
-**参数常量（strategy_whale.py 顶部）**：
+**参数常量（strategy_whale.py 顶部；2026-04-24 时间尺度从 1h 改 15m）**：
 
 ```python
-WB_DATA_MIN_BARS       = 14*24   # 2 周
-WB_REBOUND_MIN_PCT     = 0.05
-WB_BOTTOM_DIFF_PCT     = 0.03
-WB_B2_TO_NECK_MIN_H    = 4
-WB_TIME_GAP_MIN_H      = 24
-WB_TIME_GAP_MAX_H      = 14*24
-WB_BREAK_NECK_PCT      = 0.01
-WB_HOLD_MIN            = 3*24*60
-WB_COOLDOWN_S          = 3*24*3600
+WB_DATA_MIN_BARS       = 14*24    # 336 根 15m = 3.5 天
+WB_REBOUND_MIN_PCT     = 0.05     # 颈线反弹 ≥ 5%
+WB_BOTTOM_DIFF_PCT     = 0.05     # 两底差 ± 5%（2026-04-24 从 3% 放宽）
+WB_B2_TO_NECK_MIN_H    = 4        # B2 距颈线 ≥ 4 根 = 1h
+WB_TIME_GAP_MIN_H      = 24       # B1→B2 ≥ 24 根 = 6h
+WB_TIME_GAP_MAX_H      = 14*24    # B1→B2 ≤ 336 根 = 3.5 天
+WB_BREAK_NECK_PCT      = 0.005    # 突破颈线 +0.5%（2026-04-24 从 +1% 放宽）
+WB_HOLD_MIN            = 1*24*60  # 持仓 1 天（2026-04-24 从 3 天缩短）
+WB_COOLDOWN_S          = 3*24*3600  # 同品种冷却 3 天
 WB_MAX_OPEN_POSITIONS  = 3
 ```
 
@@ -861,6 +943,7 @@ POST /api/futures/close/{position_id}
 | CHASE_PUMP_PCT | 0.12 | 固定 | 追涨触发涨幅 |
 | CHASE_EXHAUST_MAX_DD | 0.06 | 固定 | 耗竭判断：高点回撤阈值 |
 | CHASE_LEADER_BAR_MIN_PCT | 0.03 | 固定 | 急拉验证：单 bar 涨幅门槛 |
+| CHASE_MIN_24H_CHANGE_PCT | -10.0 | 固定 | 追涨 24h 趋势过滤阈值（2026-04-24）：日线跌幅超此值则不追 |
 | LIVE_SL_PCT | 0.10 | 可配 | 止损（覆盖所有子策略） |
 | LIVE_HARD_TP_PCT | 0.20 | 可配 | 硬止盈 |
 | LIVE_LIMIT_OFFSET_PCT | 0.03 | 可配 | 限价偏移 |
@@ -871,6 +954,8 @@ POST /api/futures/close/{position_id}
 | POST_CLOSE_COOLDOWN_S | 14400 | 固定 | 平仓后冷却(4h) |
 | REVERSE_SLIPPAGE_LIMIT | 0.015 | 固定 | 反向滑点熔断阈值（_fill_pending_orders）|
 | LIMIT_PENDING_MAX_S | 3600 | 固定 | LIMIT 超时撤单阈值(s) |
+| TRIGGER_CONFIRM_S | 30 | 固定 | 限价触发后观察确认期(s)，2026-04-24 新增，live/whale/bigmid 共用 |
+| ENTRY_GRACE_MIN | 45 | 固定 | 入场保护期(min)，2026-04-24 从 30m 放宽 |
 | TOPCLI_VOL_MULT | 2.0 | 固定 | Climax 放量倍数 |
 | TOPCLI_POST_LEADER_WAIT_BARS | 2 | 固定 | 领袖 K 后等待根数 |
 | ENTRY_SCORE_MIN | 5 | 固定 | Whale 评分入场门槛 |
