@@ -106,6 +106,26 @@ LONG_HOLD_H   = 6    # 做多持仓 6小时
 COOLDOWN_S    = 6 * 3600
 COOLDOWN_SL_S = 12 * 3600
 
+# ── W 型双底子策略（做多、长持、不设 SL/TP）────────────────────────────
+# 数据要求：至少 2 周 1h K 线（336 根）
+# 形态识别流程：
+#   1. 定位 2 周内最低点 B1
+#   2. B1 之后反弹到颈线 C，幅度 ≥ 5%
+#   3. C 之后再次探底 B2，价格在 B1 ± 3%
+#   4. B2 距 C 至少 4h（过滤假探底）
+#   5. B1 → B2 时间间隔 1-14 天
+#   6. 当前价 > 颈线 C × 1.01（突破确认）
+WB_DATA_MIN_BARS       = 14 * 24     # 至少 14 天 1h K 线
+WB_REBOUND_MIN_PCT     = 0.05        # 颈线反弹幅度最小 5%
+WB_BOTTOM_DIFF_PCT     = 0.03        # 两底价差 ± 3%
+WB_B2_TO_NECK_MIN_H    = 4           # B2 距颈线至少 4h
+WB_TIME_GAP_MIN_H      = 24          # B1→B2 最少 1 天
+WB_TIME_GAP_MAX_H      = 14 * 24     # B1→B2 最多 14 天
+WB_BREAK_NECK_PCT      = 0.01        # 突破颈线 +1% 确认
+WB_HOLD_MIN            = 3 * 24 * 60 # 持仓上限 3 天（timeout 兜底）
+WB_COOLDOWN_S          = 3 * 24 * 3600  # 同品种触发后冷却 3 天
+WB_MAX_OPEN_POSITIONS  = 3           # W 双底子策略全局最多同时 3 笔
+
 # 从 system_settings 动态加载的参数（运行时覆盖上方常量）
 WHALE_SL_PCT           = SL_PCT
 WHALE_HARD_TP_PCT      = HARD_TP_PCT
@@ -317,23 +337,35 @@ def _has_any_open(sym: str) -> bool:
 
 
 def open_order(sym, side, price, tp_pct, sl_pct, hold_min, tag, limit_price=None):
-    """开仓. 返回 (position_id, order_id, is_pending)"""
+    """开仓. 返回 (position_id, order_id, is_pending)
+
+    tp_pct / sl_pct = None 表示本策略强制不设 SL/TP（如 W 双底长持）
+    hold_min = 0 / None 表示不设 timeout
+    """
     if _has_any_open(sym):
         log.info("跳过开%s %s: 已有持仓", side, sym)
         return None, None, False
     price_ref = limit_price if (limit_price and limit_price > 0) else price
     qty = round(MARGIN * LEVERAGE / price_ref, 6)
-    if side == "LONG":
-        tp = round(price_ref * (1 + tp_pct), 6)
-        sl = round(price_ref * (1 - sl_pct), 6)
+
+    # 子策略显式裸奔（如 W 双底）：无视 DISABLE_SL_TP_HOLD 全局开关
+    strategy_naked = (tp_pct is None or sl_pct is None)
+
+    if strategy_naked:
+        sl_out, tp_out = None, None
+        hold_out = hold_min if hold_min else 0
     else:
-        tp = round(price_ref * (1 - tp_pct), 6)
-        sl = round(price_ref * (1 + sl_pct), 6)
-    # 总开关 disable_sl_tp_hold 开启时: 裸奔,不写 SL/TP/timeout
-    if DISABLE_SL_TP_HOLD:
-        sl_out, tp_out, hold_out = None, None, 0
-    else:
-        sl_out, tp_out, hold_out = sl, tp, hold_min
+        if side == "LONG":
+            tp = round(price_ref * (1 + tp_pct), 6)
+            sl = round(price_ref * (1 - sl_pct), 6)
+        else:
+            tp = round(price_ref * (1 - tp_pct), 6)
+            sl = round(price_ref * (1 + sl_pct), 6)
+        # 总开关 disable_sl_tp_hold 开启时: 裸奔,不写 SL/TP/timeout
+        if DISABLE_SL_TP_HOLD:
+            sl_out, tp_out, hold_out = None, None, 0
+        else:
+            sl_out, tp_out, hold_out = sl, tp, hold_min
     payload = {
         "account_id": ACCOUNT_ID, "symbol": sym,
         "position_side": side, "quantity": qty, "leverage": LEVERAGE,
@@ -694,6 +726,166 @@ def compute_score(cur, sym: str, direction: str) -> tuple:
 
     return score, detail, has_trigger
 
+
+# ── W 型双底检测 ──────────────────────────────────────────────────────
+def detect_w_bottom(bars_1h: list) -> dict | None:
+    """
+    识别最近 2 周的 W 型双底。
+    返回 None 表示不成立；成立返回 dict 含各关键点位。
+    """
+    n = len(bars_1h)
+    if n < WB_DATA_MIN_BARS:
+        return None
+
+    lows   = [float(b['low_price'])   for b in bars_1h]
+    highs  = [float(b['high_price'])  for b in bars_1h]
+    closes = [float(b['close_price']) for b in bars_1h]
+
+    # 1. 2 周最低点 B1
+    i1 = min(range(n), key=lambda i: lows[i])
+    b1 = lows[i1]
+    if b1 <= 0:
+        return None
+
+    # 2. B1 之后必须有足够空间形成颈线 + 二次探底
+    if n - i1 < 48:  # 至少 48h 后续
+        return None
+
+    # 3. B1 之后的局部高点 = 颈线 C
+    after_b1_highs = highs[i1 + 1:]
+    if not after_b1_highs:
+        return None
+    ic_rel = max(range(len(after_b1_highs)), key=lambda i: after_b1_highs[i])
+    ic = i1 + 1 + ic_rel
+    c  = highs[ic]
+    rebound = (c - b1) / b1
+    if rebound < WB_REBOUND_MIN_PCT:
+        return None
+
+    # 4. C 之后的最低点 = 第二次探底 B2
+    after_c_lows = lows[ic + 1:]
+    if not after_c_lows:
+        return None
+    ib2_rel = min(range(len(after_c_lows)), key=lambda i: after_c_lows[i])
+    ib2 = ic + 1 + ib2_rel
+    b2  = lows[ib2]
+    if (ib2 - ic) < WB_B2_TO_NECK_MIN_H:
+        return None
+
+    # 5. 两底对齐：B2 价格在 B1 ± WB_BOTTOM_DIFF_PCT
+    if abs(b2 - b1) / b1 > WB_BOTTOM_DIFF_PCT:
+        return None
+
+    # 6. B1→B2 时间间隔合理
+    gap_h = ib2 - i1
+    if gap_h < WB_TIME_GAP_MIN_H or gap_h > WB_TIME_GAP_MAX_H:
+        return None
+
+    # 7. 当前价必须突破颈线 + WB_BREAK_NECK_PCT
+    cur_price = closes[-1]
+    if cur_price < c * (1 + WB_BREAK_NECK_PCT):
+        return None
+
+    return {
+        'b1_idx':    i1,   'b1':    b1,
+        'neck_idx':  ic,   'neck':  c,
+        'b2_idx':    ib2,  'b2':    b2,
+        'cur_price': cur_price,
+        'rebound_pct':  rebound,
+        'bottom_diff':  abs(b2 - b1) / b1,
+        'gap_h':        gap_h,
+        'break_pct':    (cur_price - c) / c,
+    }
+
+
+def _wb_active_count(conn) -> int:
+    """当前 W 双底子策略的 active 持仓数（state!=IDLE）"""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(1) AS n FROM strategy_state "
+            "WHERE strategy='whale' AND stype='w-bottom' AND state!='IDLE'"
+        )
+        r = cur.fetchone()
+        cur.close()
+        return int(r['n']) if r else 0
+    except Exception:
+        return 0
+
+
+def w_bottom_tick(conn, sym: str):
+    """W 双底子策略每个品种的扫描"""
+    ss = get_or_create(conn, 'whale', sym, 'w-bottom', {
+        'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
+        'peak_pnl_pct': 0.0, 'side': None,
+        'entry_time': 0.0, 'done_time': 0.0,
+    })
+    s = ss.get('state') or 'IDLE'
+
+    # 冷却：同品种 3 天内不重复触发
+    if s == 'DONE':
+        anchor = ensure_cooldown_anchor_epoch(conn, 'whale', sym, 'w-bottom', ss, now_s())
+        if now_s() - anchor > WB_COOLDOWN_S:
+            update_state(conn, 'whale', sym, 'w-bottom', state='IDLE')
+        return
+    if s != 'IDLE':
+        # PENDING/LONG 持仓中由 _close_overdue + 手动管理
+        return
+
+    # 全局持仓数上限
+    if _wb_active_count(conn) >= WB_MAX_OPEN_POSITIONS:
+        return
+
+    # 取 2 周 1h K 线
+    cur = conn.cursor()
+    try:
+        bars = _get_1h_bars(cur, sym, limit=WB_DATA_MIN_BARS + 24)
+    finally:
+        cur.close()
+    if len(bars) < WB_DATA_MIN_BARS:
+        return
+
+    sig = detect_w_bottom(bars)
+    if not sig:
+        return
+
+    try:
+        price = get_price(sym)
+    except Exception:
+        return
+    cur2 = conn.cursor()
+    try:
+        h24, l24 = _get_24h_stats(cur2, sym)
+    finally:
+        cur2.close()
+    lp = _calc_limit_price('LONG', price, h24, l24)
+
+    # 不设 SL/TP（tp_pct=sl_pct=None），hold_min=3天，timeout 兜底
+    pid, oid, pending = open_order(
+        sym, 'LONG', price,
+        tp_pct=None, sl_pct=None,
+        hold_min=WB_HOLD_MIN,
+        tag='w-bottom', limit_price=lp,
+    )
+    if not (pid or oid):
+        return
+
+    log.info(
+        "[W-BOTTOM] %s LONG  B1=%.6f B2=%.6f neck=%.6f cur=%.6f  "
+        "反弹%.1f%%  两底差%.2f%%  gap %dh  突破%.2f%%  lp=%.6f",
+        sym, sig['b1'], sig['b2'], sig['neck'], sig['cur_price'],
+        sig['rebound_pct'] * 100, sig['bottom_diff'] * 100,
+        sig['gap_h'], sig['break_pct'] * 100, lp,
+    )
+    update_state(
+        conn, 'whale', sym, 'w-bottom',
+        state='PENDING' if pending else 'LONG',
+        pid=pid, order_id=oid, side='LONG',
+        entry_p=lp if pending else price,
+        peak_pnl_pct=0.0, entry_time=now_s(),
+    )
+
+
 # ── 仓位管理 ──────────────────────────────────────────────────────────
 def whale_tick(conn, sym: str):
     """每个品种的主逻辑"""
@@ -904,6 +1096,11 @@ def main():
                     whale_tick(conn, sym)
                 except Exception as e:
                     log.warning("whale_tick %s error: %s", sym, e)
+                # W 双底子策略（做多、长持）——并行扫，不影响 whale_tick
+                try:
+                    w_bottom_tick(conn, sym)
+                except Exception as e:
+                    log.warning("w_bottom_tick %s error: %s", sym, e)
                 processed += 1
 
             poll_count += 1

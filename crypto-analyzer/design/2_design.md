@@ -551,6 +551,81 @@ def whale_tick(sym, conn):
 
 见 3.6。strategy_whale 的 `_trail_tp_check` 调用同一个 `_dynamic_trail_pullback(peak)` 分档表。
 
+### 4.6a W 型双底子策略（做多、长持）
+
+**定位**：不同于 whale_short / whale_long（都靠评分系统），W 型双底是**纯形态识别**，抓"爆发前期"的反弹，长持等待拉升。
+
+**数据与形态**：
+
+```
+        C (颈线高点)
+      /   \         /▲ 当前价 > C × 1.01
+     /     \       /
+    /       \_____/
+   /         B2 (B1 ± 3%)
+  /
+ B1 ← 近 14 天 (336h) 最低点
+```
+
+**识别伪代码**：
+
+```python
+def detect_w_bottom(bars_1h):        # 336+ 根
+    i1 = argmin(lows)                 # 2 周最低点
+    b1 = lows[i1]
+    # B1 之后的最大高点 = 颈线 C
+    ic = i1 + 1 + argmax(highs[i1+1:])
+    rebound = (highs[ic] - b1) / b1
+    if rebound < WB_REBOUND_MIN_PCT:  # 5%
+        return None
+    # C 之后最低点 = B2
+    ib2 = ic + 1 + argmin(lows[ic+1:])
+    if (ib2 - ic) < WB_B2_TO_NECK_MIN_H:  # 4h
+        return None
+    if abs(lows[ib2] - b1) / b1 > WB_BOTTOM_DIFF_PCT:  # 3%
+        return None
+    gap = ib2 - i1
+    if gap < 24 or gap > 14*24:       # 1-14 天
+        return None
+    if closes[-1] < highs[ic] * (1 + WB_BREAK_NECK_PCT):  # +1%
+        return None
+    return {...}
+```
+
+**交易参数**：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| 方向 | LONG 唯一 | |
+| SL | **None**（不设）| open_order 收到 sl_pct=None 直接不写 stop_loss_price |
+| TP | **None**（不设）| 同上 |
+| 持仓上限 | 3 天 | `timeout_at` 由开仓时的 `max_hold_minutes=4320` 决定 |
+| 限价偏移 | 0.3% | 沿用 whale 档 |
+| 全局持仓数 | 3 | 独立于 whale_short/long 的 3 笔 |
+| 同品种冷却 | 3 天 | 防反复触发 |
+| state stype | `w-bottom` | |
+| source | `strategy_whale:w-bottom` | |
+
+**与 monitor 的互动**：
+- `_fetch_open_positions` 只扫 `stop_loss_price IS NOT NULL OR take_profit_price IS NOT NULL`
+- W 双底仓位两个字段都是 NULL → **monitor 不扫它** → 真正的"裸奔"
+- timeout 仍由 paper engine 的 `_close_overdue` 处理
+
+**参数常量（strategy_whale.py 顶部）**：
+
+```python
+WB_DATA_MIN_BARS       = 14*24   # 2 周
+WB_REBOUND_MIN_PCT     = 0.05
+WB_BOTTOM_DIFF_PCT     = 0.03
+WB_B2_TO_NECK_MIN_H    = 4
+WB_TIME_GAP_MIN_H      = 24
+WB_TIME_GAP_MAX_H      = 14*24
+WB_BREAK_NECK_PCT      = 0.01
+WB_HOLD_MIN            = 3*24*60
+WB_COOLDOWN_S          = 3*24*3600
+WB_MAX_OPEN_POSITIONS  = 3
+```
+
 ### 4.6 冷却机制
 
 | 平仓原因 | 冷却时长 | 对应常量 |
