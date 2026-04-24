@@ -74,7 +74,7 @@
 </aside>
 
 <!-- Main -->
-<main class="pl-[240px]">
+<main class="pl-[240px] h-screen flex flex-col">
   <!-- Header -->
   <header class="fixed top-0 right-0 left-[240px] h-16 bg-[#070b10] border-b border-[#0f1520] z-40">
     <div class="flex items-center justify-between px-6 w-full h-full font-mono">
@@ -88,10 +88,10 @@
     </div>
   </header>
 
-  <!-- Page Content -->
-  <div class="pt-24 px-8 pb-12">
+  <!-- Page Content 占满视口（除 header） -->
+  <div class="pt-20 px-8 pb-8 flex-1 flex flex-col min-h-0">
     <!-- Strategy Blacklist Section (strategy_live / whale / bigmid 即时生效，5 分钟内刷新) -->
-    <div class="bg-brand-surface p-6 rounded-xl border border-gray-800">
+    <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 flex-1 flex flex-col min-h-0">
       <div class="flex items-center justify-between mb-4">
         <div>
           <h3 class="text-lg font-bold font-headline text-white">策略永久禁用</h3>
@@ -105,8 +105,8 @@
         <input id="sbl-reason" type="text" placeholder="原因（可选）" class="flex-[2] bg-[#0d1117] border border-gray-800 rounded-lg px-3 py-2 text-sm focus:border-[#49f4c8] focus:ring-0 text-white outline-none" />
         <button onclick="sblAdd()" class="px-4 py-2 rounded-lg bg-[#49f4c8] hover:bg-[#3de2b8] text-[#070b10] font-bold text-sm whitespace-nowrap">拉黑</button>
       </div>
-      <!-- List -->
-      <div id="sbl-list" class="space-y-2 max-h-[32rem] overflow-y-auto">
+      <!-- List 自适应高度 -->
+      <div id="sbl-list" class="space-y-2 flex-1 overflow-y-auto min-h-0 pr-1">
         <div class="text-gray-500 text-sm text-center py-6">加载中...</div>
       </div>
     </div>
