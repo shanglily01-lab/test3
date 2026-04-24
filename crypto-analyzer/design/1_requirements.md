@@ -126,7 +126,7 @@
 | F-L-05-02 | 同标的任何策略有持仓时，拒绝重复开仓（含跨子策略） |
 | F-L-05-03 | 超时平仓：持仓达到最大时长自动市价平仓 |
 | F-L-05-04 | 限价单挂单超过 1h 未成交自动撤单 |
-| F-L-05-05 | 品种黑名单：DENT/XAN/SUPER/GUN/UAI/AAVE_USD/BTC_USD/XVG/TRU/DEGO/ZRO/RIVER/Q/CHIP/SPK |
+| F-L-05-05 | 品种黑名单：DENT/XAN/SUPER/GUN/UAI/AAVE_USD/BTC_USD/XVG/TRU/DEGO/ZRO/RIVER/Q/CHIP/SPK/UB |
 | F-L-05-06 | 反向滑点熔断：限价被反向穿越且偏离 > 1.5% 时撤单不填，避免逆势进场（LONG 价跌太深，SHORT 价涨太高）|
 
 ---
