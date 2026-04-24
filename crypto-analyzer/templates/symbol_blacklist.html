@@ -35,10 +35,6 @@
   ::-webkit-scrollbar-thumb:hover { background: #49f4c8; }
   .glass { background: rgba(15, 21, 32, 0.92); backdrop-filter: blur(16px); }
   .nav-active { color: #49f4c8 !important; background: rgba(73,244,200,0.1); border-right: 2px solid #49f4c8; }
-  .lvl-btn-active-0 { border-color: rgba(73,244,200,0.5) !important; background: rgba(73,244,200,0.08) !important; }
-  .lvl-btn-active-1 { border-color: rgba(250,204,21,0.5) !important; background: rgba(250,204,21,0.08) !important; }
-  .lvl-btn-active-2 { border-color: rgba(249,115,22,0.5) !important; background: rgba(249,115,22,0.08) !important; }
-  .lvl-btn-active-3 { border-color: rgba(239,68,68,0.5) !important; background: rgba(239,68,68,0.08) !important; }
 </style>
 </head>
 <body class="bg-[#070b10] text-gray-200 font-body antialiased">
@@ -83,67 +79,23 @@
   <header class="fixed top-0 right-0 left-[240px] h-16 bg-[#070b10] border-b border-[#0f1520] z-40">
     <div class="flex items-center justify-between px-6 w-full h-full font-mono">
       <div class="flex items-center gap-4">
-        <h2 class="text-lg font-bold text-white">黑名单管理</h2>
+        <h2 class="text-lg font-bold text-white">交易对黑名单</h2>
         <span id="total-badge" class="px-3 py-1 bg-gray-800 text-gray-400 rounded-full text-xs">加载中...</span>
-        <!-- Market toggle -->
-        <div class="flex items-center bg-[#0d1117] rounded-md p-0.5 border border-gray-800">
-          <button id="btn-usdt" onclick="setMarket('usdt_futures')" class="px-4 py-1 text-[#49f4c8] bg-[#49f4c8]/10 rounded font-medium text-xs transition-all">U本位</button>
-          <button id="btn-coin" onclick="setMarket('coin_futures')" class="px-4 py-1 text-gray-400 hover:text-white rounded text-xs transition-all">币本位</button>
-        </div>
       </div>
       <div class="flex items-center gap-3">
-        <div class="relative w-56 group">
-          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-lg group-focus-within:text-[#49f4c8]">search</span>
-          <input id="search-input" type="text" placeholder="搜索交易对..." oninput="filterSymbols()" class="w-full bg-[#0d1117] border border-gray-800 rounded-lg pl-10 pr-4 py-1.5 text-sm focus:outline-none focus:border-[#49f4c8] text-gray-200"/>
-        </div>
-        <div class="h-6 w-px bg-gray-800"></div>
-        <button onclick="openAddModal()" class="text-[#49f4c8] border border-[#49f4c8] px-4 py-1.5 rounded text-sm hover:bg-[#49f4c8]/10 transition-all font-medium active:scale-95">手动添加</button>
-        <button onclick="loadData()" class="p-2 text-gray-400 hover:text-[#49f4c8] transition-all"><span class="material-symbols-outlined">refresh</span></button>
+        <button onclick="sblLoad()" class="p-2 text-gray-400 hover:text-[#49f4c8] transition-all"><span class="material-symbols-outlined">refresh</span></button>
       </div>
     </div>
   </header>
 
   <!-- Page Content -->
   <div class="pt-24 px-8 pb-12">
-    <!-- Title -->
-    <div class="flex items-center gap-4 mb-8">
-      <h3 class="text-2xl font-bold font-headline tracking-tight">交易限制概览</h3>
-    </div>
-
-    <!-- Stats Row -->
-    <div class="grid grid-cols-4 gap-6 mb-8">
-      <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 relative overflow-hidden">
-        <div class="absolute right-[-10px] bottom-[-10px] opacity-10"><span class="material-symbols-outlined text-6xl text-status-success">check_circle</span></div>
-        <p class="text-gray-500 text-sm font-medium mb-1">白名单</p>
-        <h4 id="stat-0" class="text-3xl font-mono font-bold text-status-success">--</h4>
-        <p class="text-[10px] text-gray-600 mt-2 flex items-center gap-1 uppercase tracking-wider"><span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>正常可交易</p>
-      </div>
-      <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 relative overflow-hidden">
-        <div class="absolute right-[-10px] bottom-[-10px] opacity-10"><span class="material-symbols-outlined text-6xl text-status-warning">warning</span></div>
-        <p class="text-gray-500 text-sm font-medium mb-1">黑名单1级</p>
-        <h4 id="stat-1" class="text-3xl font-mono font-bold text-status-warning">--</h4>
-        <p class="text-[10px] text-gray-600 mt-2 flex items-center gap-1 uppercase tracking-wider"><span class="w-1.5 h-1.5 rounded-full bg-status-warning"></span>保证金限制</p>
-      </div>
-      <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 relative overflow-hidden">
-        <div class="absolute right-[-10px] bottom-[-10px] opacity-10"><span class="material-symbols-outlined text-6xl text-status-orange">report_problem</span></div>
-        <p class="text-gray-500 text-sm font-medium mb-1">黑名单2级</p>
-        <h4 id="stat-2" class="text-3xl font-mono font-bold text-status-orange">--</h4>
-        <p class="text-[10px] text-gray-600 mt-2 flex items-center gap-1 uppercase tracking-wider"><span class="w-1.5 h-1.5 rounded-full bg-status-orange"></span>严格限制</p>
-      </div>
-      <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 relative overflow-hidden">
-        <div class="absolute right-[-10px] bottom-[-10px] opacity-10"><span class="material-symbols-outlined text-6xl text-status-danger">cancel</span></div>
-        <p class="text-gray-500 text-sm font-medium mb-1">永久禁止</p>
-        <h4 id="stat-3" class="text-3xl font-mono font-bold text-status-danger">--</h4>
-        <p class="text-[10px] text-gray-600 mt-2 flex items-center gap-1 uppercase tracking-wider"><span class="w-1.5 h-1.5 rounded-full bg-status-danger"></span>禁止开仓</p>
-      </div>
-    </div>
-
     <!-- Strategy Blacklist Section (strategy_live / whale / bigmid 即时生效，5 分钟内刷新) -->
-    <div class="bg-brand-surface p-6 rounded-xl border border-gray-800 mb-8">
+    <div class="bg-brand-surface p-6 rounded-xl border border-gray-800">
       <div class="flex items-center justify-between mb-4">
         <div>
           <h3 class="text-lg font-bold font-headline text-white">策略永久禁用</h3>
-          <p class="text-xs text-gray-500 mt-1">加入后 <span class="text-[#49f4c8]">strategy_live / whale / bigmid</span> 的品种池立即排除此币（最多 5 分钟生效）。不影响上方 rating 评级系统。</p>
+          <p class="text-xs text-gray-500 mt-1">加入后 <span class="text-[#49f4c8]">strategy_live / whale / bigmid</span> 的品种池立即排除此币（最多 5 分钟生效）。</p>
         </div>
         <span id="sbl-count" class="font-mono text-xl text-[#49f4c8]">0</span>
       </div>
@@ -154,72 +106,12 @@
         <button onclick="sblAdd()" class="px-4 py-2 rounded-lg bg-[#49f4c8] hover:bg-[#3de2b8] text-[#070b10] font-bold text-sm whitespace-nowrap">拉黑</button>
       </div>
       <!-- List -->
-      <div id="sbl-list" class="space-y-2 max-h-80 overflow-y-auto">
+      <div id="sbl-list" class="space-y-2 max-h-[32rem] overflow-y-auto">
         <div class="text-gray-500 text-sm text-center py-6">加载中...</div>
       </div>
     </div>
-
-    <!-- Tab Bar -->
-    <div class="border-b border-gray-800 mb-8 flex items-center gap-6 px-2 font-mono text-sm">
-      <button id="tab-all" onclick="setTab('all')" class="tab-btn pb-4 text-[#49f4c8] border-b-2 border-[#49f4c8] font-bold">全部 <span id="cnt-all">0</span></button>
-      <button id="tab-0"   onclick="setTab('0')"   class="tab-btn pb-4 text-gray-400 hover:text-gray-200 transition-colors">白名单 <span id="cnt-0">0</span></button>
-      <button id="tab-1"   onclick="setTab('1')"   class="tab-btn pb-4 text-gray-400 hover:text-gray-200 transition-colors">黑名单1级 <span id="cnt-1">0</span></button>
-      <button id="tab-2"   onclick="setTab('2')"   class="tab-btn pb-4 text-gray-400 hover:text-gray-200 transition-colors">黑名单2级 <span id="cnt-2">0</span></button>
-      <button id="tab-3"   onclick="setTab('3')"   class="tab-btn pb-4 text-gray-400 hover:text-gray-200 transition-colors">永久禁止 <span id="cnt-3">0</span></button>
-    </div>
-
-    <!-- Symbol Grid -->
-    <div id="symbol-grid" class="space-y-10">
-      <div class="text-gray-500 text-sm text-center py-16">加载中...</div>
-    </div>
   </div>
 </main>
-
-<!-- Manual Rating Modal -->
-<div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div class="glass w-full max-w-md border border-gray-800 rounded-2xl overflow-hidden shadow-2xl">
-    <div class="p-6 border-b border-gray-800 flex justify-between items-center">
-      <h3 class="text-xl font-bold font-headline">手动设置评级</h3>
-      <button onclick="closeModal()" class="text-gray-400 hover:text-white transition-colors"><span class="material-symbols-outlined">close</span></button>
-    </div>
-    <div class="p-6 space-y-6">
-      <div class="space-y-2">
-        <label class="text-xs text-gray-400 font-mono tracking-wider uppercase">交易对名称</label>
-        <input id="modal-symbol" type="text" placeholder="如: BTCUSDT" class="w-full bg-[#0d1117] border border-gray-800 rounded-lg px-4 py-3 font-mono focus:border-[#49f4c8] focus:ring-0 text-white outline-none"/>
-      </div>
-      <div class="space-y-2">
-        <label class="text-xs text-gray-400 font-mono tracking-wider uppercase">安全评级</label>
-        <div class="grid grid-cols-2 gap-3">
-          <button id="lvl-btn-0" onclick="selectLevel(0)" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-800 bg-[#0d1117] hover:border-status-success/50 transition-all group active:scale-[0.98]">
-            <span class="material-symbols-outlined text-gray-600 group-hover:text-status-success mb-1">check_circle</span>
-            <span class="text-xs font-bold text-gray-400 group-hover:text-status-success">白名单</span>
-          </button>
-          <button id="lvl-btn-1" onclick="selectLevel(1)" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-800 bg-[#0d1117] hover:border-status-warning/50 transition-all group active:scale-[0.98]">
-            <span class="material-symbols-outlined text-gray-600 group-hover:text-status-warning mb-1">warning</span>
-            <span class="text-xs font-bold text-gray-400 group-hover:text-status-warning">黑名单1级</span>
-          </button>
-          <button id="lvl-btn-2" onclick="selectLevel(2)" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-800 bg-[#0d1117] hover:border-status-orange/50 transition-all group active:scale-[0.98]">
-            <span class="material-symbols-outlined text-gray-600 group-hover:text-status-orange mb-1">report_problem</span>
-            <span class="text-xs font-bold text-gray-400 group-hover:text-status-orange">黑名单2级</span>
-          </button>
-          <button id="lvl-btn-3" onclick="selectLevel(3)" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-800 bg-[#0d1117] hover:border-status-danger/50 transition-all group active:scale-[0.98]">
-            <span class="material-symbols-outlined text-gray-600 group-hover:text-status-danger mb-1">cancel</span>
-            <span class="text-xs font-bold text-gray-400 group-hover:text-status-danger">永久禁止</span>
-          </button>
-        </div>
-      </div>
-      <div class="space-y-2">
-        <label class="text-xs text-gray-400 font-mono tracking-wider uppercase">备注原因</label>
-        <textarea id="modal-reason" placeholder="请输入限制原因或备注..." rows="3" class="w-full bg-[#0d1117] border border-gray-800 rounded-lg px-4 py-3 text-sm focus:border-[#49f4c8] focus:ring-0 text-white outline-none resize-none"></textarea>
-      </div>
-      <div id="modal-error" class="hidden text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2"></div>
-    </div>
-    <div class="p-6 bg-[#0d1117]/50 border-t border-gray-800 flex gap-3">
-      <button onclick="closeModal()" class="flex-1 px-4 py-3 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold transition-all text-sm">取消</button>
-      <button onclick="submitRating()" class="flex-[2] px-4 py-3 rounded-lg bg-[#49f4c8] hover:bg-[#3de2b8] text-[#070b10] font-bold transition-all text-sm shadow-[0_0_20px_rgba(73,244,200,0.3)]">确认设置</button>
-    </div>
-  </div>
-</div>
 
 <!-- Toast -->
 <div id="toast" class="hidden fixed bottom-6 right-6 z-50 bg-[#0d1117] border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-200 shadow-xl flex items-center gap-2">
@@ -228,207 +120,13 @@
 </div>
 
 <script>
-var currentMarket = 'usdt_futures';
-var currentTab = 'all';
-var allData = {};
-var selectedLevel = 0;
-
-var LEVEL_ICONS  = ['check_circle','warning','report_problem','cancel'];
-var LEVEL_LABELS = ['白名单','黑名单1级','黑名单2级','永久禁止'];
-var LEVEL_DESCS  = ['正常可交易','保证金限制','严格限制','禁止开仓'];
-var LEVEL_COLORS = [
-  { text:'text-status-success', border:'border-[#49f4c8]/20', bg:'bg-[#49f4c8]/5', hover:'hover:border-[#49f4c8]/50' },
-  { text:'text-status-warning', border:'border-yellow-500/20', bg:'bg-yellow-500/5', hover:'hover:border-yellow-500/50' },
-  { text:'text-status-orange',  border:'border-orange-500/20', bg:'bg-orange-500/5', hover:'hover:border-orange-500/50' },
-  { text:'text-status-danger',  border:'border-red-500/20',    bg:'bg-red-500/5',    hover:'hover:border-red-500/50' },
-];
-
-function setMarket(market) {
-  currentMarket = market;
-  var isUsdt = market === 'usdt_futures';
-  document.getElementById('btn-usdt').className = isUsdt
-    ? 'px-4 py-1 text-[#49f4c8] bg-[#49f4c8]/10 rounded font-medium text-xs transition-all'
-    : 'px-4 py-1 text-gray-400 hover:text-white rounded text-xs transition-all';
-  document.getElementById('btn-coin').className = !isUsdt
-    ? 'px-4 py-1 text-[#49f4c8] bg-[#49f4c8]/10 rounded font-medium text-xs transition-all'
-    : 'px-4 py-1 text-gray-400 hover:text-white rounded text-xs transition-all';
-  loadData();
-}
-
-function setTab(tab) {
-  currentTab = tab;
-  document.querySelectorAll('.tab-btn').forEach(function(b) {
-    b.classList.remove('text-[#49f4c8]','border-b-2','border-[#49f4c8]','font-bold');
-    b.classList.add('text-gray-400');
-  });
-  var active = document.getElementById('tab-' + tab);
-  active.classList.add('text-[#49f4c8]','border-b-2','border-[#49f4c8]','font-bold');
-  active.classList.remove('text-gray-400');
-  renderGrid();
-}
-
-async function loadData() {
-  document.getElementById('symbol-grid').innerHTML = '<div class="text-gray-500 text-sm text-center py-16">加载中...</div>';
-  try {
-    var r = await fetch('/api/rating/current?trading_type=' + currentMarket);
-    var data = await r.json();
-    if (!data.success) throw new Error('load failed');
-    allData = data.ratings;
-
-    var total = 0;
-    [0,1,2,3].forEach(function(i) {
-      var cnt = (allData['level' + i] || []).length;
-      document.getElementById('cnt-' + i).textContent = cnt;
-      document.getElementById('stat-' + i).textContent = cnt;
-      total += cnt;
-    });
-    document.getElementById('cnt-all').textContent = total;
-    document.getElementById('total-badge').textContent = '共 ' + total + ' 个交易对';
-
-    renderGrid();
-  } catch(e) {
-    document.getElementById('symbol-grid').innerHTML = '<div class="text-red-400 text-sm text-center py-16">加载失败: ' + e.message + '</div>';
-  }
-}
-
-function filterSymbols() { renderGrid(); }
-
-function getFilteredItems() {
-  var q = document.getElementById('search-input').value.trim().toUpperCase();
-  var items = [];
-  if (currentTab === 'all') {
-    [0,1,2,3].forEach(function(i) { (allData['level'+i]||[]).forEach(function(x){ items.push(x); }); });
-  } else {
-    items = allData['level'+currentTab] || [];
-  }
-  if (q) items = items.filter(function(x){ return x.symbol.includes(q); });
-  return items;
-}
-
-function renderGrid() {
-  var items = getFilteredItems();
-  var grid = document.getElementById('symbol-grid');
-  if (!items.length) {
-    grid.innerHTML = '<div class="text-gray-500 text-sm text-center py-16">暂无数据</div>';
-    return;
-  }
-
-  var lvls = currentTab === 'all' ? [3,2,1,0] : [parseInt(currentTab)];
-  var html = '';
-
-  lvls.forEach(function(lvl) {
-    var lvlItems = currentTab === 'all'
-      ? items.filter(function(x){ return x.rating_level === lvl; })
-      : items;
-    if (!lvlItems.length) return;
-
-    var c = LEVEL_COLORS[lvl];
-    html += '<section>';
-    html += '<div class="flex items-center gap-3 mb-4 ' + c.text + '">';
-    html += '<span class="material-symbols-outlined">' + LEVEL_ICONS[lvl] + '</span>';
-    html += '<h5 class="text-sm font-bold font-mono">' + LEVEL_LABELS[lvl] + ' (' + LEVEL_DESCS[lvl] + ') - ' + lvlItems.length + '</h5>';
-    html += '<div class="flex-1 h-px bg-gray-800"></div>';
-    html += '</div>';
-    html += '<div class="flex flex-wrap gap-2">';
-    lvlItems.forEach(function(item) {
-      var tip = '';
-      if (item.reason) tip += item.reason;
-      if (item.total_trades) tip += ' | ' + item.total_trades + '笔 胜率' + (item.win_rate ? item.win_rate.toFixed(1)+'%' : '--');
-      if (item.hard_stop_loss_count) tip += ' | 止损' + item.hard_stop_loss_count + '次';
-      html += '<div class="group ' + c.bg + ' border ' + c.border + ' px-3 py-1.5 rounded-md flex items-center gap-2 ' + c.hover + ' transition-all cursor-pointer"'
-            + ' title="' + esc(tip) + '"'
-            + ' onclick="openEditModal(\'' + esc(item.symbol) + '\',' + item.rating_level + ')">';
-      html += '<span class="text-xs font-mono font-medium ' + c.text + '">' + esc(item.symbol) + '</span>';
-      html += '<span class="material-symbols-outlined text-[14px] text-gray-600 group-hover:' + c.text.replace('text-','') + ' transition-colors">edit</span>';
-      html += '</div>';
-    });
-    html += '</div></section>';
-  });
-
-  grid.innerHTML = html;
-}
-
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// Modal
-function openAddModal() {
-  document.getElementById('modal-symbol').value = '';
-  document.getElementById('modal-reason').value = '';
-  document.getElementById('modal-error').classList.add('hidden');
-  selectLevel(0);
-  document.getElementById('modal').classList.remove('hidden');
-  setTimeout(function(){ document.getElementById('modal-symbol').focus(); }, 50);
-}
-
-function openEditModal(symbol, level) {
-  document.getElementById('modal-symbol').value = symbol;
-  document.getElementById('modal-reason').value = '';
-  document.getElementById('modal-error').classList.add('hidden');
-  selectLevel(level);
-  document.getElementById('modal').classList.remove('hidden');
-}
-
-function closeModal() {
-  document.getElementById('modal').classList.add('hidden');
-}
-
-function selectLevel(lvl) {
-  selectedLevel = lvl;
-  var iconColors  = ['text-status-success','text-status-warning','text-status-orange','text-status-danger'];
-  var textColors  = ['text-status-success','text-status-warning','text-status-orange','text-status-danger'];
-  [0,1,2,3].forEach(function(i) {
-    var btn = document.getElementById('lvl-btn-' + i);
-    btn.className = btn.className
-      .replace(/lvl-btn-active-\d/g,'')
-      .replace(/border-status-\w+\/50/g,'border-gray-800')
-      .trim();
-    // Reset icon/text color
-    var icon = btn.querySelector('.material-symbols-outlined');
-    var label = btn.querySelector('.text-xs');
-    if (icon)  { icon.className  = icon.className.replace(/text-status-\w+/g,'text-gray-600'); }
-    if (label) { label.className = label.className.replace(/text-status-\w+/g,'text-gray-400'); }
-
-    if (i === lvl) {
-      btn.classList.add('lvl-btn-active-' + i);
-      if (icon)  icon.classList.add(iconColors[i]);
-      if (label) label.classList.add(textColors[i]);
-    }
-  });
-}
-
-async function submitRating() {
-  var symbol = document.getElementById('modal-symbol').value.trim().toUpperCase();
-  var reason = document.getElementById('modal-reason').value.trim() || '手动设置';
-  var errEl = document.getElementById('modal-error');
-
-  if (!symbol) {
-    errEl.textContent = '请输入交易对名称';
-    errEl.classList.remove('hidden');
-    return;
-  }
-  errEl.classList.add('hidden');
-
-  try {
-    var r = await fetch('/api/rating/set', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({symbol: symbol, rating_level: selectedLevel, reason: reason})
-    });
-    var data = await r.json();
-    if (!data.success) throw new Error(data.detail || '设置失败');
-    closeModal();
-    showToast(symbol + ' 已设置为 ' + LEVEL_LABELS[selectedLevel]);
-    loadData();
-  } catch(e) {
-    errEl.textContent = e.message;
-    errEl.classList.remove('hidden');
-  }
-}
-
-function showToast(msg) {
+function showToast(msg, isError) {
   var toast = document.getElementById('toast');
+  var icon = document.getElementById('toast-icon');
+  if (icon) {
+    icon.textContent = isError ? 'error' : 'check_circle';
+    icon.className = 'material-symbols-outlined text-[18px] ' + (isError ? 'text-red-400' : 'text-[#49f4c8]');
+  }
   document.getElementById('toast-msg').textContent = msg;
   toast.classList.remove('hidden');
   setTimeout(function(){ toast.classList.add('hidden'); }, 3000);
@@ -441,21 +139,7 @@ document.querySelectorAll('#sidebar-nav .nav-item').forEach(function(a) {
   }
 });
 
-// Close modal on backdrop click
-document.getElementById('modal').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
-
-// Auto-uppercase symbol input
-document.getElementById('modal-symbol').addEventListener('input', function() {
-  var pos = this.selectionStart;
-  this.value = this.value.toUpperCase();
-  this.setSelectionRange(pos, pos);
-});
-
-loadData();
-
-// ==================== 策略永久禁用（新加，独立于 rating 系统）====================
+// ==================== 策略永久禁用 ====================
 async function sblLoad() {
   const list = document.getElementById('sbl-list');
   try {
@@ -463,6 +147,8 @@ async function sblLoad() {
     const d = await r.json();
     if (!d.success) throw new Error(d.detail || '加载失败');
     document.getElementById('sbl-count').textContent = d.total || 0;
+    var tb = document.getElementById('total-badge');
+    if (tb) tb.textContent = '共 ' + (d.total || 0) + ' 个';
     if (!d.data.length) {
       list.innerHTML = '<div class="text-gray-500 text-sm text-center py-6">暂无策略禁用记录</div>';
       return;
