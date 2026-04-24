@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-模拟盘限价单成交 -> 实盘同步服务
+模拟盘开仓单 -> 实盘同步服务
 
 职责：
-- 每 10 秒扫描 futures_orders 中新成交的 LIMIT 订单（live_sync_status IS NULL）
+- 每 10 秒扫描 futures_orders 中新成交的 OPEN_LONG/OPEN_SHORT 订单
+  （live_sync_status IS NULL，LIMIT 或 MARKET 都同步；2026-04-24 从仅 LIMIT 扩展）
 - 检查 system_settings.live_trading_enabled
 - 用 user_api_keys.margin_per_trade / max_leverage 计算实盘数量
 - 通过 BinanceFuturesEngine 在实盘开相同仓位，TP/SL 价格与模拟盘一致
@@ -103,6 +104,7 @@ class PaperLimitSyncService:
         return str(row["setting_value"]).strip() == "1"
 
     def _fetch_pending_sync(self, cur) -> List[Dict]:
+        # side 过滤改为显式 OPEN_LONG/OPEN_SHORT，防止 CLOSE_* 单被误同步为开仓
         cur.execute(
             """
             SELECT
@@ -114,7 +116,7 @@ class PaperLimitSyncService:
             FROM futures_orders fo
             JOIN futures_trading_accounts fta ON fta.id = fo.account_id
             WHERE fo.status = 'FILLED'
-              AND fo.order_type = 'LIMIT'
+              AND fo.side IN ('OPEN_LONG', 'OPEN_SHORT')
               AND fo.live_sync_status IS NULL
               AND fo.fill_time >= NOW() - INTERVAL 2 HOUR
             ORDER BY fo.fill_time ASC
