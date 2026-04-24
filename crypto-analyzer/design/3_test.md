@@ -954,7 +954,7 @@ Body: {"live_trading_enabled": true}
 - [ ] 硬止盈 20% 平仓正确
 - [ ] 动态移动止盈分档正确：peak 3-5%/1%, 5-10%/2%, ≥10%/3%, <3% 不启动
 - [ ] 早期止损：浮亏 ≥ 3% 平仓 (reason='early-sl')；< 3% 不触发
-- [ ] 保本止损：peak ≥ 3% 且 pnl ≤ -0.5% 平仓 (reason='breakeven-sl')；peak 不足 3% 时此规则不启动
+- [ ] 保本止损：peak ≥ **1.5%** 且 pnl ≤ -0.5% 平仓 (reason='breakeven-sl')；peak 不足 1.5% 时此规则不启动
 - [ ] DISABLE_SL_TP_HOLD=ON 时上述所有自动出场规则全部跳过
 - [ ] 日内熔断第 2 次止损后第 3 次信号被拦截
 - [ ] Whale 评分 4 分不开仓，5 分无触发器不开仓

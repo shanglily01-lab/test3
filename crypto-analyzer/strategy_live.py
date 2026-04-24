@@ -143,11 +143,12 @@ TRAIL_TP_TIERS = [
     (0.03, 0.01),  # 小赚档
 ]
 # 早期止损 / 保本止损
-#   EARLY_SL_PCT: 价格反向 3% 即早期止损（比硬 SL 10% 提前），单笔最大亏损从 10% 价格变动缩到 3%
+#   EARLY_SL_PCT: 价格反向 3% 即早期止损（比硬 SL 10% 提前）
 #   BREAKEVEN_AFTER_PEAK_PCT: 峰值浮盈达到此值后进入"赚过钱"状态
+#     2026-04-24 从 3% 降到 1.5%——数据显示大量单 peak 1-3% 没有保护，被 early-sl -3% 扫掉
 #   BREAKEVEN_SL_PCT: 在"赚过钱"状态下，若回吐到此阈值（-0.5%）平仓保本
 EARLY_SL_PCT             = 0.03
-BREAKEVEN_AFTER_PEAK_PCT = 0.03
+BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
 
 

@@ -307,7 +307,7 @@ Step 4: 开仓
 
 **早期止损 / 保本止损常量**：
 - `EARLY_SL_PCT = 0.03`         单笔价格反向 3% 立即平，单笔最大亏损降到 15% margin
-- `BREAKEVEN_AFTER_PEAK_PCT = 0.03` peak 达 3% 后进入"赚过钱"状态
+- `BREAKEVEN_AFTER_PEAK_PCT = 0.015` peak 达 1.5% 后进入"赚过钱"状态（2026-04-24 从 3% 降低：补 peak 1-3% 保护盲区）
 - `BREAKEVEN_SL_PCT = -0.005`   赚过钱的单若回吐到 -0.5% 立即平（防盈利单翻亏）
 
 **伪代码**：

@@ -42,7 +42,8 @@ TRAIL_TP_TIERS = [
     (0.03, 0.01),  # peak ≥ 3%  → 回落 1% 平
 ]
 EARLY_SL_PCT             = 0.03   # 浮亏 ≥ 3% 早期止损
-BREAKEVEN_AFTER_PEAK_PCT = 0.03   # peak ≥ 3% 启用保本守护
+# peak ≥ 1.5% 启用保本守护（2026-04-24 从 3% 降低；补 peak 1-3% 的盲区）
+BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005 # 保本线 -0.5%
 
 

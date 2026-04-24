@@ -90,9 +90,9 @@ TRAIL_TP_TIERS = [
     (0.05, 0.02),
     (0.03, 0.01),
 ]
-# 早期止损 / 保本止损（与 strategy_live 同）
+# 早期止损 / 保本止损（与 strategy_live 同；2026-04-24 breakeven 启动 3%→1.5%）
 EARLY_SL_PCT             = 0.03
-BREAKEVEN_AFTER_PEAK_PCT = 0.03
+BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
 
 
