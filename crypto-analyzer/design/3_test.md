@@ -1031,6 +1031,7 @@ Body: {"live_trading_enabled": true}
 - [ ] 早期止损：浮亏 ≥ 3% 平仓 (reason='early-sl')；< 3% 不触发
 - [ ] 保本止损：peak ≥ **1.5%** 且 pnl ≤ -0.5% 平仓 (reason='breakeven-sl')；peak 不足 1.5% 时此规则不启动
 - [ ] DISABLE_SL_TP_HOLD=ON 时上述所有自动出场规则全部跳过
+- [ ] 入场 30 分钟保护期内，early-sl / breakeven-sl 不触发（仅硬 SL 兜底）；30 分钟后全部启用
 - [ ] 日内熔断第 2 次止损后第 3 次信号被拦截
 - [ ] Whale 评分 4 分不开仓，5 分无触发器不开仓
 - [ ] Whale 止损后冷却 12h > 普通冷却 6h

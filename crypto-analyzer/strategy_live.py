@@ -178,9 +178,13 @@ TRAIL_TP_TIERS = [
 #   BREAKEVEN_AFTER_PEAK_PCT: 峰值浮盈达到此值后进入"赚过钱"状态
 #     2026-04-24 从 3% 降到 1.5%——数据显示大量单 peak 1-3% 没有保护，被 early-sl -3% 扫掉
 #   BREAKEVEN_SL_PCT: 在"赚过钱"状态下，若回吐到此阈值（-0.5%）平仓保本
+#   ENTRY_GRACE_MIN: 入场保护期。前 N 分钟内 early-sl / breakeven 不触发，仅硬 SL 兜底
+#     2026-04-24 新增：数据显示 38% 的 early-sl 在 5m 内触发（入场瞬间均值回归），
+#     给仓位 15 分钟"呼吸空间"避免被瞬时抖动扫出局
 EARLY_SL_PCT             = 0.03
 BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
+ENTRY_GRACE_MIN          = 30
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
@@ -746,7 +750,7 @@ def close_order(pid, reason="manual"):
     except Exception as e:
         log.warning("close_order %d failed: %s", pid, e)
 
-def _trail_tp_check(conn, account, strategy, sym, pid, side, entry_p, peak_pct):
+def _trail_tp_check(conn, account, strategy, sym, pid, side, entry_p, peak_pct, entry_time_s=None):
     """移动止盈/硬止盈检查。触发则平仓并返回 True。"""
     if not entry_p:
         return False
@@ -773,17 +777,21 @@ def _trail_tp_check(conn, account, strategy, sym, pid, side, entry_p, peak_pct):
                  strategy.upper(), sym, pnl_pct * 100, new_peak * 100,
                  (new_peak - pnl_pct) * 100, pullback_thresh * 100)
         return True
-    # 保本止损（曾浮盈 >= 3% 的单，回吐到 -0.5% 即平）
-    if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
-        close_order(pid, "breakeven-sl")
-        log.info("保本止损 [%s] %-18s  pnl=%.1f%%  peak=+%.1f%%",
-                 strategy.upper(), sym, pnl_pct * 100, new_peak * 100)
-        return True
-    # 早期止损（浮亏达 3%，比硬 SL 10% 提前）
-    if pnl_pct <= -EARLY_SL_PCT:
-        close_order(pid, "early-sl")
-        log.info("早期止损 [%s] %-18s  pnl=%.1f%%", strategy.upper(), sym, pnl_pct * 100)
-        return True
+    # 入场保护期：开仓 ENTRY_GRACE_MIN 分钟内，early-sl 和 breakeven 都不触发（只靠硬 SL 兜底）
+    import time as _t
+    in_grace = entry_time_s and (_t.time() - float(entry_time_s)) < ENTRY_GRACE_MIN * 60
+    if not in_grace:
+        # 保本止损（曾浮盈 >= 1.5% 的单，回吐到 -0.5% 即平）
+        if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+            close_order(pid, "breakeven-sl")
+            log.info("保本止损 [%s] %-18s  pnl=%.1f%%  peak=+%.1f%%",
+                     strategy.upper(), sym, pnl_pct * 100, new_peak * 100)
+            return True
+        # 早期止损（浮亏达 3%，比硬 SL 10% 提前）
+        if pnl_pct <= -EARLY_SL_PCT:
+            close_order(pid, "early-sl")
+            log.info("早期止损 [%s] %-18s  pnl=%.1f%%", strategy.upper(), sym, pnl_pct * 100)
+            return True
     return False
 
 # ── DB ────────────────────────────────────────────────────────────
@@ -1260,7 +1268,8 @@ def chase_tick(conn, sym):
             return
         if status == 'open':
             _trail_tp_check(conn, 'live', 'chase', sym, cs['pid'],
-                            s, cs.get('entry_p', 0), cs.get('peak_pnl_pct', 0))
+                            s, cs.get('entry_p', 0), cs.get('peak_pnl_pct', 0),
+                            cs.get('entry_time', 0))
             return
 
         pnl = pnl or 0
@@ -1427,7 +1436,8 @@ def topshort_tick(conn, active_syms):
             continue  # API 错误，保留状态
         if status == 'open':
             _trail_tp_check(conn, 'live', 'topshort', sym, pos['pid'],
-                            'SHORT', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0))
+                            'SHORT', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0),
+                            pos.get('entry_time', 0))
             continue
         else:
             pnl_pct = (pnl or 0) / MARGIN * 100
@@ -1694,7 +1704,8 @@ def bottomlong_tick(conn, active_syms):
             continue
         if status == 'open':
             _trail_tp_check(conn, 'live', 'bottomlong', sym, pos['pid'],
-                            'LONG', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0))
+                            'LONG', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0),
+                            pos.get('entry_time', 0))
             continue
         pnl_pct = (pnl or 0) / MARGIN * 100
         reason = "手动" if (notes and '手动' in str(notes)) else status
@@ -1767,7 +1778,8 @@ def dump_tick(conn, sym):
             return
         if status == 'open':
             _trail_tp_check(conn, 'live', 'dump', sym, ds['pid'],
-                            s, ds.get('entry_p', 0), ds.get('peak_pnl_pct', 0))
+                            s, ds.get('entry_p', 0), ds.get('peak_pnl_pct', 0),
+                            ds.get('entry_time', 0))
             return
 
         pnl = pnl or 0

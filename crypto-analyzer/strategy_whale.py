@@ -91,9 +91,11 @@ TRAIL_TP_TIERS = [
     (0.03, 0.01),
 ]
 # 早期止损 / 保本止损（与 strategy_live 同；2026-04-24 breakeven 启动 3%→1.5%）
+# ENTRY_GRACE_MIN 入场保护期：前 15 分钟 early-sl/breakeven 不触发，仅硬 SL 兜底
 EARLY_SL_PCT             = 0.03
 BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005
+ENTRY_GRACE_MIN          = 30
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
@@ -232,7 +234,7 @@ def _close_pos(pid: int, reason: str = "manual"):
     except Exception as e:
         log.warning("_close_pos %d failed: %s", pid, e)
 
-def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pct: float) -> bool:
+def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pct: float, entry_time_s: float = 0) -> bool:
     """移动止盈/硬止盈检查。触发则平仓并返回 True。"""
     if not entry_p:
         return False
@@ -258,17 +260,20 @@ def _trail_tp_check(conn, sym: str, pid: int, side: str, entry_p: float, peak_pc
                  sym, pnl_pct * 100, new_peak * 100,
                  (new_peak - pnl_pct) * 100, pullback_thresh * 100)
         return True
-    # 保本止损（曾浮盈 >= 3% 的单，回吐到 -0.5% 即平）
-    if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
-        _close_pos(pid, "breakeven-sl")
-        log.info("保本止损 [WHALE] %-18s  pnl=%.1f%%  peak=+%.1f%%",
-                 sym, pnl_pct * 100, new_peak * 100)
-        return True
-    # 早期止损（浮亏达 3%，比硬 SL 10% 提前）
-    if pnl_pct <= -EARLY_SL_PCT:
-        _close_pos(pid, "early-sl")
-        log.info("早期止损 [WHALE] %-18s  pnl=%.1f%%", sym, pnl_pct * 100)
-        return True
+    # 入场保护期：前 ENTRY_GRACE_MIN 分钟 early-sl/breakeven 不触发
+    in_grace = entry_time_s and (now_s() - float(entry_time_s)) < ENTRY_GRACE_MIN * 60
+    if not in_grace:
+        # 保本止损
+        if new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+            _close_pos(pid, "breakeven-sl")
+            log.info("保本止损 [WHALE] %-18s  pnl=%.1f%%  peak=+%.1f%%",
+                     sym, pnl_pct * 100, new_peak * 100)
+            return True
+        # 早期止损
+        if pnl_pct <= -EARLY_SL_PCT:
+            _close_pos(pid, "early-sl")
+            log.info("早期止损 [WHALE] %-18s  pnl=%.1f%%", sym, pnl_pct * 100)
+            return True
     return False
 
 def _close_overdue(conn):
@@ -917,7 +922,8 @@ def whale_tick(conn, sym: str):
             return
         if status == 'open':
             _trail_tp_check(conn, sym, ss['pid'],
-                            ss.get('side') or s, ss.get('entry_p', 0), ss.get('peak_pnl_pct', 0))
+                            ss.get('side') or s, ss.get('entry_p', 0), ss.get('peak_pnl_pct', 0),
+                            ss.get('entry_time', 0))
             return
 
         pnl = float(pnl or 0)

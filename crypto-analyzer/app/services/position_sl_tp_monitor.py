@@ -45,6 +45,9 @@ EARLY_SL_PCT             = 0.03   # 浮亏 ≥ 3% 早期止损
 # peak ≥ 1.5% 启用保本守护（2026-04-24 从 3% 降低；补 peak 1-3% 的盲区）
 BREAKEVEN_AFTER_PEAK_PCT = 0.015
 BREAKEVEN_SL_PCT         = -0.005 # 保本线 -0.5%
+# 入场保护期：开仓 N 分钟内 early-sl/breakeven 不触发（硬 SL 兜底）
+# 2026-04-24：数据显示 38% early-sl 在 5m 内扎中（入场瞬间均值回归误杀）
+ENTRY_GRACE_MIN          = 30
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
@@ -160,12 +163,21 @@ class PositionSLTPMonitor:
 
             # 1. 新规则（受 disable_sl_tp_hold 控制）
             if not disable_rules:
+                # 入场保护期：开仓 ENTRY_GRACE_MIN 分钟内 early-sl/breakeven 不触发
+                open_time = pos.get("open_time")
+                in_grace = False
+                if open_time:
+                    import datetime as _dt
+                    if isinstance(open_time, _dt.datetime):
+                        age_s = time.time() - open_time.timestamp()
+                        in_grace = age_s < ENTRY_GRACE_MIN * 60
+
                 pullback_thresh = _dynamic_trail_pullback(new_peak)
                 if (new_peak - pnl_pct) >= pullback_thresh:
                     reason = "trail-tp"
-                elif new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
+                elif not in_grace and new_peak >= BREAKEVEN_AFTER_PEAK_PCT and pnl_pct <= BREAKEVEN_SL_PCT:
                     reason = "breakeven-sl"
-                elif pnl_pct <= -EARLY_SL_PCT:
+                elif not in_grace and pnl_pct <= -EARLY_SL_PCT:
                     reason = "early-sl"
 
             # 2. 原硬 SL/TP（兜底，永远生效）
@@ -237,7 +249,7 @@ class PositionSLTPMonitor:
     def _fetch_open_positions(self) -> List[Dict[str, Any]]:
         sql = (
             "SELECT id, symbol, position_side, entry_price, "
-            "       stop_loss_price, take_profit_price, source "
+            "       stop_loss_price, take_profit_price, source, open_time "
             "FROM futures_positions "
             "WHERE status='open' "
             "  AND (source LIKE %s) "
