@@ -92,6 +92,7 @@ CHASE_PUMP_PCT  = 0.12
 CHASE_SL_PCT             = 0.08
 CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
 CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
+CHASE_MIN_24H_CHANGE_PCT = -10.0 # 24h 跌幅超过阈值则不追（避免抓反弹飞刀，2026-04-24）
 LONG_HOLD_MIN   = 6 * 60
 SHORT_HOLD_MIN  = 6 * 60
 CHASE_MAX_HOLD  = LONG_HOLD_MIN
@@ -1299,6 +1300,18 @@ def chase_tick(conn, sym):
     now_ms = int(now_s() * 1000)
     BAR_MS = 5 * 60 * 1000
     cur = conn.cursor()
+
+    # 24h 趋势过滤：日线大跌超阈值时不追涨，避免抓熊市反弹飞刀
+    cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
+    r = cur.fetchone()
+    if r and r['change_24h'] is not None:
+        ch24 = float(r['change_24h'])
+        if ch24 < CHASE_MIN_24H_CHANGE_PCT:
+            log.info("CHASE 跳过 %-18s: 24h=%.1f%% < %.0f%%，熊市反弹不追",
+                     sym, ch24, CHASE_MIN_24H_CHANGE_PCT)
+            cur.close()
+            return
+
     bars = get_5m_bars(cur, sym, 80)
     if len(bars) < CHASE_PUMP_BARS + 2:
         cur.close()
