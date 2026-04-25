@@ -282,7 +282,10 @@ async def lifespan(app: FastAPI):
             db_config = config.get('database', {}).get('mysql', {})
             live_order_monitor = init_live_order_monitor(db_config, live_engine)
             logger.info("实盘订单监控服务初始化成功")
-        except ImportError:
+        except ImportError as e:
+            # 历史教训(2026-04-25): 该模块曾被误删, 此处静默 None 导致 LIMIT 单成交后
+            # 无人挂 binance 端 SL/TP 条件单, 实盘暴露 3 天才被发现. 必须 warning 级别打印.
+            logger.warning("实盘订单监控服务模块导入失败 (live_order_monitor 文件可能缺失): %s", e)
             live_order_monitor = None
         except Exception as e:
             logger.warning("实盘订单监控服务初始化失败: %s", e)
