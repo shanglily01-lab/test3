@@ -468,6 +468,22 @@ def _get_24h_stats(cur, sym):
     return (float(r['high_24h']), float(r['low_24h'])) if r else (None, None)
 
 
+def _get_4h_stats(cur, sym):
+    """取最近 4 小时 5m K 线 (48 根) 的 high/low 区间. 用于七上八下限价 (2026-04-25).
+    数据不足时返回 (None, None), 限价回退默认 3% 偏移.
+    """
+    cur.execute("""
+        SELECT MAX(high_price) AS h, MIN(low_price) AS l
+        FROM kline_data
+        WHERE symbol=%s AND timeframe='5m'
+          AND open_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 4 HOUR) * 1000
+    """, (sym,))
+    r = cur.fetchone()
+    if not r or r.get('h') is None:
+        return (None, None)
+    return (float(r['h']), float(r['l']))
+
+
 _topshort_hist_cache: dict[str, tuple[bool, float]] = {}
 _TOPSHORT_HIST_TTL_SEC = 15 * 60
 _topshort_climax_hist_cache: dict[str, tuple[bool, float]] = {}
@@ -560,14 +576,29 @@ def _close_overdue(conn):
             log.error("超时平仓异常 pid=%d: %s", r['id'], e)
 
 
-def _calc_limit_price(side, cur_price, high_24h, low_24h, pct=0.003):
-    """限价挂单: LONG 往下 pct; SHORT 往上 pct; 受 24H 区间约束"""
+def _calc_limit_price(side, cur_price, high_24h, low_24h, pct=0.003,
+                      high_4h=None, low_4h=None):
+    """限价挂单 (2026-04-25 七上八下原则):
+       SHORT: 优先 4h_high × 0.80; 若小于 cur×(1+pct), 用 cur×(1+pct). 受 24h_high 压制.
+       LONG:  优先 4h_low  × 1.30; 若大于 cur×(1-pct), 用 cur×(1-pct). 受 24h_low  支撑.
+       4h 数据缺失时回退到 ±pct 偏移.
+    """
     if side == 'LONG':
-        lp = cur_price * (1 - pct)
+        fallback = cur_price * (1 - pct)
+        if low_4h and low_4h > 0:
+            qi_shang = low_4h * 1.30                  # 七上 = 4h 低点 × 1.30
+            lp = min(qi_shang, fallback)              # 取更低 (更保守做多)
+        else:
+            lp = fallback
         if low_24h and low_24h > 0:
             lp = max(lp, float(low_24h))
-    else:
-        lp = cur_price * (1 + pct)
+    else:  # SHORT
+        fallback = cur_price * (1 + pct)
+        if high_4h and high_4h > 0:
+            ba_xia = high_4h * 0.80                   # 八下 = 4h 高点 × 0.80
+            lp = max(ba_xia, fallback)                # 取更高 (更保守做空)
+        else:
+            lp = fallback
         if high_24h and high_24h > 0:
             lp = min(lp, float(high_24h))
     return round(lp, 8)
@@ -1314,7 +1345,9 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
         return False
 
     h24, l24 = _get_24h_stats(cur, sym)
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
+    h4,  l4  = _get_4h_stats(cur, sym)
+    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                            high_4h=h4, low_4h=l4)
     tag = "topshort-climax"
     pid, oid, pending = open_order(
         sym,
@@ -1498,8 +1531,10 @@ def chase_tick(conn, sym):
         cur.close()
         return
     h24, l24 = _get_24h_stats(cur, sym)
+    h4,  l4  = _get_4h_stats(cur, sym)
     cur.close()
-    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
+    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                            high_4h=h4, low_4h=l4)
     pid, oid, pending = open_order(sym, "LONG", price, HARD_TP_PCT, CHASE_SL_PCT,
                                    CHASE_MAX_HOLD, "chase-entry", lp)
     if not pid and not oid:
@@ -1699,7 +1734,9 @@ def topshort_tick(conn, active_syms):
                 log.info("TOPSHORT 跳过 %-18s: %s", sym, reason)
                 break
             h24, l24 = _get_24h_stats(cur, sym)
-            lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
+            h4,  l4  = _get_4h_stats(cur, sym)
+            lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                                    high_4h=h4, low_4h=l4)
             pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, TOP_SL_PCT,
                                            TOP_HOLD_H * 60, "topshort", lp)
             if not pid and not oid:
@@ -1780,7 +1817,9 @@ def _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
         return False
 
     h24, l24 = _get_24h_stats(cur, sym)
-    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
+    h4,  l4  = _get_4h_stats(cur, sym)
+    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                            high_4h=h4, low_4h=l4)
     tag = "bottomlong-climax" if bear_climax else "bottomlong-climax-wick"
     pid, oid, pending = open_order(
         sym,
@@ -2035,8 +2074,10 @@ def dump_tick(conn, sym):
         cur.close()
         return
     h24, l24 = _get_24h_stats(cur, sym)
+    h4,  l4  = _get_4h_stats(cur, sym)
     cur.close()
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT)
+    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                            high_4h=h4, low_4h=l4)
     pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, DUMP_SL_PCT,
                                    DUMP_MAX_HOLD, "dump-entry", lp)
     if not pid and not oid:

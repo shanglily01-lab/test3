@@ -223,13 +223,41 @@ def _get_24h_stats(cur, sym):
     return (float(r['high_24h']), float(r['low_24h'])) if r else (None, None)
 
 
-def _calc_limit_price(side, cur_price, high_24h, low_24h):
+def _get_4h_stats(cur, sym):
+    """取最近 4h 5m K 线 max/min, 用于七上八下限价 (2026-04-25)."""
+    cur.execute("""
+        SELECT MAX(high_price) AS h, MIN(low_price) AS l
+        FROM kline_data WHERE symbol=%s AND timeframe='5m'
+          AND open_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 4 HOUR) * 1000
+    """, (sym,))
+    r = cur.fetchone()
+    if not r or r.get('h') is None:
+        return (None, None)
+    return (float(r['h']), float(r['l']))
+
+
+def _calc_limit_price(side, cur_price, high_24h, low_24h, high_4h=None, low_4h=None):
+    """限价挂单 (2026-04-25 七上八下原则):
+       SHORT: 优先 4h_high × 0.80; 若小于 cur×(1+offset), 用 cur×(1+offset). 受 24h_high 压制.
+       LONG:  优先 4h_low  × 1.30; 若大于 cur×(1-offset), 用 cur×(1-offset). 受 24h_low  支撑.
+       F3 仅 LONG.
+    """
     if side == 'LONG':
-        lp = cur_price * (1 - F3_LIMIT_OFFSET_PCT)
+        fallback = cur_price * (1 - F3_LIMIT_OFFSET_PCT)
+        if low_4h and low_4h > 0:
+            qi_shang = low_4h * 1.30
+            lp = min(qi_shang, fallback)
+        else:
+            lp = fallback
         if low_24h and low_24h > 0:
             lp = max(lp, float(low_24h))
     else:
-        lp = cur_price * (1 + F3_LIMIT_OFFSET_PCT)
+        fallback = cur_price * (1 + F3_LIMIT_OFFSET_PCT)
+        if high_4h and high_4h > 0:
+            ba_xia = high_4h * 0.80
+            lp = max(ba_xia, fallback)
+        else:
+            lp = fallback
         if high_24h and high_24h > 0:
             lp = min(lp, float(high_24h))
     return round(lp, 8)
@@ -662,9 +690,10 @@ def f3_tick(conn, sym: str):
     cur2 = conn.cursor()
     try:
         h24, l24 = _get_24h_stats(cur2, sym)
+        h4,  l4  = _get_4h_stats(cur2, sym)
     finally:
         cur2.close()
-    lp = _calc_limit_price('LONG', price, h24, l24)
+    lp = _calc_limit_price('LONG', price, h24, l24, high_4h=h4, low_4h=l4)
 
     # 开仓
     pid, oid, pending = open_order(sym, price, lp)
