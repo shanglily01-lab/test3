@@ -281,7 +281,11 @@ const Auth = {
             return true;
         }
 
-        alert('需要管理员权限');
+        if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+            window.showToast('需要管理员权限', 'error');
+        } else {
+            alert('需要管理员权限');
+        }
         return false;
     }
 };

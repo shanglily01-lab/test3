@@ -1070,7 +1070,10 @@ async function updateLimitPrices() {
 }
 
 async function cancelLimitOrder(orderId, sym, dir, limitP) {
-    if (!confirm('撤销 ' + sym + ' ' + dir + ' 限价单 @ ' + fmtPrice(limitP) + '?')) return;
+    if (!(await showConfirm(
+        '撤销 ' + sym + ' ' + dir + ' 限价单 @ ' + fmtPrice(limitP) + '?',
+        {title: '撤单确认', confirmText: '撤 销', cancelText: '取 消'}
+    ))) return;
     try {
         var acct = (document.getElementById('limitAcctSelect') || {value: '2'}).value;
         var acctId = acct === '0' ? 2 : parseInt(acct);

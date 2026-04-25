@@ -343,7 +343,12 @@ function getSentimentIcon(sentiment) {
 
 // 显示详情
 function showDetail(symbol) {
-    alert(`点击查看 ${symbol} 详细分析 (功能开发中...)`);
+    const msg = `点击查看 ${symbol} 详细分析 (功能开发中...)`;
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+        window.showToast(msg, 'info');
+    } else {
+        alert(msg);
+    }
 }
 
 // 初始化
