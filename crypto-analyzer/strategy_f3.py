@@ -371,14 +371,34 @@ def _fill_pending_orders(conn):
                 log.info("F3 触发回撤, 重新等待 %-18s cur=%.6f limit=%.6f",
                          sym, cur_p, limit_p)
             continue
-        # 30s 观察确认
-        first_seen = _trigger_first_seen.get(o['id'])
-        if first_seen is None:
-            _trigger_first_seen[o['id']] = now_s()
-            log.info("F3 触发观察 %-18s cur=%.6f limit=%.6f (%ds 后确认)",
-                     sym, cur_p, limit_p, TRIGGER_CONFIRM_S)
+        # 已触发: 等下根 5m K 线收盘, F3 仅做多, 需要阳线确认 (2026-04-25)
+        first_seen_ms = _trigger_first_seen.get(o['id'])
+        if first_seen_ms is None:
+            _trigger_first_seen[o['id']] = int(now_s() * 1000)
+            log.info("F3 触发观察 %-18s cur=%.6f limit=%.6f (等下根 5m 阳线收盘确认)",
+                     sym, cur_p, limit_p)
             continue
-        if now_s() - first_seen < TRIGGER_CONFIRM_S:
+        next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
+        next_bar_close_ms = next_bar_open_ms + 300000
+        if int(now_s() * 1000) < next_bar_close_ms:
+            continue
+        c_bar = conn.cursor()
+        c_bar.execute(
+            """SELECT open_price, close_price FROM kline_data
+               WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
+            (sym, next_bar_open_ms),
+        )
+        bar_row = c_bar.fetchone()
+        c_bar.close()
+        if not bar_row:
+            continue
+        bar_o = float(bar_row['open_price'])
+        bar_c = float(bar_row['close_price'])
+        # F3 是 LONG, 必须阳线 (close > open) 才确认
+        if bar_c <= bar_o:
+            log.info("F3 限价 5m 阳线未现, 不成交, 等下次触发: %-18s bar[o=%.6f c=%.6f]",
+                     sym, bar_o, bar_c)
+            _trigger_first_seen.pop(o['id'], None)
             continue
         _trigger_first_seen.pop(o['id'], None)
         # 乐观锁锁定订单

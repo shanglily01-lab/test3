@@ -836,14 +836,36 @@ def _fill_pending_orders(conn):
                          sym, side, cur_p, limit_p)
             continue
 
-        # 30 秒观察确认
-        first_seen = _trigger_first_seen.get(o["id"])
-        if first_seen is None:
-            _trigger_first_seen[o["id"]] = time.time()
-            log.info("BIGMID 限价单触发观察 %s %s cur=%.6f limit=%.6f（%ds 后确认）",
-                     sym, side, cur_p, limit_p, TRIGGER_CONFIRM_S)
+        # 已触发: 等下根 5m K 线收盘, 方向确认才成交 (2026-04-25 替代 30s 时间确认)
+        first_seen_ms = _trigger_first_seen.get(o["id"])
+        if first_seen_ms is None:
+            _trigger_first_seen[o["id"]] = int(time.time() * 1000)
+            log.info("BIGMID 限价单触发观察 %s %s cur=%.6f limit=%.6f (等下根 5m %s线收盘确认)",
+                     sym, side, cur_p, limit_p,
+                     '阴' if pos_side == 'SHORT' else '阳')
             continue
-        if time.time() - first_seen < TRIGGER_CONFIRM_S:
+        next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
+        next_bar_close_ms = next_bar_open_ms + 300000
+        if int(time.time() * 1000) < next_bar_close_ms:
+            continue
+        c_bar = conn.cursor()
+        c_bar.execute(
+            """SELECT open_price, close_price FROM kline_data
+               WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
+            (sym, next_bar_open_ms),
+        )
+        bar_row = c_bar.fetchone()
+        c_bar.close()
+        if not bar_row:
+            continue
+        bar_o = float(bar_row['open_price'])
+        bar_c = float(bar_row['close_price'])
+        confirm_ok = (pos_side == 'SHORT' and bar_c < bar_o) \
+                     or (pos_side == 'LONG' and bar_c > bar_o)
+        if not confirm_ok:
+            log.info("BIGMID 限价 5m 反向不成交, 等下次触发: %s %s bar[o=%.6f c=%.6f]",
+                     sym, side, bar_o, bar_c)
+            _trigger_first_seen.pop(o["id"], None)
             continue
         _trigger_first_seen.pop(o["id"], None)
 

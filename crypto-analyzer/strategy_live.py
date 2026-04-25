@@ -711,16 +711,43 @@ def _fill_pending_orders(conn):
                 log.info("限价单触发回撤，重新等待 %s %s cur=%.5f limit=%.5f",
                          sym, side, cur_p, limit_p)
             continue
-        # 已触发：30 秒观察期确认
-        first_seen = _trigger_first_seen.get(o['id'])
-        if first_seen is None:
-            _trigger_first_seen[o['id']] = time.time()
-            log.info("限价单触发观察 %s %s cur=%.5f limit=%.5f（%ds 后确认）",
-                     sym, side, cur_p, limit_p, TRIGGER_CONFIRM_S)
+        # 已触发: 等下一根 5m K 线收盘, 方向确认才成交
+        # SHORT 需要阴线 (close < open), LONG 需要阳线 (close > open), 平 K 算逆向
+        # 2026-04-25 替代原 30s 时间确认
+        first_seen_ms = _trigger_first_seen.get(o['id'])
+        if first_seen_ms is None:
+            _trigger_first_seen[o['id']] = int(time.time() * 1000)
+            log.info("限价单触发观察 %s %s cur=%.5f limit=%.5f (等下根 5m %s线收盘确认)",
+                     sym, side, cur_p, limit_p,
+                     '阴' if pos_side == 'SHORT' else '阳')
             continue
-        if time.time() - first_seen < TRIGGER_CONFIRM_S:
-            continue  # 观察窗内，静默等待
-        # 观察期已过且仍触发：清除观察记录，进入成交流程
+        # 算下一根 5m bar 的起止 ms (5m bar = 300000 ms)
+        next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
+        next_bar_close_ms = next_bar_open_ms + 300000
+        if int(time.time() * 1000) < next_bar_close_ms:
+            continue  # 还没到下根 5m 收盘
+        # 取这根 5m bar
+        c_bar = conn.cursor()
+        c_bar.execute(
+            """SELECT open_price, close_price FROM kline_data
+               WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
+            (sym, next_bar_open_ms),
+        )
+        bar_row = c_bar.fetchone()
+        c_bar.close()
+        if not bar_row:
+            continue  # kline 数据延迟, 下一轮再查
+        bar_o = float(bar_row['open_price'])
+        bar_c = float(bar_row['close_price'])
+        confirm_ok = (pos_side == 'SHORT' and bar_c < bar_o) \
+                     or (pos_side == 'LONG' and bar_c > bar_o)
+        if not confirm_ok:
+            log.info("限价 5m 反向(%s) 不成交, 等下次触发: %s %s bar[o=%.5f c=%.5f]",
+                     '阴未现' if pos_side == 'SHORT' else '阳未现',
+                     sym, side, bar_o, bar_c)
+            _trigger_first_seen.pop(o['id'], None)
+            continue
+        # 5m K 线方向确认通过, 进入成交流程
         _trigger_first_seen.pop(o['id'], None)
         # 反向滑点熔断：LIMIT 被反向穿越过大时撤单，避免逆势进场
         if pos_side == 'LONG':
