@@ -48,17 +48,51 @@ def _is_binance_banned() -> bool:
     return _time.time() < _BANNED_UNTIL_TS
 
 
-def _set_banned(retry_after_s: Optional[float] = None, reason: str = "unknown"):
-    """记录 IP 封禁状态. retry_after_s 优先用 Binance Retry-After header, 否则 _BAN_BACKOFF_S."""
+def _set_banned(retry_after_s: Optional[float] = None, reason: str = "unknown",
+                 banned_until_ts: Optional[float] = None):
+    """记录 IP 封禁状态.
+    优先级: banned_until_ts (Binance error -1003 里的精确时间戳)
+          > retry_after_s (HTTP Retry-After header)
+          > _BAN_BACKOFF_S (默认 10 分钟)
+    """
     global _BANNED_UNTIL_TS
-    wait_s = max(retry_after_s or 0.0, _BAN_BACKOFF_S)
-    _BANNED_UNTIL_TS = _time.time() + wait_s
+    if banned_until_ts and banned_until_ts > _time.time():
+        _BANNED_UNTIL_TS = banned_until_ts
+    else:
+        wait_s = max(retry_after_s or 0.0, _BAN_BACKOFF_S)
+        _BANNED_UNTIL_TS = _time.time() + wait_s
     try:
         from datetime import datetime as _dt
-        until_str = _dt.fromtimestamp(_BANNED_UNTIL_TS).strftime("%H:%M:%S")
-        logger.warning(f"[price] Binance IP banned ({reason}), 暂停所有直连请求至 {until_str} (+{wait_s:.0f}s)")
+        until_str = _dt.fromtimestamp(_BANNED_UNTIL_TS).strftime("%Y-%m-%d %H:%M:%S")
+        wait_actual = _BANNED_UNTIL_TS - _time.time()
+        logger.warning(f"[price] Binance IP banned ({reason}), 暂停所有直连请求至 {until_str} (+{wait_actual:.0f}s)")
     except Exception:
         pass
+
+
+_BAN_UNTIL_RE = None  # 懒初始化, 避免 import re 的开销
+
+def _parse_binance_ban_message(body_text_or_dict) -> Optional[float]:
+    """从 Binance 错误响应解析 'banned until <ms_timestamp>'.
+    支持 dict (parsed JSON) 或 str (raw body).
+    返回 epoch seconds 或 None.
+    """
+    global _BAN_UNTIL_RE
+    if _BAN_UNTIL_RE is None:
+        import re as _re
+        _BAN_UNTIL_RE = _re.compile(r'banned\s+until\s+(\d+)', _re.IGNORECASE)
+    try:
+        if isinstance(body_text_or_dict, dict):
+            msg = str(body_text_or_dict.get('msg', ''))
+        else:
+            msg = str(body_text_or_dict or '')
+        m = _BAN_UNTIL_RE.search(msg)
+        if m:
+            until_ms = int(m.group(1))
+            return until_ms / 1000.0
+    except Exception:
+        pass
+    return None
 
 
 async def _refresh_realtime_price_map_loop():
@@ -98,6 +132,17 @@ async def _refresh_realtime_price_map_loop():
                 async with session.get(url) as r:
                     # HTTP 418 (IP banned) / 429 (rate limit) — 立即设封禁状态, 大幅退避
                     if r.status in (418, 429):
+                        # 优先解析 body 里的 "banned until <ts>" 精确时间
+                        banned_until = None
+                        try:
+                            body = await r.json()
+                            banned_until = _parse_binance_ban_message(body)
+                        except Exception:
+                            try:
+                                txt = await r.text()
+                                banned_until = _parse_binance_ban_message(txt)
+                            except Exception:
+                                pass
                         retry_after = r.headers.get('Retry-After')
                         retry_s = None
                         try:
@@ -105,7 +150,8 @@ async def _refresh_realtime_price_map_loop():
                                 retry_s = float(retry_after)
                         except (ValueError, TypeError):
                             pass
-                        _set_banned(retry_s, reason=f"L2 HTTP {r.status}")
+                        _set_banned(retry_s, reason=f"L2 HTTP {r.status}",
+                                     banned_until_ts=banned_until)
                         consecutive_errors += 1
                         continue
                     if r.status != 200:
@@ -1434,7 +1480,13 @@ async def get_futures_price(symbol: str):
                         params={'symbol': symbol_clean}
                     ) as response:
                         if response.status in (418, 429):
-                            # L3 也碰到封禁 — 设全局封禁状态
+                            # L3 也碰到封禁 — 解析 body 取精确解封时间, 设全局封禁状态
+                            banned_until = None
+                            try:
+                                body = await response.json()
+                                banned_until = _parse_binance_ban_message(body)
+                            except Exception:
+                                pass
                             retry_after = response.headers.get('Retry-After')
                             retry_s = None
                             try:
@@ -1442,7 +1494,8 @@ async def get_futures_price(symbol: str):
                                     retry_s = float(retry_after)
                             except (ValueError, TypeError):
                                 pass
-                            _set_banned(retry_s, reason=f"L3 HTTP {response.status}")
+                            _set_banned(retry_s, reason=f"L3 HTTP {response.status}",
+                                         banned_until_ts=banned_until)
                         elif response.status == 200:
                             data = await response.json()
                             if data and 'price' in data:
