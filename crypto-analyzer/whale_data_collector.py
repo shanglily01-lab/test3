@@ -31,11 +31,11 @@ log = logging.getLogger(__name__)
 
 # ── 常量 ─────────────────────────────────────────────────────────────
 FAPI = "https://fapi.binance.com"
-FUNDING_INTERVAL  = 5  * 60   # 5 分钟
-OI_LS_INTERVAL    = 15 * 60   # 15 分钟
+FUNDING_INTERVAL  = 5  * 60   # 5 分钟 (premiumIndex + 24hr 都是全市场单次请求, 量小)
+OI_LS_INTERVAL    = 30 * 60   # 30 分钟 (2026-04-25 砍半: 这是 IP 被封主因, 逐品种 ×N 次)
 REQUEST_TIMEOUT   = 10
-INTER_REQ_SLEEP   = 0.12       # 每个逐品种请求间隔 (s), 避免频繁限速
-TOP_N_BY_VOLUME   = 200        # 按24h成交额取前N个品种
+INTER_REQ_SLEEP   = 0.25       # 0.12 -> 0.25, 节奏拉慢避免集中突发触发 IP 级 -1003
+TOP_N_BY_VOLUME   = 60         # 200 -> 60: OI/LS 加分项对 whale/bigmid 边际贡献小, 主流币够用
 
 # Binance -1003 / 418：按 IP 的原始请求过多；解禁时间见响应 msg「banned until <ms>」
 _BINANCE_BAN_UNTIL_MS: int = 0
