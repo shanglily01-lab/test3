@@ -1,8 +1,8 @@
 # 需求文档 — 量化交易系统
 
-版本：v1.1  
-更新日期：2026-04-23  
-覆盖范围：strategy_live（小币趋势跟踪）、strategy_whale（庄家对抗）、strategy_bigmid（中大市值引擎）
+版本：v1.2  
+更新日期：2026-04-25  
+覆盖范围：strategy_live（小币趋势跟踪）、strategy_whale（庄家对抗 + W 底 + M 顶）、strategy_bigmid（中大市值引擎）、strategy_f3（W 底变种 LONG）
 
 ---
 
@@ -318,3 +318,92 @@
 | F-PS-05 | 失败不重试：失败即写 `live_sync_status='FAILED'`，避免重复下单 |
 | F-PS-06 | 数量：`margin_per_trade × max_leverage / price`（实盘 API key 字段）|
 | F-PS-07 | TP/SL：基于 paper 的 avg_fill_price 折算百分比，按实盘实际成交价重算绝对价格，避免验证失败 |
+
+---
+
+## 5. v1.2 更新汇总（2026-04-24 ~ 2026-04-25）
+
+### 5.1 新增策略
+
+#### F-F3 strategy_f3 W 底小涨带量做多（独立进程）
+- 抓"已大跌但还未反弹"的底部第一根带量小阳，是 W 底的"反弹前一刻"变种
+- 入场条件：7 天最大跌幅 ≥ 20%，最近 24h 未续跌（≥ -5%），脱离 24h 最低，**24h 涨跌 ≤ +2%（核心）**，最后 1 根 15m 阳线 1-3%，量比 1.5-3.0x
+- 仓位：SL 5% / TP 10% / 持仓 12h / 冷却 4h，全局最多 3 仓
+- 限价偏移 0.5%，超时 3h
+- 黑白名单优先级：F3 白名单 > F3 黑名单 > 全局 BASE > DB 动态。**白名单覆盖一切黑名单**（F3 形态对某些"被 trend 策略坑过"的币仍然有效，如 SPK）
+- 默认黑名单 7 个：PENGU/EVAA/IR/DUSK/GPS/MYX/AAVE_USD（基于 7d 回测数据）
+- 默认白名单 9 个：SPK/NEIRO/AVNT/ZBT/KERNEL/TREE/STRK/ENJ/TRIA（同源数据）
+
+#### F-W-06 strategy_whale M 顶子策略（**代码完成但默认禁用**）
+- W 底完全镜像，方向 SHORT
+- 阈值复用 W 底所有常量
+- 主循环调用注释掉。14 天回测严格阈值 0 命中，宽松版负期望。市场转顶时取消注释启用
+
+### 5.2 入场守卫（strategy_live 全子策略生效）
+
+#### F-L-EG-01 入场位置百分位过滤
+- 计算当前价在过去 3 小时（12 根 15m）K 线区间的百分位
+- 规则（一票否决）：
+  - `pos > 100%`（破顶，已突破上沿）：任何方向都拒绝
+  - `pos < 0%`（破底，已跌穿下沿）：任何方向都拒绝
+  - `pos > 90%` 且方向 LONG：追高拒绝
+  - `pos < 10%` 且方向 SHORT：踩底拒绝
+- 应用于：chase / dump / topshort-classic / topshort-climax / bottomlong-climax (5 处)
+
+#### F-L-EG-02 24h 涨跌对称过滤
+| 子策略 | 下限 | 上限 |
+|---|---|---|
+| chase LONG | -12%（2026-04-25 由 -10 放宽 2pt） | +15% |
+| dump SHORT | -15% | — |
+| **topshort-* SHORT** | **-15%** 新加 | — |
+| **bottomlong-* LONG** | — | **+15%** 新加 |
+- 做空类：24h 已大跌则不再开空（避免接飞刀）
+- 做多类：24h 已大涨则不再开多（避免追末班车）
+- 修复 04-25 实例：API3 LONG bottomlong-climax 在 24h +49% 还做多
+
+### 5.3 限价单成交时机（4 个策略文件统一）
+
+#### F-LM-01 替换 30s 时间确认 → 5m K 线方向确认
+- 价格首次触达限价 → 记录 first_seen
+- 等下一根**完整收盘的 5m K 线**
+  - SHORT 限价：阴线（close < open）→ 成交
+  - LONG 限价：阳线（close > open）→ 成交
+  - 平 K（close == open）：算逆向，不成交
+- 不成交时：清除等待，限价单**保留**给下次触发
+- 反向滑点 1.5%（live）/ 0.75%（MID）/ 0.3%（BIG）熔断保留
+- 限价总超时 1h（→ 2h）/ 2h / 3h 保留作为最终兜底
+
+#### F-LM-02 七上八下限价定价
+- 触发改用区间阻力/支撑位，替代单一 cur ± offset
+- SHORT：`lp = max(4h_high × 0.80, cur × (1 + offset))`，受 24h_high 压制
+- LONG：`lp = min(4h_low × 1.30, cur × (1 - offset))`，受 24h_low 支撑
+- 4h 数据缺失时回退到 ± offset 默认值
+- 应用于全部 4 个策略文件 11 处调用
+
+#### F-LM-03 限价超时调整
+| 策略 | 之前 | 现在 |
+|---|---|---|
+| strategy_live | 1h | **2h** |
+| strategy_whale | 2h | 2h（不变）|
+| strategy_bigmid | 2h | 2h（不变）|
+| strategy_f3 | 1h | **3h** |
+
+### 5.4 引擎层修复
+
+#### F-ENG-01 max_profit_pct 字段刷新
+- `futures_trading_engine.py` 两处 mark-price 刷新原本不更新 `max_profit_pct/max_profit_price/max_profit_time`，导致这些字段永远为 0
+- 修复：刷新逻辑 `max_profit_pct = GREATEST(COALESCE(...), %s)`，price/time 同步刷新
+- 影响：前端 / 复盘报表能看到正确的峰值浮盈，但 trail-tp 触发不变（因为它走 strategy 内存的 peak_pnl_pct）
+
+### 5.5 strategy_bigmid BIG 白名单扩充
+- 8 个 → ~60 个（CMC 前 50 + 币安永续活跃合约）
+- 涵盖 L1/L2/DeFi 蓝筹、T1 memes、AI 热点、新生代、老牌活跃、跨链
+- 仍受 TIER_BIG_MIN_VOL=$500M 约束
+
+### 5.6 UI
+
+#### F-UI-01 alert/confirm 替换为自定义 modal
+- `static/js/modal.js` 已有 `showAlert / showConfirm / showToast`
+- 5 处原生调用全替换：`futures_trading.html` / `symbol_blacklist.html` / `binance_news.html` / `auth.js` / `app.js`
+- 跨页 JS（auth.js / app.js）保留原生 alert 作 fallback
+- prompt 全项目 0 处使用，不需要替换

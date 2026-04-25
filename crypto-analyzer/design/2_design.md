@@ -1,8 +1,8 @@
 # 设计文档 — 量化交易系统
 
-版本：v1.1  
-更新日期：2026-04-23  
-覆盖范围：strategy_live（小币趋势跟踪）、strategy_whale（庄家对抗）、strategy_bigmid（中大市值引擎 MVP）
+版本：v1.2  
+更新日期：2026-04-25  
+覆盖范围：strategy_live（小币趋势跟踪）、strategy_whale（庄家对抗 + W 底 + M 顶）、strategy_bigmid（中大市值引擎）、strategy_f3（W 底变种 LONG）
 
 ---
 
@@ -966,3 +966,179 @@ POST /api/futures/close/{position_id}
 | COOLDOWN_S | 21600 | 固定 | Whale 普通冷却(6h) |
 | COOLDOWN_SL_S | 43200 | 固定 | Whale 止损后冷却(12h) |
 | MAX_POS_PER_SIDE | 3 | 固定 | Whale 单侧最大持仓数 |
+
+---
+
+## 8. v1.2 设计变更（2026-04-24 ~ 2026-04-25）
+
+### 8.1 strategy_f3.py（新增独立进程, ~800 行）
+
+**架构**：仿照 strategy_whale.py 模板，独立 main 循环。state strategy='f3', stype='f3'，source 前缀 `strategy_f3:f3-entry`。
+
+**核心识别 detect_f3(bars)**：
+```
+7 天 15m K 线 (672 根)
+1. drop_pct = (max_high - min_low) / max_high ≥ 0.20
+2. recent24h_change ≥ -0.05
+3. close > 24h_low * 1.01 (脱离最低)
+4. 24h_change ≤ +0.02 (核心: 反弹前)
+5. 最后一根 15m 阳线 body ∈ [1%, 3%)
+6. vol_ratio ∈ [1.5, 3.0)x (vs 24h 均量)
+```
+
+**黑白名单合并逻辑**：
+```python
+def _effective_blacklist():
+    merged = GLOBAL_BLACKLIST_BASE | F3_BLACKLIST | _refresh_db_bl()
+    return merged - F3_WHITELIST   # 白名单覆盖一切黑名单
+```
+
+**`get_universe()` 强制将白名单加入**——即便不在 24h 成交额 top 200 也扫。
+
+**出场**：仅靠 PositionSLTPMonitor 按硬 SL/TP 自动平 + `_close_overdue` 12h 超时兜底。**不调** `_trail_tp_check`（因为 SL 5%/TP 10% 和 strategy_live 全局 SL 10%/TP 20% 不兼容）。
+
+### 8.2 strategy_whale.py M 顶子策略（默认禁用）
+
+**`detect_m_top(bars_15m)`**：完全镜像 `detect_w_bottom`：
+- B1（最低）→ H1（最高）
+- 颈线 C（B1 后最高）→ 颈线 D（H1 后最低）
+- 反弹 +5% → 回撤 -5%
+- 二次探底 B2 → 二次冲高 H2，H2 在 H1 ± 5%
+- 突破颈线 +0.5% → 跌破颈线 -0.5%
+- 状态机 `(strategy='whale', stype='m-top')`，source `strategy_whale:m-top`
+- 复用 WB_* 全部常量
+
+**`_sync_state` 路由**：按 source 后缀分配 stype（whale/w-bottom/m-top 三选一）
+
+**主循环调用注释**：`# try: m_top_tick(...)` 留代码不调用，未来 1 行 uncomment 启用
+
+### 8.3 strategy_live.py 入场守卫
+
+#### 8.3.1 工具函数（line ~573）
+
+```python
+def _entry_position_pct(cur, sym, cur_price, lookback_bars=12) -> float|None:
+    """当前价在 12 根 15m K 线区间的百分位 (0~100). > 100 / < 0 表示已突破/跌穿"""
+
+def _check_entry_position(cur, sym, side, cur_price, tag='') -> (ok, reason):
+    """规则: pos > 100 / pos < 0 / LONG pos > 90 / SHORT pos < 10 → 拒绝"""
+```
+
+#### 8.3.2 调用点（5 个开仓函数前）
+
+- `chase_tick`（chase-entry, line ~1452）
+- `dump_tick`（dump-entry, line ~1959）
+- `topshort_tick` 内的 classic 分支（line ~1656）
+- `_topshort_try_climax_volume`（topshort-climax, line ~1268）
+- `_bottomlong_try_climax_volume`（bottomlong-climax/wick, line ~1734）
+
+#### 8.3.3 24h 对称过滤（在 `_check_entry_position` 之前执行）
+
+```
+if ch24 > BOTLONG_MAX_24H_CHANGE_PCT (15%): bottomlong 拒绝
+if ch24 < TOP_MIN_24H_CHANGE_PCT (-15%):    topshort 拒绝
+if ch24 > CHASE_MAX_24H_CHANGE_PCT (15%):   chase 拒绝
+if ch24 < CHASE_MIN_24H_CHANGE_PCT (-12%):  chase 拒绝
+if ch24 < DUMP_MIN_24H_CHANGE_PCT (-15%):   dump 拒绝
+```
+
+### 8.4 限价单成交逻辑（4 文件统一）
+
+#### 8.4.1 5m K 线方向确认（替代 30s 时间确认）
+
+新流程在每个 `_fill_pending_orders` 内：
+
+```python
+# triggered = 价格穿过 limit
+first_seen_ms = _trigger_first_seen.get(o['id'])
+if first_seen_ms is None:
+    _trigger_first_seen[o['id']] = int(time.time() * 1000)
+    log "限价单触发观察 (等下根 5m 阴/阳线收盘确认)"
+    continue
+
+# 计算下一根 5m bar 的边界
+next_bar_open_ms  = (first_seen_ms // 300000) * 300000 + 300000
+next_bar_close_ms = next_bar_open_ms + 300000
+if now_ms < next_bar_close_ms:
+    continue  # 等收盘
+
+# 查这根 5m bar
+bar = SELECT open_price, close_price FROM kline_data
+      WHERE symbol AND timeframe='5m' AND open_time = next_bar_open_ms
+
+# 方向判定
+SHORT 限价 → 需要 close < open（阴线）才成交
+LONG  限价 → 需要 close > open（阳线）才成交
+平 K（close == open）→ 算逆向，不成交
+
+# 不成交时清除 first_seen, **保留挂单**等下次触发
+# 成交时进入原 FILLING 流程（反向滑点熔断 + lock + open_position）
+```
+
+#### 8.4.2 七上八下限价定价
+
+新工具 `_get_4h_stats(cur, sym)`：从 `kline_data` 5m timeframe 取最近 4 小时（48 根）的 max(high) / min(low)。
+
+`_calc_limit_price` 签名加 `high_4h, low_4h` 参数：
+```python
+LONG:
+  fallback = cur_price * (1 - offset)
+  qi_shang = low_4h * 1.30
+  lp = min(qi_shang, fallback)         # 取更低
+  lp = max(lp, low_24h)                # 受 24h 低支撑
+
+SHORT:
+  fallback = cur_price * (1 + offset)
+  ba_xia = high_4h * 0.80
+  lp = max(ba_xia, fallback)           # 取更高
+  lp = min(lp, high_24h)               # 受 24h 高压制
+```
+
+**死猫跳 SHORT 命中机制**：当 cur << 4h_high 时，4h_high × 0.80 > cur × (1+offset)，限价上挂在反弹阻力位。配合 5m 阴线确认 + 反向滑点熔断，三层闭环：
+1. 反弹到阻力位（七上八下）
+2. 反弹失败（5m 阴线）
+3. 平稳成交（无瞬穿）
+
+#### 8.4.3 限价超时调整
+
+| 文件 | 常量 | v1.1 | v1.2 |
+|---|---|---|---|
+| strategy_live | LIMIT_PENDING_MAX_S | 3600 | **7200** |
+| strategy_whale | (内联 2*3600) | 7200 | 7200 |
+| strategy_bigmid | LIMIT_PENDING_MAX_S | 7200 | 7200 |
+| strategy_f3 | LIMIT_PENDING_MAX_S | 3600 | **10800** |
+
+### 8.5 futures_trading_engine.py max_profit_pct 修复
+
+两处 mark-price 刷新（`get_positions` line ~1587 / `update_all_accounts_equity` line ~1666）原本只 UPDATE `mark_price/unrealized_pnl/unrealized_pnl_pct/last_update_time`，**未更新 max_profit_pct/price/time**。
+
+修复：UPDATE 语句加 3 个字段：
+
+```sql
+SET ...,
+    max_profit_pct = GREATEST(COALESCE(max_profit_pct, 0), %s),
+    max_profit_price = CASE WHEN %s > COALESCE(max_profit_pct, 0) THEN %s ELSE max_profit_price END,
+    max_profit_time  = CASE WHEN %s > COALESCE(max_profit_pct, 0) THEN NOW() ELSE max_profit_time END
+```
+
+不影响 trail-tp 等出场逻辑（这些走 strategy 内存的 `peak_pnl_pct`），仅修复展示字段。
+
+### 8.6 strategy_bigmid BIG 白名单扩充
+
+```python
+BIG_WHITELIST = {
+    # T1 主流: BTC ETH SOL BNB XRP DOGE ADA SUI
+    # 公链/高市值: TRX AVAX TON LINK DOT NEAR POL LTC BCH ATOM ICP FIL
+    #            ETC HBAR INJ ALGO
+    # L2/DeFi 蓝筹: OP ARB AAVE MKR UNI COMP LDO
+    # Meme T1: SHIB 1000PEPE BONK WIF FLOKI
+    # AI: RENDER FET TAO
+    # 新生代: STX TIA SEI JUP ORDI PYTH ENA JTO
+    # 老牌: VET EOS FTM GRT SAND MANA AXS FLOW IMX THETA EGLD RUNE
+    # 跨链: QNT AR
+}  # ~60 entries
+```
+
+### 8.7 前端 modal 替换 native 弹框
+
+5 处原生调用全替换为 `static/js/modal.js` 提供的 `showAlert / showConfirm / showToast`。跨页 JS（auth.js / app.js）保留原生 fallback。

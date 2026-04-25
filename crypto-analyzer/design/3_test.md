@@ -1,8 +1,8 @@
 # 测试文档 — 量化交易系统
 
-版本：v1.1  
-更新日期：2026-04-23  
-覆盖范围：strategy_live、strategy_whale、strategy_bigmid（MVP）
+版本：v1.2  
+更新日期：2026-04-25  
+覆盖范围：strategy_live、strategy_whale（含 W 底 + M 顶）、strategy_bigmid、strategy_f3
 
 ---
 
@@ -1148,3 +1148,188 @@ Body: {"live_trading_enabled": true}
 - [ ] **W 底改用 15m + 3.5 天窗口**（2026-04-24），持仓上限 1 天
 - [ ] **PaperLimitSyncService 同步 LIMIT + MARKET**（2026-04-24）
 - [ ] **PaperLimitSyncService 去重**：fp.status='open' 且 同 paper_pid 无 SYNCED 订单 才同步（防双开/复开）
+
+---
+
+## 10. v1.2 新增测试用例（2026-04-24 ~ 2026-04-25）
+
+### 10.1 strategy_f3 W 底小涨带量 LONG
+
+#### TC-F3-01 标准触发
+**前置**：7 天最大跌幅 25%；最近 24h 涨跌 +1%；脱离 24h 最低；最后一根 15m 阳线 1.5%；量比 2x
+
+**期望**：开 LONG，source=`strategy_f3:f3-entry`，限价 = cur×0.995
+
+#### TC-F3-02 24h 已反弹 +3% 拒绝
+**前置**：drop=22%，但 ch24=+3%（>+2% 上限）
+
+**期望**：拒绝，无开仓（核心过滤生效）
+
+#### TC-F3-03 阳线幅度过大拒绝
+**前置**：所有满足，但最后一根 15m body=4%（>=3% 上限）
+
+**期望**：拒绝（小阳优于大阳）
+
+#### TC-F3-04 黑名单优先级
+**前置**：PENGU/USDT 在 F3_BLACKLIST，符合 F3 形态
+
+**期望**：拒绝（F3 黑名单一票）
+
+#### TC-F3-05 白名单覆盖全局黑名单
+**前置**：SPK/USDT 在 GLOBAL_BLACKLIST_BASE 但也在 F3_WHITELIST，符合 F3 形态
+
+**期望**：开 LONG（白名单覆盖）
+
+### 10.2 strategy_whale M 顶（默认禁用，启用时验证）
+
+#### TC-MT-01 标准 M 顶触发
+**前置**：3.5 天 15m 内 H1=最高，回落到 D（-5%），二次冲高 H2 ∈ [H1±5%]，H1→H2 间隔 1 天，当前价 < D × 0.995
+
+**期望**：开 SHORT，source=`strategy_whale:m-top`，无 SL/TP，1 天 timeout
+
+#### TC-MT-02 两顶差超 5%
+**前置**：H2 = H1 × 1.07
+
+**期望**：拒绝（两顶差 > 5%）
+
+#### TC-MT-03 未跌破颈线
+**前置**：当前价 = D × 0.998（跌破不足 0.5%）
+
+**期望**：拒绝
+
+### 10.3 入场守卫（strategy_live 5 处）
+
+#### TC-EG-POS-01 LONG 追高拒绝
+**前置**：cur 在 3h 区间 95% 位（>90%）
+
+**期望**：chase_tick 拒绝，log "追高 pos=95%"；不开仓
+
+#### TC-EG-POS-02 SHORT 踩底拒绝
+**前置**：cur 在 3h 区间 5% 位（<10%）
+
+**期望**：dump/topshort 任何 SHORT 入场拒绝
+
+#### TC-EG-POS-03 破顶拒绝（双向）
+**前置**：cur 在 3h 区间 130% 位（已突破上沿）
+
+**期望**：任何方向拒绝，log "破顶 pos=130%"
+
+#### TC-EG-POS-04 破底拒绝（双向）
+**前置**：cur 在 3h 区间 -50% 位
+
+**期望**：任何方向拒绝
+
+#### TC-EG-24H-01 chase 24h > +15% 拒绝
+**前置**：24h change = +18%
+
+**期望**：chase 拒绝（追顶）
+
+#### TC-EG-24H-02 dump 24h < -15% 拒绝
+**前置**：24h change = -18%
+
+**期望**：dump 拒绝（接飞刀）
+
+#### TC-EG-24H-03 bottomlong 24h > +15% 拒绝
+**前置**：24h change = +49%
+
+**期望**：bottomlong-climax 拒绝（已涨不是底）— 修 04-25 API3 案例
+
+#### TC-EG-24H-04 topshort 24h < -15% 拒绝
+**前置**：24h change = -20%
+
+**期望**：topshort-classic / climax 拒绝（已跌不该再做空）
+
+### 10.4 5m K 线方向确认（4 文件统一）
+
+#### TC-LM5-01 SHORT 触发后下根 5m 阴线成交
+**前置**：SHORT 限价 95，cur 涨到 95 → 等下一根 5m K 线收盘 → close=94.8 < open=95.1（阴线）
+
+**期望**：成交，进入 FILLING 流程
+
+#### TC-LM5-02 SHORT 触发后下根 5m 阳线不成交
+**前置**：SHORT 限价 95，cur 涨到 95 → 下一根 5m close=95.5 > open=95.1（阳线）
+
+**期望**：清除等待，limit 保留，log "限价 5m 阴未现 不成交, 等下次触发"
+
+#### TC-LM5-03 LONG 触发后阳线成交
+**前置**：LONG 限价 90，cur 跌到 90 → 下一根 5m close=90.3 > open=89.9（阳线）
+
+**期望**：成交
+
+#### TC-LM5-04 平 K 算逆向
+**前置**：SHORT 触发，下一根 5m close == open（平 K）
+
+**期望**：清除等待，不成交（平 K 视为逆向）
+
+#### TC-LM5-05 价格触发后回撤清除
+**前置**：cur 触达 limit_p（记录 first_seen），下一轮 cur 已经离开触发侧
+
+**期望**：清除 first_seen，下次重新触发时再开始等
+
+### 10.5 七上八下限价定价
+
+#### TC-LP-01 SHORT 大跌后挂 4h 高点 80%
+**前置**：cur=70，4h_high=100，4h_low=60，offset=3%
+
+**期望**：lp = max(100×0.80, 70×1.03) = max(80, 72.1) = **80**（4h 阻力位）
+
+#### TC-LP-02 SHORT 中段 cur×1.03 优先
+**前置**：cur=95，4h_high=100，offset=3%
+
+**期望**：lp = max(80, 97.85) = **97.85**（默认 3% 偏移）
+
+#### TC-LP-03 LONG 大涨后挂 4h 低点 +30%
+**前置**：cur=110，4h_low=80，4h_high=120，offset=3%
+
+**期望**：lp = min(80×1.30, 110×0.97) = min(104, 106.7) = **104**（4h 支撑位）
+
+#### TC-LP-04 LONG 中段 cur×0.97 优先
+**前置**：cur=85，4h_low=80，offset=3%
+
+**期望**：lp = min(80×1.30, 85×0.97) = min(104, 82.45) = **82.45**
+
+#### TC-LP-05 4h 数据缺失回退 3%
+**前置**：4h_high/low 为 None（kline 未收齐 4h）
+
+**期望**：lp = cur × (1±offset)
+
+#### TC-LP-06 24h 高低约束仍生效
+**前置**：SHORT lp 计算结果 105，但 24h_high = 102
+
+**期望**：lp = min(105, 102) = 102
+
+### 10.6 白名单 / 黑名单优先级（F3）
+
+#### TC-F3-WL-01 effective_blacklist 白名单覆盖
+**前置**：SPK 在 GLOBAL_BLACKLIST_BASE，也在 F3_WHITELIST
+
+**期望**：`_effective_blacklist()` 不含 SPK；`get_universe()` 强制将 SPK 加入扫描池
+
+#### TC-F3-WL-02 universe 强制加入白名单
+**前置**：ZBT 在 F3_WHITELIST 但 24h 成交额排不进 top 200
+
+**期望**：universe 列表里仍有 ZBT
+
+### 10.7 引擎 max_profit_pct 修复
+
+#### TC-ENG-01 mark price 刷新更新峰值字段
+**前置**：仓位 unrealized_pnl_pct 升到 5%
+
+**期望**：mark price 刷新后，DB 中 max_profit_pct=5（之前 = 0），max_profit_price = 当前 mark_price，max_profit_time = NOW()
+
+#### TC-ENG-02 浮亏不更新峰值
+**前置**：仓位 unrealized_pnl_pct = -2%
+
+**期望**：max_profit_pct 不变（GREATEST 兜底为 0）
+
+### 10.8 限价超时
+
+#### TC-LM-TO-01 strategy_live 2h 超时撤单
+**前置**：LIMIT created_at = NOW() - 2.1 小时
+
+**期望**：状态置 CANCELLED
+
+#### TC-LM-TO-02 strategy_f3 3h 超时撤单
+**前置**：F3 LIMIT created_at = NOW() - 3.1 小时
+
+**期望**：状态置 CANCELLED（F3 等更长）
