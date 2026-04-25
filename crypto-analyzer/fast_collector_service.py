@@ -61,7 +61,7 @@ class SmartCollectorService:
 
         logger.info("智能数据采集服务初始化完成")
         logger.info(f"K线采集间隔: {self.interval}秒 (5分钟)")
-        logger.info("实时价格: 由 FastAPI 主进程内存字典维护（每5s 直接拉 Binance）")
+        logger.info("实时价格: 由 FastAPI 主进程内存字典维护（约每10s 拉 Binance ticker/price）")
 
     async def run_forever(self):
         """持续运行智能采集服务（仅 K 线采集，实时价格由 FastAPI 维护）"""

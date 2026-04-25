@@ -12,8 +12,8 @@
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-import os, time, logging, requests, pymysql
-from datetime import datetime
+import os, re, time, logging, requests, pymysql
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -37,6 +37,42 @@ REQUEST_TIMEOUT   = 10
 INTER_REQ_SLEEP   = 0.12       # 每个逐品种请求间隔 (s), 避免频繁限速
 TOP_N_BY_VOLUME   = 200        # 按24h成交额取前N个品种
 
+# Binance -1003 / 418：按 IP 的原始请求过多；解禁时间见响应 msg「banned until <ms>」
+_BINANCE_BAN_UNTIL_MS: int = 0
+_BAN_HIT_THIS_CYCLE: bool = False
+
+
+def _binance_ban_remaining_s() -> float:
+    """距离 Binance 响应中解禁时间还有多少秒；未在封禁窗口则返回 0。"""
+    if not _BINANCE_BAN_UNTIL_MS:
+        return 0.0
+    now_ms = int(time.time() * 1000)
+    if now_ms >= _BINANCE_BAN_UNTIL_MS:
+        return 0.0
+    return max(0.0, (_BINANCE_BAN_UNTIL_MS - now_ms) / 1000.0)
+
+
+def _record_binance_ban_from_body(status: int, body: str) -> None:
+    global _BINANCE_BAN_UNTIL_MS, _BAN_HIT_THIS_CYCLE
+    if status != 418 and "-1003" not in body and "Way too many requests" not in body:
+        return
+    _BAN_HIT_THIS_CYCLE = True
+    m = re.search(r"banned until (\d+)", body)
+    if m:
+        _BINANCE_BAN_UNTIL_MS = int(m.group(1))
+        until_utc = datetime.fromtimestamp(_BINANCE_BAN_UNTIL_MS / 1000, tz=timezone.utc)
+        log.error(
+            "Binance IP 限速/封禁 (-1003)，请勿在封禁期内继续请求 REST；"
+            "解禁时间(UTC): %s（约 %.0f 分钟后）。"
+            "建议：主程序用 WebSocket 做行情、拉长全市场 REST 轮询间隔、勿多进程重复打同一 IP。",
+            until_utc.strftime("%Y-%m-%d %H:%M:%S"),
+            _binance_ban_remaining_s() / 60.0,
+        )
+    else:
+        _BINANCE_BAN_UNTIL_MS = int((time.time() + 3600) * 1000)
+        log.error("Binance 限速 (-1003)，未解析到解禁时间，按 1 小时 backoff")
+
+
 # ── DB ───────────────────────────────────────────────────────────────
 def get_db():
     return pymysql.connect(
@@ -49,11 +85,19 @@ def get_db():
 
 # ── 工具 ─────────────────────────────────────────────────────────────
 def _get(url: str, params: dict = None) -> list | dict | None:
+    global _BINANCE_BAN_UNTIL_MS
+    rem = _binance_ban_remaining_s()
+    if rem > 0:
+        log.warning("仍在 Binance 封禁窗口内 (剩余约 %.0f 秒)，跳过: %s", rem, url)
+        return None
     try:
         r = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
         if r.status_code == 200:
+            _BINANCE_BAN_UNTIL_MS = 0
             return r.json()
-        log.warning("HTTP %d  %s  %s", r.status_code, url, r.text[:200])
+        body = r.text[:500]
+        log.warning("HTTP %d  %s  %s", r.status_code, url, body)
+        _record_binance_ban_from_body(r.status_code, body)
     except Exception as e:
         log.warning("请求失败: %s  %s", url, e)
     return None
@@ -77,7 +121,10 @@ def collect_funding_rates(conn):
     """
     data = _get(f"{FAPI}/fapi/v1/premiumIndex")
     if not data:
-        log.error("资金费率批量接口无返回")
+        if _binance_ban_remaining_s() > 0:
+            log.error("资金费率批量接口无返回（当前为 Binance IP 封禁/限速，见上文 -1003）")
+        else:
+            log.error("资金费率批量接口无返回")
         return 0
 
     rows = []
@@ -325,10 +372,18 @@ def main():
 
             # -- 资金费率 + 24h 统计 (每 5 分钟) --
             if now - last_funding >= FUNDING_INTERVAL:
+                global _BAN_HIT_THIS_CYCLE
+                _BAN_HIT_THIS_CYCLE = False
                 top200 = collect_24h_stats(conn)
-                collect_funding_rates(conn)
+                # 若 24hr 已触发 -1003，不再打 premiumIndex，避免无效请求
+                if not _BAN_HIT_THIS_CYCLE:
+                    collect_funding_rates(conn)
+                else:
+                    log.warning("本周期已判定 Binance 封禁/限速，跳过资金费率请求")
                 target_syms = get_target_symbols(top200)
-                last_funding = now
+                # 封禁导致的空周期不推进时钟，解禁后尽快补采
+                if not (not top200 and _BAN_HIT_THIS_CYCLE):
+                    last_funding = now
 
             # -- OI 历史 + 多空比 (每 15 分钟) --
             if now - last_oi_ls >= OI_LS_INTERVAL and target_syms:
@@ -345,8 +400,14 @@ def main():
         except Exception as e:
             log.error("采集循环异常: %s", e, exc_info=True)
 
-        # 每 60 秒检查一次是否需要采集
-        time.sleep(60)
+        # 封禁期内拉长休眠，减少无意义轮询
+        ban_rem = _binance_ban_remaining_s()
+        if ban_rem > 0:
+            sleep_s = min(max(60.0, ban_rem + 5.0), 600.0)
+            log.info("封禁窗口内，本轮休眠 %.0f 秒后再检查", sleep_s)
+            time.sleep(sleep_s)
+        else:
+            time.sleep(60)
 
 if __name__ == '__main__':
     main()

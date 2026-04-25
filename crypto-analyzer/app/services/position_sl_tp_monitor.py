@@ -285,7 +285,7 @@ class PositionSLTPMonitor:
             except Exception:
                 pass
         # 2. fallback 走 FastAPI /api/futures/price 端点
-        #    该端点优先命中 L2 内存字典（每 5s 从 Binance 批量拉全市场一次）
+        #    该端点优先命中 L2 内存字典（约每 10s 从 Binance 批量拉全市场一次）
         #    1s × N 仓位的 monitor 轮询在这里几乎全部命中内存，不直打 Binance
         #    ▸ 早期版本曾直接 requests.get fapi.binance.com —— 会让 monitor 提速到 1s 后快速打爆 IP 限额
         try:

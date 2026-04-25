@@ -406,15 +406,20 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️  模拟盘->实盘同步服务启动失败: {e}")
         paper_limit_sync = None
 
-    # 启动 /api/futures/price 内存字典刷新 task（每5s 直接拉 Binance 全市场）
-    # 这是整个系统唯一常驻打 Binance 的位置，所有策略走 HTTP 读此字典
+    # 启动 data_sync_center 后台 task: L2 Binance + L3 Hyperliquid 全市场内存字典.
+    # 整个系统唯一常驻拉外部行情的位置, 所有策略走 HTTP /api/futures/price 读此字典.
     realtime_price_task = None
+    hyperliquid_price_task = None
     try:
-        from app.api.futures_api import _refresh_realtime_price_map_loop
-        realtime_price_task = asyncio.create_task(_refresh_realtime_price_map_loop())
-        logger.info("✅ /price L2 内存字典刷新 task 已启动（每5s 拉 Binance 全市场，零 DB IO）")
+        from app.services.data_sync_center import (
+            realtime_price_sync_loop,
+            hyperliquid_price_sync_loop,
+        )
+        realtime_price_task = asyncio.create_task(realtime_price_sync_loop())
+        hyperliquid_price_task = asyncio.create_task(hyperliquid_price_sync_loop())
+        logger.info("✅ data_sync_center L2 (Binance 10s) + L3 (Hyperliquid 30s) 已启动, 零 DB IO")
     except Exception as e:
-        logger.warning(f"⚠️  /price 内存字典刷新 task 启动失败: {e}")
+        logger.warning(f"⚠️  data_sync_center 启动失败: {e}")
 
     # 启动信号分析后台服务（每6小时执行一次）
     signal_analysis_service = None

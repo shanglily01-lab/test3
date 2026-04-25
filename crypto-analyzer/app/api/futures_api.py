@@ -20,185 +20,27 @@ from datetime import datetime
 from loguru import logger
 import pymysql
 
-# ── /api/futures/price 多层价格查询策略（避免打爆 Binance IP 限额） ──
-# 2026-04-23 事件：IP 被 Binance 封 1 小时（-1003 Too Many Requests）
-# 架构：FastAPI 进程维护全市场价格内存字典，**唯一的 Binance 出口**
-# 分层读取优先级（先命中先返回）：
-#   L1 进程内 3s TTL 单点缓存（同一 symbol 并发请求折叠）
-#   L2 进程内全市场 dict（后台 task 约每 10s 拉 Binance /fapi/v1/ticker/price）
-#   L3 直连 Binance /fapi/v1/ticker/price（兜底，L2 该 symbol 缺失或过期时用）
-#   L4 数据库 kline 5m close（最后兜底）
-# 零 DB 读、零 DB 写；realtime_prices 表已废弃（022 迁移保留为空表）
+# ── /api/futures/price 多层价格查询 (2026-04-25 抽到 data_sync_center) ──
+# 2026-04-23 事件: IP 被 Binance 封 1 小时 (-1003 Too Many Requests)
+# 2026-04-25 事件: 同 IP 被封 16h, 根因 L3 fallback 让 4 个 strategy 进程雪崩.
+#
+# 重构后分层读取优先级 (先命中先返回, 仅读内存, 零直连 Binance):
+#   L1 进程内 3s TTL 单点缓存 (同一 symbol 并发请求折叠)
+#   L2 Binance 全市场 dict (data_sync_center 后台 task 每 10s 拉)
+#   L3 Hyperliquid 全市场 dict (data_sync_center 后台 task 每 30s 拉, 多源备份)
+#   L4 数据库 kline 5m close (最后兜底)
+# L3 直连 Binance 已删除 — 杜绝雪崩放大.
+# Gate.io 已废弃 — 品种太少 (仅 HYPE/USDT 一个), 用 Hyperliquid 取代.
+from app.services import data_sync_center as _dsc
+from app.services.data_sync_center import (
+    is_binance_banned as _is_binance_banned,
+    bn_clean_to_slash as _bn_clean_to_slash,
+    get_realtime_price as _get_realtime_price,
+)
+
+# L1 进程内单点缓存 (轻量, 与 data_sync_center 的 L1 不共享, 维持 endpoint 自有)
 _PRICE_CACHE: Dict[str, Tuple[float, float]] = {}
 _PRICE_CACHE_TTL = 3.0
-
-# L2: 全市场内存字典，后台 task 定期从 Binance 批量拉取
-# key 为带斜杠格式（BTC/USDT），value (price, updated_at_epoch)
-_REALTIME_PRICE_MAP: Dict[str, Tuple[float, float]] = {}
-_REALTIME_PRICE_MAX_AGE_S = 24.0   # 超过 24s 视为过期（与 10s 刷新 ×2 对齐）
-_REALTIME_REFRESH_INTERVAL_S = 10.0  # 10s：降低与 whale/scheduler 等 REST 叠加时的 IP 级 -1003 风险
-
-# IP 封禁状态 (2026-04-25): HTTP 418/429 触发, 期间彻底停止打 Binance, 防止恶性循环加剧封禁.
-# L2 task / L3 fallback 都会检查此状态.
-_BANNED_UNTIL_TS: float = 0.0   # epoch seconds; 0 = not banned
-_BAN_BACKOFF_S = 600.0           # 默认 10 分钟; 优先用 Retry-After header 给的值
-
-
-def _is_binance_banned() -> bool:
-    return _time.time() < _BANNED_UNTIL_TS
-
-
-def _set_banned(retry_after_s: Optional[float] = None, reason: str = "unknown",
-                 banned_until_ts: Optional[float] = None):
-    """记录 IP 封禁状态.
-    优先级: banned_until_ts (Binance error -1003 里的精确时间戳)
-          > retry_after_s (HTTP Retry-After header)
-          > _BAN_BACKOFF_S (默认 10 分钟)
-    """
-    global _BANNED_UNTIL_TS
-    if banned_until_ts and banned_until_ts > _time.time():
-        _BANNED_UNTIL_TS = banned_until_ts
-    else:
-        wait_s = max(retry_after_s or 0.0, _BAN_BACKOFF_S)
-        _BANNED_UNTIL_TS = _time.time() + wait_s
-    try:
-        from datetime import datetime as _dt
-        until_str = _dt.fromtimestamp(_BANNED_UNTIL_TS).strftime("%Y-%m-%d %H:%M:%S")
-        wait_actual = _BANNED_UNTIL_TS - _time.time()
-        logger.warning(f"[price] Binance IP banned ({reason}), 暂停所有直连请求至 {until_str} (+{wait_actual:.0f}s)")
-    except Exception:
-        pass
-
-
-_BAN_UNTIL_RE = None  # 懒初始化, 避免 import re 的开销
-
-def _parse_binance_ban_message(body_text_or_dict) -> Optional[float]:
-    """从 Binance 错误响应解析 'banned until <ms_timestamp>'.
-    支持 dict (parsed JSON) 或 str (raw body).
-    返回 epoch seconds 或 None.
-    """
-    global _BAN_UNTIL_RE
-    if _BAN_UNTIL_RE is None:
-        import re as _re
-        _BAN_UNTIL_RE = _re.compile(r'banned\s+until\s+(\d+)', _re.IGNORECASE)
-    try:
-        if isinstance(body_text_or_dict, dict):
-            msg = str(body_text_or_dict.get('msg', ''))
-        else:
-            msg = str(body_text_or_dict or '')
-        m = _BAN_UNTIL_RE.search(msg)
-        if m:
-            until_ms = int(m.group(1))
-            return until_ms / 1000.0
-    except Exception:
-        pass
-    return None
-
-
-async def _refresh_realtime_price_map_loop():
-    """后台 task：每 10s 拉 Binance /fapi/v1/ticker/price 全市场，写内存字典。
-
-    这是整个系统唯一一处常驻打 Binance 的代码。所有其他服务
-    (strategy_live/whale/bigmid, paper_limit_sync, position_sl_tp_monitor)
-    通过 /api/futures/price HTTP 端点读 _REALTIME_PRICE_MAP，零 DB IO。
-
-    权重约 6 次/分钟 × 2 ≈ 12/分钟；更关键的是与其它进程的 REST 叠加时易触发 IP 级 -1003。
-    """
-    import asyncio as _asyncio
-    import aiohttp
-    from aiohttp import ClientTimeout
-
-    url = "https://fapi.binance.com/fapi/v1/ticker/price"
-    timeout = ClientTimeout(total=5)
-
-    def _bn_symbol_to_slash(bn_sym: str) -> str:
-        if bn_sym.endswith("USDT"):
-            return bn_sym[:-4] + "/USDT"
-        if bn_sym.endswith("USDC"):
-            return bn_sym[:-4] + "/USDC"
-        return bn_sym
-
-    first_log = True
-    consecutive_errors = 0
-    while True:
-        # 处于封禁期: 完全停止打 Binance, 等到解封才重试
-        if _is_binance_banned():
-            wait = max(_BANNED_UNTIL_TS - _time.time(), 1.0)
-            await _asyncio.sleep(min(wait, 30))
-            continue
-
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as r:
-                    # HTTP 418 (IP banned) / 429 (rate limit) — 立即设封禁状态, 大幅退避
-                    if r.status in (418, 429):
-                        # 优先解析 body 里的 "banned until <ts>" 精确时间
-                        banned_until = None
-                        try:
-                            body = await r.json()
-                            banned_until = _parse_binance_ban_message(body)
-                        except Exception:
-                            try:
-                                txt = await r.text()
-                                banned_until = _parse_binance_ban_message(txt)
-                            except Exception:
-                                pass
-                        retry_after = r.headers.get('Retry-After')
-                        retry_s = None
-                        try:
-                            if retry_after:
-                                retry_s = float(retry_after)
-                        except (ValueError, TypeError):
-                            pass
-                        _set_banned(retry_s, reason=f"L2 HTTP {r.status}",
-                                     banned_until_ts=banned_until)
-                        consecutive_errors += 1
-                        continue
-                    if r.status != 200:
-                        logger.warning(f"[price] L2 刷新 HTTP {r.status}")
-                        consecutive_errors += 1
-                        await _asyncio.sleep(
-                            min(_REALTIME_REFRESH_INTERVAL_S * (1 + consecutive_errors), 60)
-                        )
-                        continue
-                    data = await r.json()
-            now_ts = _time.time()
-            new_map = {}
-            for item in data:
-                bn_sym = item.get('symbol', '')
-                price = item.get('price')
-                if not bn_sym or not price:
-                    continue
-                try:
-                    new_map[_bn_symbol_to_slash(bn_sym)] = (float(price), now_ts)
-                except (ValueError, TypeError):
-                    continue
-            if new_map:
-                # 原子替换
-                _REALTIME_PRICE_MAP.clear()
-                _REALTIME_PRICE_MAP.update(new_map)
-                consecutive_errors = 0
-                if first_log:
-                    logger.info(f"[price] L2 内存字典首次填充，{len(new_map)} 个品种")
-                    first_log = False
-        except Exception as e:
-            consecutive_errors += 1
-            logger.warning(f"[price] L2 刷新异常 (连续 {consecutive_errors} 次): {e}")
-        await _asyncio.sleep(
-            _REALTIME_REFRESH_INTERVAL_S if consecutive_errors == 0
-            else min(_REALTIME_REFRESH_INTERVAL_S * (1 + consecutive_errors), 60)
-        )
-
-
-def _bn_clean_to_slash(symbol_clean: str, original: str) -> str:
-    """BTCUSDT → BTC/USDT；若原 symbol 带斜杠直接返回"""
-    if '/' in original:
-        return original
-    if symbol_clean.endswith('USDT'):
-        return symbol_clean[:-4] + '/USDT'
-    if symbol_clean.endswith('USDC'):
-        return symbol_clean[:-4] + '/USDC'
-    return original
 
 from app.trading.futures_trading_engine import FuturesTradingEngine
 
@@ -346,33 +188,28 @@ async def get_positions(account_id: int = 2, status: str = 'open'):
                         pos[k] = float(v)
                     elif hasattr(v, 'isoformat'):
                         pos[k] = str(v)
-            # 尝试用实时价格刷新 unrealized_pnl（失败也无所谓）
+            # 用 data_sync_center 内存字典刷新 unrealized_pnl, 零直连 Binance
             try:
-                import requests as _req
-                syms = list({p['symbol'].replace('/', '') for p in positions})
-                prices: dict = {}
-                resp = _req.get(
-                    'https://fapi.binance.com/fapi/v1/ticker/price',
-                    timeout=5
-                )
-                if resp.status_code == 200:
-                    prices = {t['symbol']: float(t['price']) for t in resp.json()}
                 for pos in positions:
-                    bs = pos['symbol'].replace('/', '')
-                    if bs in prices:
-                        cp = prices[bs]
-                        ep = pos.get('entry_price') or 0
-                        qty = pos.get('quantity') or 0
-                        lev = pos.get('leverage') or 1
-                        margin = pos.get('margin') or (ep * qty / lev if ep and qty else 0)
-                        if ep and qty:
-                            if pos['position_side'] == 'LONG':
-                                pnl = (cp - ep) * qty
-                            else:
-                                pnl = (ep - cp) * qty
-                            pos['current_price'] = cp
-                            pos['unrealized_pnl'] = round(pnl, 4)
-                            pos['unrealized_pnl_pct'] = round(pnl / margin * 100, 2) if margin else 0
+                    sym_slash = pos['symbol'] if '/' in pos['symbol'] else _bn_clean_to_slash(
+                        pos['symbol'].upper(), pos['symbol']
+                    )
+                    result = _get_realtime_price(sym_slash)
+                    if result is None:
+                        continue
+                    cp, _age, _src = result
+                    ep = pos.get('entry_price') or 0
+                    qty = pos.get('quantity') or 0
+                    lev = pos.get('leverage') or 1
+                    margin = pos.get('margin') or (ep * qty / lev if ep and qty else 0)
+                    if ep and qty:
+                        if pos['position_side'] == 'LONG':
+                            pnl = (cp - ep) * qty
+                        else:
+                            pnl = (ep - cp) * qty
+                        pos['current_price'] = cp
+                        pos['unrealized_pnl'] = round(pnl, 4)
+                        pos['unrealized_pnl_pct'] = round(pnl / margin * 100, 2) if margin else 0
             except Exception as e:
                 logger.debug(f"实时价格刷新失败(非致命): {e}")
         else:
@@ -1410,17 +1247,17 @@ async def get_account(account_id: int):
 
 @router.get('/price/{symbol:path}')
 async def get_futures_price(symbol: str):
-    """
-    获取合约价格
-    
-    - **symbol**: 交易对，如 BTC/USDT 或 BTCUSDT
-    使用 {symbol:path} 以支持URL中包含斜杠的符号
+    """获取合约价格.
+
+    - **symbol**: BTC/USDT 或 BTCUSDT
+    分层 (零直连 Binance):
+      L1 进程内 3s 单点缓存
+      L2 Binance 内存字典 (data_sync_center)
+      L3 Hyperliquid 内存字典 (data_sync_center, 多源备份)
+      L4 数据库 kline 5m close
     """
     try:
-        import aiohttp
-        from aiohttp import ClientTimeout
-
-        # 标准化交易对格式（处理URL编码的斜杠）
+        # 标准化交易对格式 (处理 URL 编码的斜杠)
         symbol_clean = symbol.replace('/', '').replace('%2F', '').upper()
 
         # L1: 进程内 3s TTL 缓存
@@ -1434,136 +1271,46 @@ async def get_futures_price(symbol: str):
                 'source': 'cache',
             }
 
-        # L2: 进程内全市场字典（后台 task 每 3s 批量刷新），零 DB IO
+        # L2 / L3: 统一从 data_sync_center 读, 优先 Binance, 其次 Hyperliquid
         sym_slash = _bn_clean_to_slash(symbol_clean, symbol)
-        entry = _REALTIME_PRICE_MAP.get(sym_slash)
-        if entry:
-            price_val, ts = entry
-            age_s = _time.time() - ts
-            if age_s < _REALTIME_PRICE_MAX_AGE_S:
-                _PRICE_CACHE[symbol_clean] = (price_val, _time.time())
-                return {
-                    'success': True,
-                    'symbol': symbol,
-                    'price': price_val,
-                    'source': 'memory_map',
-                    'age_s': round(age_s, 1),
-                }
-            # L2 stale + Binance 在封禁期 → 返回 stale 数据, 不打 Binance
-            # (旧数据比"自己加剧封禁"更好)
-            if _is_binance_banned():
-                _PRICE_CACHE[symbol_clean] = (price_val, _time.time())
-                return {
-                    'success': True,
-                    'symbol': symbol,
-                    'price': price_val,
-                    'source': 'memory_map_stale',
-                    'age_s': round(age_s, 1),
-                    'note': 'binance_banned_serving_stale',
-                }
+        result = _get_realtime_price(sym_slash)
+        if result is not None:
+            price_val, age_s, source = result
+            _PRICE_CACHE[symbol_clean] = (price_val, _time.time())
+            payload = {
+                'success': True,
+                'symbol': symbol,
+                'price': price_val,
+                'source': source,
+                'age_s': round(age_s, 1),
+            }
+            if 'stale' in source and _is_binance_banned():
+                payload['note'] = 'binance_banned_serving_stale'
+            return payload
 
+        # L4: 数据库 kline 5m close 兜底 (内存全部 miss 时)
         price = None
         source = None
+        try:
+            from app.database.db_service import DatabaseService
+            db_service = DatabaseService(config.get('database', {}))
+            latest_kline = db_service.get_latest_kline(symbol, '1m')
+            if latest_kline:
+                price = float(latest_kline.close_price)
+                source = 'database_spot'
+                logger.debug(f"从数据库获取 {symbol} 价格 (现货): {price}")
+        except Exception as e:
+            logger.debug(f"从数据库获取价格失败: {e}")
 
-        # L3/L4: 原有 Binance -> Gate.io -> kline 兜底
-        # 2026-04-25: 封禁期间跳过所有 Binance 直查, 防止恶性循环
-        quick_timeout = ClientTimeout(total=2)  # 2秒快速超时
-
-        # 1. 优先从Binance合约API获取（快速）—— 封禁期间跳过
-        if _is_binance_banned():
-            logger.debug(f"[price] L3 跳过 Binance 直查 (封禁中): {symbol}")
-        else:
-            try:
-                async with aiohttp.ClientSession(timeout=quick_timeout) as session:
-                    async with session.get(
-                        'https://fapi.binance.com/fapi/v1/ticker/price',
-                        params={'symbol': symbol_clean}
-                    ) as response:
-                        if response.status in (418, 429):
-                            # L3 也碰到封禁 — 解析 body 取精确解封时间, 设全局封禁状态
-                            banned_until = None
-                            try:
-                                body = await response.json()
-                                banned_until = _parse_binance_ban_message(body)
-                            except Exception:
-                                pass
-                            retry_after = response.headers.get('Retry-After')
-                            retry_s = None
-                            try:
-                                if retry_after:
-                                    retry_s = float(retry_after)
-                            except (ValueError, TypeError):
-                                pass
-                            _set_banned(retry_s, reason=f"L3 HTTP {response.status}",
-                                         banned_until_ts=banned_until)
-                        elif response.status == 200:
-                            data = await response.json()
-                            if data and 'price' in data:
-                                price = float(data['price'])
-                                source = 'binance_futures'
-                                logger.debug(f"从Binance合约API获取 {symbol} 价格: {price}")
-                                _PRICE_CACHE[symbol_clean] = (price, _time.time())
-                                return {
-                                    'success': True,
-                                    'symbol': symbol,
-                                    'price': price,
-                                    'source': source
-                                }
-            except (aiohttp.ClientError, aiohttp.ServerTimeoutError, TimeoutError) as e:
-                logger.debug(f"Binance合约API超时或失败: {symbol}, {e}")
-            except Exception as e:
-                logger.debug(f"Binance合约API获取失败: {e}")
-        
-        # 2. 如果Binance失败，尝试从Gate.io合约API获取（仅对HYPE/USDT）
-        if not price and symbol.upper() == 'HYPE/USDT':
-            try:
-                gate_symbol = symbol.replace('/', '_')
-                async with aiohttp.ClientSession(timeout=quick_timeout) as session:
-                    async with session.get(
-                        'https://api.gateio.ws/api/v4/futures/usdt/tickers',
-                        params={'contract': gate_symbol}
-                    ) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            if data and len(data) > 0 and 'last' in data[0]:
-                                price = float(data[0]['last'])
-                                source = 'gateio_futures'
-                                logger.debug(f"从Gate.io合约API获取 {symbol} 价格: {price}")
-                                _PRICE_CACHE[symbol_clean] = (price, _time.time())
-                                return {
-                                    'success': True,
-                                    'symbol': symbol,
-                                    'price': price,
-                                    'source': source
-                                }
-            except (aiohttp.ClientError, aiohttp.ServerTimeoutError, TimeoutError) as e:
-                logger.debug(f"Gate.io合约API超时或失败: {symbol}, {e}")
-            except Exception as e:
-                logger.debug(f"Gate.io合约API获取失败: {e}")
-        
-        # 3. 快速回退：从数据库获取最新价格（现货价格作为fallback，更快）
-        if not price:
-            try:
-                from app.database.db_service import DatabaseService
-                db_service = DatabaseService(config.get('database', {}))
-                latest_kline = db_service.get_latest_kline(symbol, '1m')
-                if latest_kline:
-                    price = float(latest_kline.close_price)
-                    source = 'database_spot'
-                    logger.debug(f"从数据库获取 {symbol} 价格（现货）: {price}")
-            except Exception as e:
-                logger.debug(f"从数据库获取价格失败: {e}")
-        
         if price and price > 0:
             _PRICE_CACHE[symbol_clean] = (price, _time.time())
             return {
                 'success': True,
                 'symbol': symbol,
                 'price': price,
-                'source': source
+                'source': source,
             }
-        else:
-            raise HTTPException(status_code=404, detail=f'无法获取 {symbol} 的合约价格')
+        raise HTTPException(status_code=404, detail=f'无法获取 {symbol} 的合约价格')
 
     except HTTPException:
         raise
@@ -1574,70 +1321,51 @@ async def get_futures_price(symbol: str):
 
 @router.post('/prices/batch')
 async def get_futures_prices_batch(symbols: List[str] = Body(..., embed=True)):
+    """批量获取合约价格 — 全部读 data_sync_center 内存字典, 零直连 Binance.
+
+    - **symbols**: ["BTC/USDT", "ETH/USDT", ...]
     """
-    批量获取合约价格（优化性能）
-
-    - **symbols**: 交易对列表，如 ["BTC/USDT", "ETH/USDT"]
-
-    一次API调用获取所有交易对价格，避免多次网络请求
-    """
-    import aiohttp
-    from aiohttp import ClientTimeout
-
     if not symbols:
         return {'success': True, 'prices': {}}
 
-    # 标准化交易对格式
-    symbol_map = {}  # 原始symbol -> 标准化symbol
-    for s in symbols:
-        clean = s.replace('/', '').replace('%2F', '').upper()
-        symbol_map[clean] = s
-
     prices = {}
-    quick_timeout = ClientTimeout(total=3)  # 3秒超时
+    missing_symbols = []
+    for original_symbol in symbols:
+        clean = original_symbol.replace('/', '').replace('%2F', '').upper()
+        sym_slash = _bn_clean_to_slash(clean, original_symbol)
+        result = _get_realtime_price(sym_slash)
+        if result is not None:
+            price_val, age_s, source = result
+            prices[original_symbol] = {
+                'price': price_val,
+                'source': source,
+                'age_s': round(age_s, 1),
+            }
+        else:
+            missing_symbols.append(original_symbol)
 
-    try:
-        # 1. 从Binance批量获取所有合约价格（单次请求）
-        async with aiohttp.ClientSession(timeout=quick_timeout) as session:
-            async with session.get('https://fapi.binance.com/fapi/v1/ticker/price') as response:
-                if response.status == 200:
-                    all_prices = await response.json()
-                    # 构建价格映射
-                    price_map = {item['symbol']: float(item['price']) for item in all_prices}
-
-                    for clean_symbol, original_symbol in symbol_map.items():
-                        if clean_symbol in price_map:
-                            prices[original_symbol] = {
-                                'price': price_map[clean_symbol],
-                                'source': 'binance_futures'
-                            }
-    except Exception as e:
-        logger.debug(f"批量获取Binance价格失败: {e}")
-
-    # 2. 对于没有获取到的symbol，尝试其他来源
-    missing_symbols = [s for s in symbols if s not in prices]
+    # 内存全 miss 时, 仅这部分回落到数据库 kline (走批量, 失败也不直连 Binance)
     if missing_symbols:
         try:
             from app.database.db_service import DatabaseService
             db_service = DatabaseService(config.get('database', {}))
-
             for symbol in missing_symbols:
                 try:
                     latest_kline = db_service.get_latest_kline(symbol, '1m')
                     if latest_kline:
                         prices[symbol] = {
                             'price': float(latest_kline.close_price),
-                            'source': 'database_spot'
+                            'source': 'database_spot',
                         }
                 except Exception:
                     pass
         except Exception as e:
-            logger.debug(f"从数据库获取价格失败: {e}")
+            logger.debug(f"从数据库批量获取价格失败: {e}")
 
     return {
         'success': True,
         'prices': prices,
-        'count': len(prices)
+        'count': len(prices),
     }
 
 
