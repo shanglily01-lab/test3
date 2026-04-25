@@ -25,28 +25,50 @@ import pymysql
 # 架构：FastAPI 进程维护全市场价格内存字典，**唯一的 Binance 出口**
 # 分层读取优先级（先命中先返回）：
 #   L1 进程内 3s TTL 单点缓存（同一 symbol 并发请求折叠）
-#   L2 进程内全市场 dict（后台 task 每 5s 直接拉 Binance /fapi/v1/ticker/price）
+#   L2 进程内全市场 dict（后台 task 约每 10s 拉 Binance /fapi/v1/ticker/price）
 #   L3 直连 Binance /fapi/v1/ticker/price（兜底，L2 该 symbol 缺失或过期时用）
 #   L4 数据库 kline 5m close（最后兜底）
 # 零 DB 读、零 DB 写；realtime_prices 表已废弃（022 迁移保留为空表）
 _PRICE_CACHE: Dict[str, Tuple[float, float]] = {}
 _PRICE_CACHE_TTL = 3.0
 
-# L2: 全市场内存字典，后台 task 每 5s 从 Binance 批量拉取
+# L2: 全市场内存字典，后台 task 定期从 Binance 批量拉取
 # key 为带斜杠格式（BTC/USDT），value (price, updated_at_epoch)
 _REALTIME_PRICE_MAP: Dict[str, Tuple[float, float]] = {}
-_REALTIME_PRICE_MAX_AGE_S = 12.0   # 超过 12s 视为过期（采集 5s × 2 + 容错）
-_REALTIME_REFRESH_INTERVAL_S = 5.0
+_REALTIME_PRICE_MAX_AGE_S = 24.0   # 超过 24s 视为过期（与 10s 刷新 ×2 对齐）
+_REALTIME_REFRESH_INTERVAL_S = 10.0  # 10s：降低与 whale/scheduler 等 REST 叠加时的 IP 级 -1003 风险
+
+# IP 封禁状态 (2026-04-25): HTTP 418/429 触发, 期间彻底停止打 Binance, 防止恶性循环加剧封禁.
+# L2 task / L3 fallback 都会检查此状态.
+_BANNED_UNTIL_TS: float = 0.0   # epoch seconds; 0 = not banned
+_BAN_BACKOFF_S = 600.0           # 默认 10 分钟; 优先用 Retry-After header 给的值
+
+
+def _is_binance_banned() -> bool:
+    return _time.time() < _BANNED_UNTIL_TS
+
+
+def _set_banned(retry_after_s: Optional[float] = None, reason: str = "unknown"):
+    """记录 IP 封禁状态. retry_after_s 优先用 Binance Retry-After header, 否则 _BAN_BACKOFF_S."""
+    global _BANNED_UNTIL_TS
+    wait_s = max(retry_after_s or 0.0, _BAN_BACKOFF_S)
+    _BANNED_UNTIL_TS = _time.time() + wait_s
+    try:
+        from datetime import datetime as _dt
+        until_str = _dt.fromtimestamp(_BANNED_UNTIL_TS).strftime("%H:%M:%S")
+        logger.warning(f"[price] Binance IP banned ({reason}), 暂停所有直连请求至 {until_str} (+{wait_s:.0f}s)")
+    except Exception:
+        pass
 
 
 async def _refresh_realtime_price_map_loop():
-    """后台 task：每 5s 直接拉 Binance /fapi/v1/ticker/price 全市场，写内存字典。
+    """后台 task：每 10s 拉 Binance /fapi/v1/ticker/price 全市场，写内存字典。
 
     这是整个系统唯一一处常驻打 Binance 的代码。所有其他服务
     (strategy_live/whale/bigmid, paper_limit_sync, position_sl_tp_monitor)
     通过 /api/futures/price HTTP 端点读 _REALTIME_PRICE_MAP，零 DB IO。
 
-    频率：12 次/分钟 × 权重 2 = 24 权重/分钟（限额 2400，占 1%）。
+    权重约 6 次/分钟 × 2 ≈ 12/分钟；更关键的是与其它进程的 REST 叠加时易触发 IP 级 -1003。
     """
     import asyncio as _asyncio
     import aiohttp
@@ -65,9 +87,27 @@ async def _refresh_realtime_price_map_loop():
     first_log = True
     consecutive_errors = 0
     while True:
+        # 处于封禁期: 完全停止打 Binance, 等到解封才重试
+        if _is_binance_banned():
+            wait = max(_BANNED_UNTIL_TS - _time.time(), 1.0)
+            await _asyncio.sleep(min(wait, 30))
+            continue
+
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as r:
+                    # HTTP 418 (IP banned) / 429 (rate limit) — 立即设封禁状态, 大幅退避
+                    if r.status in (418, 429):
+                        retry_after = r.headers.get('Retry-After')
+                        retry_s = None
+                        try:
+                            if retry_after:
+                                retry_s = float(retry_after)
+                        except (ValueError, TypeError):
+                            pass
+                        _set_banned(retry_s, reason=f"L2 HTTP {r.status}")
+                        consecutive_errors += 1
+                        continue
                     if r.status != 200:
                         logger.warning(f"[price] L2 刷新 HTTP {r.status}")
                         consecutive_errors += 1
@@ -1363,37 +1403,63 @@ async def get_futures_price(symbol: str):
                     'source': 'memory_map',
                     'age_s': round(age_s, 1),
                 }
+            # L2 stale + Binance 在封禁期 → 返回 stale 数据, 不打 Binance
+            # (旧数据比"自己加剧封禁"更好)
+            if _is_binance_banned():
+                _PRICE_CACHE[symbol_clean] = (price_val, _time.time())
+                return {
+                    'success': True,
+                    'symbol': symbol,
+                    'price': price_val,
+                    'source': 'memory_map_stale',
+                    'age_s': round(age_s, 1),
+                    'note': 'binance_banned_serving_stale',
+                }
 
         price = None
         source = None
 
         # L3/L4: 原有 Binance -> Gate.io -> kline 兜底
+        # 2026-04-25: 封禁期间跳过所有 Binance 直查, 防止恶性循环
         quick_timeout = ClientTimeout(total=2)  # 2秒快速超时
 
-        # 1. 优先从Binance合约API获取（快速）
-        try:
-            async with aiohttp.ClientSession(timeout=quick_timeout) as session:
-                async with session.get(
-                    'https://fapi.binance.com/fapi/v1/ticker/price',
-                    params={'symbol': symbol_clean}
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if data and 'price' in data:
-                            price = float(data['price'])
-                            source = 'binance_futures'
-                            logger.debug(f"从Binance合约API获取 {symbol} 价格: {price}")
-                            _PRICE_CACHE[symbol_clean] = (price, _time.time())
-                            return {
-                                'success': True,
-                                'symbol': symbol,
-                                'price': price,
-                                'source': source
-                            }
-        except (aiohttp.ClientError, aiohttp.ServerTimeoutError, TimeoutError) as e:
-            logger.debug(f"Binance合约API超时或失败: {symbol}, {e}")
-        except Exception as e:
-            logger.debug(f"Binance合约API获取失败: {e}")
+        # 1. 优先从Binance合约API获取（快速）—— 封禁期间跳过
+        if _is_binance_banned():
+            logger.debug(f"[price] L3 跳过 Binance 直查 (封禁中): {symbol}")
+        else:
+            try:
+                async with aiohttp.ClientSession(timeout=quick_timeout) as session:
+                    async with session.get(
+                        'https://fapi.binance.com/fapi/v1/ticker/price',
+                        params={'symbol': symbol_clean}
+                    ) as response:
+                        if response.status in (418, 429):
+                            # L3 也碰到封禁 — 设全局封禁状态
+                            retry_after = response.headers.get('Retry-After')
+                            retry_s = None
+                            try:
+                                if retry_after:
+                                    retry_s = float(retry_after)
+                            except (ValueError, TypeError):
+                                pass
+                            _set_banned(retry_s, reason=f"L3 HTTP {response.status}")
+                        elif response.status == 200:
+                            data = await response.json()
+                            if data and 'price' in data:
+                                price = float(data['price'])
+                                source = 'binance_futures'
+                                logger.debug(f"从Binance合约API获取 {symbol} 价格: {price}")
+                                _PRICE_CACHE[symbol_clean] = (price, _time.time())
+                                return {
+                                    'success': True,
+                                    'symbol': symbol,
+                                    'price': price,
+                                    'source': source
+                                }
+            except (aiohttp.ClientError, aiohttp.ServerTimeoutError, TimeoutError) as e:
+                logger.debug(f"Binance合约API超时或失败: {symbol}, {e}")
+            except Exception as e:
+                logger.debug(f"Binance合约API获取失败: {e}")
         
         # 2. 如果Binance失败，尝试从Gate.io合约API获取（仅对HYPE/USDT）
         if not price and symbol.upper() == 'HYPE/USDT':
