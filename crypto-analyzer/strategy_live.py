@@ -92,7 +92,7 @@ CHASE_PUMP_PCT  = 0.12
 CHASE_SL_PCT             = 0.08
 CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
 CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
-CHASE_MIN_24H_CHANGE_PCT = -10.0 # 24h 跌幅超过阈值则不追（避免抓反弹飞刀，2026-04-24）
+CHASE_MIN_24H_CHANGE_PCT = -12.0 # 24h 跌幅超过阈值则不追（避免抓反弹飞刀，2026-04-24；2026-04-25 -10→-12 放宽 2pt）
 CHASE_MAX_24H_CHANGE_PCT =  15.0 # 24h 涨幅超过阈值则不追（避免追顶接棒，2026-04-24）
 DUMP_MIN_24H_CHANGE_PCT  = -15.0 # dump SHORT: 24h 已跌超此阈值则不追跌（避免接飞刀）
 
@@ -273,7 +273,7 @@ def _load_live_config() -> None:
 POLL_SECS       = 60
 TOPSHORT_EVERY  = 5
 # 各子策略 LIMIT 挂单在 futures_orders 中保持 PENDING 的最长时间，超时由 _fill_pending_orders 标为取消
-LIMIT_PENDING_MAX_S = 60 * 60
+LIMIT_PENDING_MAX_S = 2 * 60 * 60   # 2026-04-25 1h → 2h, 给信号更多成交机会
 
 # 反向滑点熔断阈值：LIMIT 触发时若价格向不利方向偏离超过此幅度，撤单不填充
 # LONG  cur_p < limit_p*(1-X) → 价格继续下跌，追多是逆势
