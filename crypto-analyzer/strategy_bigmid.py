@@ -49,7 +49,9 @@ TRIGGER_CONFIRM_S = 30
 _trigger_first_seen: dict[int, float] = {}
 
 # 分档阈值（成交量 USDT）
-TIER_BIG_MIN_VOL = 500_000_000
+# 2026-04-25: BIG 门槛从 500M → 200M, 让白名单大头实际进 BIG 档
+# (上一版只 3 个 BIG 命中过严, 22 个被强制降级 MID)
+TIER_BIG_MIN_VOL = 200_000_000
 TIER_MID_MIN_VOL = 100_000_000
 
 # 排除：股票/商品衍生品、meme-1000 系（仅放行 1000PEPE）
