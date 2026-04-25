@@ -128,6 +128,11 @@ TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
 TOPSHORT_CLIMAX_MIN_BARS = 28
 TOPSHORT_CLIMAX_MIN_SPAN_MS = int(1.25 * 24 * 60 * 60 * 1000)
 
+# ── 全局开关：climax 系列信号（topshort-climax + bottomlong-climax）──
+# 2026-04-25 禁用：3 天样本统计 PF 0.46/0.58，胜率 33-44%，显著拖累整体 PF。
+# 改回 True 即可恢复，无需其它修改。
+CLIMAX_SIGNALS_ENABLED = False
+
 # 巨量见顶（1H）：(1) 大阳实体 + 巨量 或 (2) 长上影 + 巨量（庄家冲高砸盘，收盘可阴可阳）
 # 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 4.5%，可改）；且放量
 # 筋骨：在最近 LEADER_LOOKBACK 根内，大阳须为「阳线里振幅最大」、上影须为「全 K 振幅最大」；
@@ -1286,6 +1291,8 @@ def _topshort_try_climax_volume(cur, conn, sym, now_ms):
     且须在最新已收盘 1H 之前至少再隔 POST_LEADER_WAIT_BARS 根 1H（默认 2），
     才确认其后未出现更大阳/更大振幅 K，再允许结合走弱与现价开空。
     """
+    if not CLIMAX_SIGNALS_ENABLED:
+        return False
     cur.execute(
         """
         SELECT open_time, open_price, high_price, low_price, close_price, volume
@@ -1757,6 +1764,8 @@ def _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
     1H 巨量后底部走强 → 做多 LONG。命中则下单并写 state，返回 True。
     形态 A：阴线 + 大阴实体 + 放量；形态 B：长下影 + 放量（打压后反弹）。
     """
+    if not CLIMAX_SIGNALS_ENABLED:
+        return False
     cur.execute(
         """
         SELECT open_time, open_price, high_price, low_price, close_price, volume
