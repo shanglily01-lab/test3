@@ -89,11 +89,34 @@ def _refresh_db_bl_bm() -> set:
 def _effective_blacklist_bm() -> set:
     return SHARED_BLACKLIST_BASE | _refresh_db_bl_bm()
 
-# BIG 档硬白名单：只信这些长期稳定的主流币
+# BIG 档硬白名单：CMC 前 50 + 币安永续活跃合约 (2026-04-25 扩充自 8 个 → ~60 个)
 # 即便成交量达到 BIG 门槛，不在此白名单也降级到 MID 档（或直接排除，见 refresh_symbols）
 BIG_WHITELIST = {
+    # 主流 T1
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT",
     "XRP/USDT", "DOGE/USDT", "ADA/USDT", "SUI/USDT",
+    # 公链 / 高市值
+    "TRX/USDT", "AVAX/USDT", "TON/USDT", "LINK/USDT",
+    "DOT/USDT", "NEAR/USDT", "POL/USDT", "LTC/USDT",
+    "BCH/USDT", "ATOM/USDT", "ICP/USDT", "FIL/USDT",
+    "ETC/USDT", "HBAR/USDT", "INJ/USDT", "ALGO/USDT",
+    # Layer 2 / DeFi 蓝筹
+    "OP/USDT", "ARB/USDT", "AAVE/USDT", "MKR/USDT",
+    "UNI/USDT", "COMP/USDT", "LDO/USDT",
+    # Meme T1
+    "SHIB/USDT", "1000PEPE/USDT", "BONK/USDT",
+    "WIF/USDT", "FLOKI/USDT",
+    # AI 热点
+    "RENDER/USDT", "FET/USDT", "TAO/USDT",
+    # 新一代
+    "STX/USDT", "TIA/USDT", "SEI/USDT", "JUP/USDT",
+    "ORDI/USDT", "PYTH/USDT", "ENA/USDT", "JTO/USDT",
+    # 老牌活跃
+    "VET/USDT", "EOS/USDT", "FTM/USDT", "GRT/USDT",
+    "SAND/USDT", "MANA/USDT", "AXS/USDT", "FLOW/USDT",
+    "IMX/USDT", "THETA/USDT", "EGLD/USDT", "RUNE/USDT",
+    # Cross-chain / Storage
+    "QNT/USDT", "AR/USDT",
 }
 
 # 24h pump/dump 异常过滤（避免抓刚被拉爆或刚被砸穿的币）
@@ -361,13 +384,41 @@ def _get_24h_stats(cur, sym: str):
     return (float(r["high_24h"]), float(r["low_24h"])) if r and r["high_24h"] else (None, None)
 
 
-def _calc_limit_price(side: str, cur_p: float, h24, l24, pct: float) -> float:
+def _get_4h_stats(cur, sym: str):
+    """取最近 4h 5m K 线 max/min, 用于七上八下限价 (2026-04-25)."""
+    cur.execute("""
+        SELECT MAX(high_price) AS h, MIN(low_price) AS l
+        FROM kline_data WHERE symbol=%s AND timeframe='5m'
+          AND open_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 4 HOUR) * 1000
+    """, (sym,))
+    r = cur.fetchone()
+    if not r or r.get("h") is None:
+        return (None, None)
+    return (float(r["h"]), float(r["l"]))
+
+
+def _calc_limit_price(side: str, cur_p: float, h24, l24, pct: float,
+                      h4=None, l4=None) -> float:
+    """限价挂单 (2026-04-25 七上八下原则):
+       SHORT: 优先 4h_high × 0.80; 若小于 cur×(1+pct), 用 cur×(1+pct). 受 24h_high 压制.
+       LONG:  优先 4h_low  × 1.30; 若大于 cur×(1-pct), 用 cur×(1-pct). 受 24h_low  支撑.
+    """
     if side == "LONG":
-        lp = cur_p * (1 - pct)
+        fallback = cur_p * (1 - pct)
+        if l4 and l4 > 0:
+            qi_shang = l4 * 1.30
+            lp = min(qi_shang, fallback)
+        else:
+            lp = fallback
         if l24 and l24 > 0:
             lp = max(lp, float(l24))
     else:
-        lp = cur_p * (1 + pct)
+        fallback = cur_p * (1 + pct)
+        if h4 and h4 > 0:
+            ba_xia = h4 * 0.80
+            lp = max(ba_xia, fallback)
+        else:
+            lp = fallback
         if h24 and h24 > 0:
             lp = min(lp, float(h24))
     return round(lp, 8)
@@ -703,7 +754,9 @@ def chase_tick(conn, cur, sym: str, tier: str):
     # limit_offset=0 表示市价单（BIG 档），否则按档位偏移挂限价
     if p["limit_offset_pct"] > 0:
         h24, l24 = _get_24h_stats(cur, sym)
-        lp = _calc_limit_price("LONG", price, h24, l24, p["limit_offset_pct"])
+        h4,  l4  = _get_4h_stats(cur, sym)
+        lp = _calc_limit_price("LONG", price, h24, l24, p["limit_offset_pct"],
+                                h4=h4, l4=l4)
     else:
         lp = None
 
@@ -756,7 +809,9 @@ def dump_tick(conn, cur, sym: str, tier: str):
 
     if p["limit_offset_pct"] > 0:
         h24, l24 = _get_24h_stats(cur, sym)
-        lp = _calc_limit_price("SHORT", price, h24, l24, p["limit_offset_pct"])
+        h4,  l4  = _get_4h_stats(cur, sym)
+        lp = _calc_limit_price("SHORT", price, h24, l24, p["limit_offset_pct"],
+                                h4=h4, l4=l4)
     else:
         lp = None
 

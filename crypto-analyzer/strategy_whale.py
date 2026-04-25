@@ -399,13 +399,41 @@ def _get_24h_stats(cur, sym):
     r = cur.fetchone()
     return (float(r['high_24h']), float(r['low_24h'])) if r else (None, None)
 
-def _calc_limit_price(side, cur_price, high_24h, low_24h):
+
+def _get_4h_stats(cur, sym):
+    """取最近 4h 5m K 线 max/min, 用于七上八下限价 (2026-04-25)."""
+    cur.execute("""
+        SELECT MAX(high_price) AS h, MIN(low_price) AS l
+        FROM kline_data WHERE symbol=%s AND timeframe='5m'
+          AND open_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 4 HOUR) * 1000
+    """, (sym,))
+    r = cur.fetchone()
+    if not r or r.get('h') is None:
+        return (None, None)
+    return (float(r['h']), float(r['l']))
+
+
+def _calc_limit_price(side, cur_price, high_24h, low_24h, high_4h=None, low_4h=None):
+    """限价挂单 (2026-04-25 七上八下原则):
+       SHORT: 优先 4h_high × 0.80; 若小于 cur×(1+offset), 用 cur×(1+offset). 受 24h_high 压制.
+       LONG:  优先 4h_low  × 1.30; 若大于 cur×(1-offset), 用 cur×(1-offset). 受 24h_low  支撑.
+    """
     if side == 'LONG':
-        lp = cur_price * (1 - WHALE_LIMIT_OFFSET_PCT)
+        fallback = cur_price * (1 - WHALE_LIMIT_OFFSET_PCT)
+        if low_4h and low_4h > 0:
+            qi_shang = low_4h * 1.30
+            lp = min(qi_shang, fallback)
+        else:
+            lp = fallback
         if low_24h and low_24h > 0:
             lp = max(lp, float(low_24h))
     else:
-        lp = cur_price * (1 + WHALE_LIMIT_OFFSET_PCT)
+        fallback = cur_price * (1 + WHALE_LIMIT_OFFSET_PCT)
+        if high_4h and high_4h > 0:
+            ba_xia = high_4h * 0.80
+            lp = max(ba_xia, fallback)
+        else:
+            lp = fallback
         if high_24h and high_24h > 0:
             lp = min(lp, float(high_24h))
     return round(lp, 8)
@@ -915,9 +943,10 @@ def w_bottom_tick(conn, sym: str):
     cur2 = conn.cursor()
     try:
         h24, l24 = _get_24h_stats(cur2, sym)
+        h4,  l4  = _get_4h_stats(cur2, sym)
     finally:
         cur2.close()
-    lp = _calc_limit_price('LONG', price, h24, l24)
+    lp = _calc_limit_price('LONG', price, h24, l24, high_4h=h4, low_4h=l4)
 
     # 不设 SL/TP（tp_pct=sl_pct=None），hold_min=3天，timeout 兜底
     pid, oid, pending = open_order(
@@ -940,6 +969,167 @@ def w_bottom_tick(conn, sym: str):
         conn, 'whale', sym, 'w-bottom',
         state='PENDING' if pending else 'LONG',
         pid=pid, order_id=oid, side='LONG',
+        entry_p=lp if pending else price,
+        peak_pnl_pct=0.0, entry_time=now_s(),
+    )
+
+
+# ── M 型双顶检测 (W 底镜像, 2026-04-25 新增) ────────────────────────
+def detect_m_top(bars_15m: list) -> dict | None:
+    """
+    识别最近 3.5 天 (336 根 15m K 线) 的 M 型双顶. 镜像 detect_w_bottom 逻辑.
+    返回 None 表示不成立; 成立返回 dict 含各关键点位.
+    """
+    n = len(bars_15m)
+    if n < WB_DATA_MIN_BARS:
+        return None
+
+    lows   = [float(b['low_price'])   for b in bars_15m]
+    highs  = [float(b['high_price'])  for b in bars_15m]
+    closes = [float(b['close_price']) for b in bars_15m]
+
+    # 1. 3.5 天最高点 H1
+    i1 = max(range(n), key=lambda i: highs[i])
+    h1 = highs[i1]
+    if h1 <= 0:
+        return None
+
+    # 2. H1 之后必须有足够空间形成颈线 + 二次冲高
+    if n - i1 < 48:  # 至少 48 根后续 = 12h
+        return None
+
+    # 3. H1 之后的局部低点 = 颈线 D
+    after_h1_lows = lows[i1 + 1:]
+    if not after_h1_lows:
+        return None
+    id_rel = min(range(len(after_h1_lows)), key=lambda i: after_h1_lows[i])
+    id_idx = i1 + 1 + id_rel
+    d  = lows[id_idx]
+    if d <= 0:
+        return None
+    pullback = (h1 - d) / h1
+    if pullback < WB_REBOUND_MIN_PCT:
+        return None
+
+    # 4. D 之后的最高点 = 第二次冲高 H2
+    after_d_highs = highs[id_idx + 1:]
+    if not after_d_highs:
+        return None
+    ih2_rel = max(range(len(after_d_highs)), key=lambda i: after_d_highs[i])
+    ih2 = id_idx + 1 + ih2_rel
+    h2  = highs[ih2]
+    if (ih2 - id_idx) < WB_B2_TO_NECK_MIN_H:
+        return None
+
+    # 5. 两顶对齐: H2 价格在 H1 ± WB_BOTTOM_DIFF_PCT
+    if abs(h2 - h1) / h1 > WB_BOTTOM_DIFF_PCT:
+        return None
+
+    # 6. H1→H2 时间间隔合理
+    gap_h = ih2 - i1
+    if gap_h < WB_TIME_GAP_MIN_H or gap_h > WB_TIME_GAP_MAX_H:
+        return None
+
+    # 7. 当前价必须跌破颈线 - WB_BREAK_NECK_PCT (镜像)
+    cur_price = closes[-1]
+    if cur_price > d * (1 - WB_BREAK_NECK_PCT):
+        return None
+
+    return {
+        'h1_idx':    i1,      'h1':    h1,
+        'neck_idx':  id_idx,  'neck':  d,
+        'h2_idx':    ih2,     'h2':    h2,
+        'cur_price': cur_price,
+        'pullback_pct': pullback,
+        'top_diff':     abs(h2 - h1) / h1,
+        'gap_h':        gap_h,
+        'break_pct':    (d - cur_price) / d,
+    }
+
+
+def _mt_active_count(conn) -> int:
+    """当前 M 双顶子策略的 active 持仓数 (state!=IDLE)"""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(1) AS n FROM strategy_state "
+            "WHERE strategy='whale' AND stype='m-top' AND state!='IDLE'"
+        )
+        r = cur.fetchone()
+        cur.close()
+        return int(r['n']) if r else 0
+    except Exception:
+        return 0
+
+
+def m_top_tick(conn, sym: str):
+    """M 双顶子策略每个品种的扫描 (做空, 不设 SL/TP, 1 天持仓)"""
+    ss = get_or_create(conn, 'whale', sym, 'm-top', {
+        'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
+        'peak_pnl_pct': 0.0, 'side': None,
+        'entry_time': 0.0, 'done_time': 0.0,
+    })
+    s = ss.get('state') or 'IDLE'
+
+    # 冷却: 同品种 3 天内不重复触发
+    if s == 'DONE':
+        anchor = ensure_cooldown_anchor_epoch(conn, 'whale', sym, 'm-top', ss, now_s())
+        if now_s() - anchor > WB_COOLDOWN_S:
+            update_state(conn, 'whale', sym, 'm-top', state='IDLE')
+        return
+    if s != 'IDLE':
+        return
+
+    # 全局持仓数上限 (复用 W 底参数)
+    if _mt_active_count(conn) >= WB_MAX_OPEN_POSITIONS:
+        return
+
+    # 取 3.5 天 15m K 线
+    cur = conn.cursor()
+    try:
+        bars = _get_15m_bars(cur, sym, limit=WB_DATA_MIN_BARS + 24)
+    finally:
+        cur.close()
+    if len(bars) < WB_DATA_MIN_BARS:
+        return
+
+    sig = detect_m_top(bars)
+    if not sig:
+        return
+
+    try:
+        price = get_price(sym)
+    except Exception:
+        return
+    cur2 = conn.cursor()
+    try:
+        h24, l24 = _get_24h_stats(cur2, sym)
+        h4,  l4  = _get_4h_stats(cur2, sym)
+    finally:
+        cur2.close()
+    lp = _calc_limit_price('SHORT', price, h24, l24, high_4h=h4, low_4h=l4)
+
+    # 不设 SL/TP, hold_min=1天, timeout 兜底
+    pid, oid, pending = open_order(
+        sym, 'SHORT', price,
+        tp_pct=None, sl_pct=None,
+        hold_min=WB_HOLD_MIN,
+        tag='m-top', limit_price=lp,
+    )
+    if not (pid or oid):
+        return
+
+    log.info(
+        "[M-TOP] %s SHORT  H1=%.6f H2=%.6f neck=%.6f cur=%.6f  "
+        "回撤%.1f%%  两顶差%.2f%%  gap %.1fh  跌破%.2f%%  lp=%.6f",
+        sym, sig['h1'], sig['h2'], sig['neck'], sig['cur_price'],
+        sig['pullback_pct'] * 100, sig['top_diff'] * 100,
+        sig['gap_h'] * 0.25, sig['break_pct'] * 100, lp,
+    )
+    update_state(
+        conn, 'whale', sym, 'm-top',
+        state='PENDING' if pending else 'SHORT',
+        pid=pid, order_id=oid, side='SHORT',
         entry_p=lp if pending else price,
         peak_pnl_pct=0.0, entry_time=now_s(),
     )
@@ -1011,7 +1201,8 @@ def whale_tick(conn, sym: str):
             try:
                 price = get_price(sym)
                 h24, l24 = _get_24h_stats(cur, sym)
-                lp = _calc_limit_price('SHORT', price, h24, l24)
+                h4,  l4  = _get_4h_stats(cur, sym)
+                lp = _calc_limit_price('SHORT', price, h24, l24, high_4h=h4, low_4h=l4)
                 hold = SHORT_HOLD_H * 60
                 pid, oid, pending = open_order(sym, 'SHORT', price, HARD_TP_PCT, SL_PCT, hold, 'whale-short', lp)
                 if not pid and not oid:
@@ -1101,11 +1292,18 @@ def _sync_state(conn):
             src = p.get("source") or ""
             if not src.startswith("strategy_whale:"):
                 continue
+            # 按 source 后缀分配 stype: 默认 'whale', w-bottom / m-top 走对应通道
+            if "w-bottom" in src:
+                stype = 'w-bottom'
+            elif "m-top" in src:
+                stype = 'm-top'
+            else:
+                stype = 'whale'
             sym  = p['symbol']
             side = p['position_side']
-            existing = get_or_create(conn, 'whale', sym, 'whale', {})
+            existing = get_or_create(conn, 'whale', sym, stype, {})
             if existing.get('state') not in ('SHORT', 'LONG'):
-                update_state(conn, 'whale', sym, 'whale',
+                update_state(conn, 'whale', sym, stype,
                              state=side, side=side, pid=p['id'],
                              entry_p=float(p['entry_price']),
                              peak_pnl_pct=0.0, entry_time=now_s(), done_time=0.0)
@@ -1161,6 +1359,13 @@ def main():
                     w_bottom_tick(conn, sym)
                 except Exception as e:
                     log.warning("w_bottom_tick %s error: %s", sym, e)
+                # M 双顶子策略 (做空、长持, 2026-04-25 新增)
+                # 当前禁用: 14 天回测严格阈值 0 命中, 宽松版负期望 -0.40%.
+                # 市场处于反弹环境, 没有完整 M 顶形态. 顶部形态明显时取消注释启用.
+                # try:
+                #     m_top_tick(conn, sym)
+                # except Exception as e:
+                #     log.warning("m_top_tick %s error: %s", sym, e)
                 processed += 1
 
             poll_count += 1
