@@ -289,7 +289,7 @@ def _load_live_config() -> None:
 POLL_SECS       = 60
 TOPSHORT_EVERY  = 5
 # 各子策略 LIMIT 挂单在 futures_orders 中保持 PENDING 的最长时间，超时由 _fill_pending_orders 标为取消
-LIMIT_PENDING_MAX_S = 2 * 60 * 60   # 2026-04-25 1h → 2h, 给信号更多成交机会
+LIMIT_PENDING_MAX_S = 3 * 60 * 60   # 2026-04-25 1h→2h; 04-26 2h→3h, 信号过短常常没等到
 
 # 反向滑点熔断阈值：LIMIT 触发时若价格向不利方向偏离超过此幅度，撤单不填充
 # LONG  cur_p < limit_p*(1-X) → 价格继续下跌，追多是逆势

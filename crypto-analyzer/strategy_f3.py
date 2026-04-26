@@ -91,7 +91,7 @@ F3_MAX_OPEN          = 3                 # 全局最多 3 仓
 F3_LIMIT_OFFSET_PCT  = 0.005             # 下挂 0.5%
 
 # 限价单管理
-LIMIT_PENDING_MAX_S  = 3 * 3600          # 3h 未成交撤单 (2026-04-25 1h → 3h)
+LIMIT_PENDING_MAX_S  = 5 * 3600          # 5h 未成交撤单 (2026-04-25 1h→3h, 04-26 3h→5h)
                                          # F3 抓"反弹前的小阳带量", 底部震荡等待期长, 给信号更多成交机会
 TRIGGER_CONFIRM_S    = 30                # 限价触发 30s 观察
 _trigger_first_seen: dict = {}

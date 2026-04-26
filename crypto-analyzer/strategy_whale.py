@@ -530,7 +530,7 @@ def _fill_pending_orders(conn):
         if o['created_at']:
             import datetime as _dt
             age_s = (_dt.datetime.now() - o['created_at']).total_seconds()
-            if age_s > 2 * 3600:  # whale 信号窗口短，2小时未成交即取消
+            if age_s > 3 * 3600:  # 2026-04-26 2h→3h, 给 whale 信号更多成交机会
                 c2 = conn.cursor()
                 c2.execute("UPDATE futures_orders SET status='CANCELLED', cancellation_reason='timeout', canceled_at=NOW(), updated_at=NOW() WHERE id=%s", (o['id'],))
                 conn.commit(); c2.close()
