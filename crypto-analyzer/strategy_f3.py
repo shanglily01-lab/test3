@@ -170,6 +170,26 @@ def _api(method, path, **kw):
     return r.json()
 
 
+def _log_order_event(conn, order_id: str, event_type: str,
+                     cur_price=None, limit_price=None,
+                     bar_open=None, bar_close=None, detail: str = ''):
+    """LIMIT 中间事件入库 (order_trigger_events 表). 失败不阻塞主流程.
+    迁移: scripts/migrations/024_order_trigger_events.sql"""
+    try:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO order_trigger_events
+                (order_id, event_type, cur_price, limit_price,
+                 bar_open_price, bar_close_price, detail)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (order_id, event_type, cur_price, limit_price,
+              bar_open, bar_close, (detail[:255] if detail else None)))
+        conn.commit()
+        c.close()
+    except Exception as e:
+        log.warning("_log_order_event %s %s err: %s", event_type, order_id, e)
+
+
 def get_price(sym: str) -> float:
     d = _api("GET", f"/api/futures/price/{sym}")
     return float(d["price"])
@@ -400,6 +420,9 @@ def _fill_pending_orders(conn):
             if _trigger_first_seen.pop(o['id'], None) is not None:
                 log.info("F3 触发回撤, 重新等待 %-18s cur=%.6f limit=%.6f",
                          sym, cur_p, limit_p)
+                _log_order_event(conn, o['order_id'], 'TRIGGER_RETREAT',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 detail=f"F3 side={side} pos_side={pos_side}")
             continue
         # 已触发: 等下根 5m K 线收盘, F3 仅做多, 需要阳线确认 (2026-04-25)
         first_seen_ms = _trigger_first_seen.get(o['id'])
@@ -407,6 +430,9 @@ def _fill_pending_orders(conn):
             _trigger_first_seen[o['id']] = int(now_s() * 1000)
             log.info("F3 触发观察 %-18s cur=%.6f limit=%.6f (等下根 5m 阳线收盘确认)",
                      sym, cur_p, limit_p)
+            _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
+                             cur_price=cur_p, limit_price=limit_p,
+                             detail=f"F3 等阳线收盘确认")
             continue
         next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
         next_bar_close_ms = next_bar_open_ms + 300000
@@ -428,6 +454,10 @@ def _fill_pending_orders(conn):
         if bar_c <= bar_o:
             log.info("F3 限价 5m 阳线未现, 不成交, 等下次触发: %-18s bar[o=%.6f c=%.6f]",
                      sym, bar_o, bar_c)
+            _log_order_event(conn, o['order_id'], '5M_REJECT',
+                             cur_price=cur_p, limit_price=limit_p,
+                             bar_open=bar_o, bar_close=bar_c,
+                             detail=f"F3 LONG 需阳线 实际 close={bar_c} open={bar_o}")
             _trigger_first_seen.pop(o['id'], None)
             continue
         _trigger_first_seen.pop(o['id'], None)
