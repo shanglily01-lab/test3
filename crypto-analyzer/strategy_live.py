@@ -92,6 +92,10 @@ CHASE_PUMP_PCT  = 0.12
 CHASE_SL_PCT             = 0.08
 CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
 CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
+# 末根 5m 反向放量过滤 (2026-04-26): 入场前最后一根 5m 反向跌幅 >= 此阈值则跳过
+# 6 天 94 笔统计: 该子集 23 笔, 胜率 43%, PF 0.71, 净 -467 USDT (整体 PF 1.26)
+# 砍掉后预期 PF 提升至约 1.45, 不影响 76% 正常 chase-entry 流量
+CHASE_LAST_BAR_REVERSAL_PCT = -0.015
 CHASE_MIN_24H_CHANGE_PCT = -12.0 # 24h 跌幅超过阈值则不追（避免抓反弹飞刀，2026-04-24；2026-04-25 -10→-12 放宽 2pt）
 CHASE_MAX_24H_CHANGE_PCT =  15.0 # 24h 涨幅超过阈值则不追（避免追顶接棒，2026-04-24）
 DUMP_MIN_24H_CHANGE_PCT  = -15.0 # dump SHORT: 24h 已跌超此阈值则不追跌（避免接飞刀）
@@ -1512,6 +1516,20 @@ def chase_tick(conn, sym):
                  sym, dd_from_peak * 100, CHASE_EXHAUST_MAX_DD * 100)
         cur.close()
         return
+
+    # 末根反向放量过滤 (2026-04-26): 最新已收盘 5m 是反向大阴线则不追
+    # 4-26 LAB/USDT (-91U) 与 4-25 DAM/USDT (-42U) 都是"末根 5m 放量回落 -2.65~-3.41%"
+    # 后立即追多, 16min 内被 early-sl 切。统计依据见 CHASE_LAST_BAR_REVERSAL_PCT 注释。
+    last_bar = completed[i]
+    last_bar_o = float(last_bar['open_price'])
+    last_bar_c = float(last_bar['close_price'])
+    if last_bar_o > 0:
+        last_bar_chg = (last_bar_c - last_bar_o) / last_bar_o
+        if last_bar_chg < CHASE_LAST_BAR_REVERSAL_PCT:
+            log.info("CHASE 跳过 %-18s: 末根 5m %+.2f%% <= %.1f%%, 反向放量",
+                     sym, last_bar_chg * 100, CHASE_LAST_BAR_REVERSAL_PCT * 100)
+            cur.close()
+            return
 
     # 急拉验证：窗口内须有至少一根 5m bar 单 bar 涨幅 >= 阈值，排除慢速爬升
     leader_gain = max(
