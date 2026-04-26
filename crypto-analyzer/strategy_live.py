@@ -320,6 +320,26 @@ def _api(method, path, **kwargs):
     r.raise_for_status()
     return r.json()
 
+
+def _log_order_event(conn, order_id: str, event_type: str,
+                     cur_price=None, limit_price=None,
+                     bar_open=None, bar_close=None, detail: str = ''):
+    """LIMIT 中间事件入库 (order_trigger_events 表). 写失败不阻塞主流程.
+    迁移: scripts/migrations/024_order_trigger_events.sql"""
+    try:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO order_trigger_events
+                (order_id, event_type, cur_price, limit_price,
+                 bar_open_price, bar_close_price, detail)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (order_id, event_type, cur_price, limit_price,
+              bar_open, bar_close, (detail[:255] if detail else None)))
+        conn.commit()
+        c.close()
+    except Exception as e:
+        log.warning("_log_order_event %s %s err: %s", event_type, order_id, e)
+
 def get_price(sym):
     d = _api("GET", f"/api/futures/price/{sym}")
     return float(d["price"])
@@ -756,6 +776,9 @@ def _fill_pending_orders(conn):
             if _trigger_first_seen.pop(o['id'], None) is not None:
                 log.info("限价单触发回撤，重新等待 %s %s cur=%.5f limit=%.5f",
                          sym, side, cur_p, limit_p)
+                _log_order_event(conn, o['order_id'], 'TRIGGER_RETREAT',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 detail=f"side={side} pos_side={pos_side}")
             continue
         # 已触发: 等下一根 5m K 线收盘, 方向确认才成交
         # SHORT 需要阴线 (close < open), LONG 需要阳线 (close > open), 平 K 算逆向
@@ -766,6 +789,9 @@ def _fill_pending_orders(conn):
             log.info("限价单触发观察 %s %s cur=%.5f limit=%.5f (等下根 5m %s线收盘确认)",
                      sym, side, cur_p, limit_p,
                      '阴' if pos_side == 'SHORT' else '阳')
+            _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
+                             cur_price=cur_p, limit_price=limit_p,
+                             detail=f"side={side} 等{('阴' if pos_side == 'SHORT' else '阳')}线收盘确认")
             continue
         # 算下一根 5m bar 的起止 ms (5m bar = 300000 ms)
         next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
@@ -791,6 +817,10 @@ def _fill_pending_orders(conn):
             log.info("限价 5m 反向(%s) 不成交, 等下次触发: %s %s bar[o=%.5f c=%.5f]",
                      '阴未现' if pos_side == 'SHORT' else '阳未现',
                      sym, side, bar_o, bar_c)
+            _log_order_event(conn, o['order_id'], '5M_REJECT',
+                             cur_price=cur_p, limit_price=limit_p,
+                             bar_open=bar_o, bar_close=bar_c,
+                             detail=f"side={side} 需{('阴' if pos_side == 'SHORT' else '阳')}线 实际 close={bar_c} open={bar_o}")
             _trigger_first_seen.pop(o['id'], None)
             continue
         # 5m K 线方向确认通过, 进入成交流程
