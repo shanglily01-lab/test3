@@ -683,9 +683,10 @@ def _check_pending_db(conn, sym, stype):
     st     = (order.get('status') or '').upper()
     pos_id = order.get('position_id')
     if st == 'FILLED' and pos_id:
-        update_state(conn, 'live', sym, stype, pid=int(pos_id), order_id=None)
+        t_fill = now_s()
+        update_state(conn, 'live', sym, stype, pid=int(pos_id), order_id=None, entry_time=t_fill)
         log.info("限价单成交 (%s) -> pid=%d  oid=%s", stype, int(pos_id), oid)
-        return True, {**row, 'pid': int(pos_id), 'order_id': None}
+        return True, {**row, 'pid': int(pos_id), 'order_id': None, 'entry_time': t_fill}
     if st in ('CANCELLED', 'REJECTED'):
         t = now_s()
         update_state(
@@ -1604,10 +1605,11 @@ def topshort_tick(conn, active_syms):
                 st     = (row.get('status') or '').upper()
                 pos_id = row.get('position_id')
                 if st == 'FILLED' and pos_id:
+                    t_fill = now_s()
                     update_state(conn, 'live', sym, 'topshort',
-                                 pid=int(pos_id), order_id=None)
+                                 pid=int(pos_id), order_id=None, entry_time=t_fill)
                     log.info("TOPSHORT 限价单成交 %-18s  pid=%d", sym, int(pos_id))
-                    pos = {**pos, 'pid': int(pos_id), 'order_id': None}
+                    pos = {**pos, 'pid': int(pos_id), 'order_id': None, 'entry_time': t_fill}
                 elif st in ('CANCELLED', 'REJECTED'):
                     log.info("TOPSHORT 限价单取消 %-18s  oid=%s -> DONE 冷却", sym, pos.get('order_id'))
                     update_state(
@@ -1923,10 +1925,11 @@ def bottomlong_tick(conn, active_syms):
                 st     = (row.get('status') or '').upper()
                 pos_id = row.get('position_id')
                 if st == 'FILLED' and pos_id:
+                    t_fill = now_s()
                     update_state(conn, 'live', sym, 'bottomlong',
-                                 pid=int(pos_id), order_id=None)
+                                 pid=int(pos_id), order_id=None, entry_time=t_fill)
                     log.info("BOTLONG 限价单成交 %-18s  pid=%d", sym, int(pos_id))
-                    pos = {**pos, 'pid': int(pos_id), 'order_id': None}
+                    pos = {**pos, 'pid': int(pos_id), 'order_id': None, 'entry_time': t_fill}
                 elif st in ('CANCELLED', 'REJECTED'):
                     log.info("BOTLONG 限价单取消 %-18s  oid=%s -> DONE 冷却", sym, pos.get('order_id'))
                     update_state(

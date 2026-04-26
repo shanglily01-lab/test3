@@ -334,11 +334,13 @@ def _check_pending_db(conn, sym):
     st     = (order.get('status') or '').upper()
     pos_id = order.get('position_id')
     if st == 'FILLED' and pos_id:
+        t_fill = now_s()
         update_state(conn, 'f3', sym, 'f3', state='LONG',
-                     pid=int(pos_id), order_id=None)
+                     pid=int(pos_id), order_id=None, entry_time=t_fill)
         log.info("F3 限价单成交 %-18s  pid=%d  oid=%s",
                  sym, int(pos_id), oid)
-        return True, {**row, 'state': 'LONG', 'pid': int(pos_id), 'order_id': None}
+        return True, {**row, 'state': 'LONG', 'pid': int(pos_id), 'order_id': None,
+                      'entry_time': t_fill}
     if st in ('CANCELLED', 'REJECTED'):
         ts = now_s()
         update_state(conn, 'f3', sym, 'f3',

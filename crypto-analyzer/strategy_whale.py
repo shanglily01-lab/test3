@@ -458,9 +458,10 @@ def _check_pending_db(conn, sym):
     st     = (order.get('status') or '').upper()
     pos_id = order.get('position_id')
     if st == 'FILLED' and pos_id:
-        update_state(conn, 'whale', sym, 'whale', pid=int(pos_id), order_id=None)
+        t_fill = now_s()
+        update_state(conn, 'whale', sym, 'whale', pid=int(pos_id), order_id=None, entry_time=t_fill)
         log.info("WHALE 限价单成交 -> pid=%d  oid=%s", int(pos_id), oid)
-        return True, {**row, 'pid': int(pos_id), 'order_id': None}
+        return True, {**row, 'pid': int(pos_id), 'order_id': None, 'entry_time': t_fill}
     if st in ('CANCELLED', 'REJECTED'):
         ts = time.time()
         update_state(
