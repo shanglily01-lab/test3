@@ -96,6 +96,9 @@ LIMIT_PENDING_MAX_S  = 5 * 3600          # 5h 未成交撤单 (2026-04-25 1h→3
 TRIGGER_CONFIRM_S    = 30                # 限价触发 30s 观察
 _trigger_first_seen: dict = {}
 
+# 2026-04-27: 总开关-禁用 5m 阴/阳收盘确认守卫(触发即成交). 走 system_settings.disable_5m_confirm.
+DISABLE_5M_CONFIRM   = False
+
 
 # ═════════════════════════ F3 专属黑白名单 ═════════════════════════
 # 基于 2026-04-24 7 天回测数据 (replay_4_forms + diag_f3_deep):
@@ -162,6 +165,29 @@ def get_db():
         db=os.getenv('DB_NAME'), charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+def _load_f3_config() -> None:
+    """从 system_settings 读取 F3 总开关。进程启动时调用一次。"""
+    global DISABLE_5M_CONFIRM
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT setting_key, setting_value FROM system_settings "
+                    "WHERE setting_key='disable_5m_confirm'"
+                )
+                rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
+        finally:
+            conn.close()
+        _raw = str(rows.get('disable_5m_confirm', '0')).strip().lower()
+        DISABLE_5M_CONFIRM = _raw in ('1', 'true', 'yes', 'on')
+        log.info("strategy_f3 参数已加载: disable_5m_confirm=%s", DISABLE_5M_CONFIRM)
+        if DISABLE_5M_CONFIRM:
+            log.warning("!!! DISABLE_5M_CONFIRM=ON: 限价单触发即成交, 跳过 5m 阳线确认 !!!")
+    except Exception as exc:
+        log.error("_load_f3_config 失败，使用默认值: %s", exc)
 
 
 def _api(method, path, **kw):
@@ -425,42 +451,46 @@ def _fill_pending_orders(conn):
                                  detail=f"F3 side={side} pos_side={pos_side}")
             continue
         # 已触发: 等下根 5m K 线收盘, F3 仅做多, 需要阳线确认 (2026-04-25)
-        first_seen_ms = _trigger_first_seen.get(o['id'])
-        if first_seen_ms is None:
-            _trigger_first_seen[o['id']] = int(now_s() * 1000)
-            log.info("F3 触发观察 %-18s cur=%.6f limit=%.6f (等下根 5m 阳线收盘确认)",
-                     sym, cur_p, limit_p)
-            _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
-                             cur_price=cur_p, limit_price=limit_p,
-                             detail=f"F3 等阳线收盘确认")
-            continue
-        next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
-        next_bar_close_ms = next_bar_open_ms + 300000
-        if int(now_s() * 1000) < next_bar_close_ms:
-            continue
-        c_bar = conn.cursor()
-        c_bar.execute(
-            """SELECT open_price, close_price FROM kline_data
-               WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
-            (sym, next_bar_open_ms),
-        )
-        bar_row = c_bar.fetchone()
-        c_bar.close()
-        if not bar_row:
-            continue
-        bar_o = float(bar_row['open_price'])
-        bar_c = float(bar_row['close_price'])
-        # F3 是 LONG, 必须阳线 (close > open) 才确认
-        if bar_c <= bar_o:
-            log.info("F3 限价 5m 阳线未现, 不成交, 等下次触发: %-18s bar[o=%.6f c=%.6f]",
-                     sym, bar_o, bar_c)
-            _log_order_event(conn, o['order_id'], '5M_REJECT',
-                             cur_price=cur_p, limit_price=limit_p,
-                             bar_open=bar_o, bar_close=bar_c,
-                             detail=f"F3 LONG 需阳线 实际 close={bar_c} open={bar_o}")
+        # 2026-04-27: DISABLE_5M_CONFIRM=ON 时整段跳过, 触发即成交
+        if DISABLE_5M_CONFIRM:
             _trigger_first_seen.pop(o['id'], None)
-            continue
-        _trigger_first_seen.pop(o['id'], None)
+        else:
+            first_seen_ms = _trigger_first_seen.get(o['id'])
+            if first_seen_ms is None:
+                _trigger_first_seen[o['id']] = int(now_s() * 1000)
+                log.info("F3 触发观察 %-18s cur=%.6f limit=%.6f (等下根 5m 阳线收盘确认)",
+                         sym, cur_p, limit_p)
+                _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 detail=f"F3 等阳线收盘确认")
+                continue
+            next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
+            next_bar_close_ms = next_bar_open_ms + 300000
+            if int(now_s() * 1000) < next_bar_close_ms:
+                continue
+            c_bar = conn.cursor()
+            c_bar.execute(
+                """SELECT open_price, close_price FROM kline_data
+                   WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
+                (sym, next_bar_open_ms),
+            )
+            bar_row = c_bar.fetchone()
+            c_bar.close()
+            if not bar_row:
+                continue
+            bar_o = float(bar_row['open_price'])
+            bar_c = float(bar_row['close_price'])
+            # F3 是 LONG, 必须阳线 (close > open) 才确认
+            if bar_c <= bar_o:
+                log.info("F3 限价 5m 阳线未现, 不成交, 等下次触发: %-18s bar[o=%.6f c=%.6f]",
+                         sym, bar_o, bar_c)
+                _log_order_event(conn, o['order_id'], '5M_REJECT',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 bar_open=bar_o, bar_close=bar_c,
+                                 detail=f"F3 LONG 需阳线 实际 close={bar_c} open={bar_o}")
+                _trigger_first_seen.pop(o['id'], None)
+                continue
+            _trigger_first_seen.pop(o['id'], None)
         # 乐观锁锁定订单
         c2 = conn.cursor()
         affected = c2.execute(
@@ -829,6 +859,7 @@ def main():
              len(F3_BLACKLIST), ', '.join(sorted(F3_BLACKLIST)))
     log.info("F3 白名单仅日志 (%d): %s",
              len(F3_WHITELIST), ', '.join(sorted(F3_WHITELIST)))
+    _load_f3_config()
     log.info("=" * 60)
 
     init_conn = get_db()

@@ -391,6 +391,32 @@
 </div>
 </div>
 
+<!-- 2.4a 守卫开关：跳过 5m 阴/阳收盘确认 -->
+<div class="mt-4 rounded-xl bg-[#2a200b]/60 border border-amber-500/40 p-4">
+<div class="cfg-row">
+<div class="min-w-0">
+<div class="text-sm font-medium text-amber-400">跳过 5m 阴/阳收盘确认（限价单）</div>
+<p class="text-xs text-slate-400 mt-0.5">开启后 live / whale / bigmid / f3 限价单<span class="text-amber-400">触发即按 limit_price 成交</span>，不再等下根 5m K 线收盘验阴/阳，不再产生 TRIGGER_OBSERVING / 5M_REJECT 事件。<br/>遇上反弹中追空可能立刻被反向打到 SL；建议 paper 验证 2-3 天再判断。<span class="text-slate-500">修改后需重启策略进程生效。</span></p>
+</div>
+<div id="disable5mConfirmToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+</div>
+
+<!-- 2.4b 守卫开关：CHASE 允许慢爬入场 -->
+<div class="mt-4 rounded-xl bg-[#0b1f2a]/60 border border-sky-500/40 p-4">
+<div class="cfg-row">
+<div class="min-w-0">
+<div class="text-sm font-medium text-sky-400">CHASE 允许慢爬入场</div>
+<p class="text-xs text-slate-400 mt-0.5">开启后 strategy_live 的 chase-entry 不再要求"窗口内至少一根 5m bar 涨幅 ≥ 3%"，<span class="text-sky-400">慢爬币也允许追多</span>（其它守卫如 24h 区间、bar_age、entry_position 仍生效）。<br/>注意：chase 的 TP/SL 针对急涨快回设计，慢爬币更易 timeout/亏小单。<span class="text-slate-500">修改后需重启策略进程生效。</span></p>
+</div>
+<div id="chaseAllowSlowToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+</div>
+
 <!-- 2.5 平仓同步实盘 -->
 <div class="mt-4 rounded-xl bg-[#10272e]/60 border border-amber-500/40 p-4">
 <div class="cfg-row">
@@ -623,12 +649,14 @@
 
         async function loadAll() {
             try {
-                const [svcData, stratData, maxPosData, disableData, closeSyncData] = await Promise.all([
+                const [svcData, stratData, maxPosData, disableData, closeSyncData, disable5mData, chaseSlowData] = await Promise.all([
                     apiGet('/trading-services'),
                     apiGet('/strategy-config').catch(function() { return { data: {} }; }),
                     apiGet('/settings/max_positions').catch(function() { return { data: { value: '50' } }; }),
                     apiGet('/settings/disable_sl_tp_hold').catch(function() { return { data: { value: '0' } }; }),
-                    apiGet('/settings/close_sync_live_enabled').catch(function() { return { data: { value: '0' } }; })
+                    apiGet('/settings/close_sync_live_enabled').catch(function() { return { data: { value: '0' } }; }),
+                    apiGet('/settings/disable_5m_confirm').catch(function() { return { data: { value: '0' } }; }),
+                    apiGet('/settings/chase_allow_slow').catch(function() { return { data: { value: '0' } }; })
                 ]);
 
                 const svc  = svcData.data  || svcData;
@@ -636,6 +664,8 @@
                 const maxPosSetting = maxPosData.data || maxPosData;
                 const disableSetting = disableData.data || disableData;
                 const closeSyncSetting = closeSyncData.data || closeSyncData;
+                const disable5mSetting = disable5mData.data || disable5mData;
+                const chaseSlowSetting = chaseSlowData.data || chaseSlowData;
 
                 setToggle('liveToggle', svc.live_trading_enabled !== false);
 
@@ -668,6 +698,14 @@
                 const closeSyncOn = ['1', 'true', 'yes', 'on'].indexOf(rawCloseSync) !== -1;
                 setToggle('closeSyncLiveToggle', closeSyncOn);
 
+                // 跳过 5m 阴/阳收盘确认
+                const raw5m = disable5mSetting.value != null ? String(disable5mSetting.value).trim().toLowerCase() : '0';
+                setToggle('disable5mConfirmToggle', ['1', 'true', 'yes', 'on'].indexOf(raw5m) !== -1);
+
+                // CHASE 允许慢爬入场
+                const rawSlow = chaseSlowSetting.value != null ? String(chaseSlowSetting.value).trim().toLowerCase() : '0';
+                setToggle('chaseAllowSlowToggle', ['1', 'true', 'yes', 'on'].indexOf(rawSlow) !== -1);
+
             } catch (err) {
                 console.error('loadAll 失败:', err);
                 showToast('加载配置失败: ' + err.message, true);
@@ -698,6 +736,36 @@
                     description: '不设止盈/止损/持仓时间(裸奔模式),仅影响新开仓,重启策略进程生效'
                 });
                 showToast((enabled ? '已开启裸奔模式' : '已关闭裸奔模式') + '（重启策略进程后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // 跳过 5m 阴/阳收盘确认 - 即时保存
+        bindToggle('disable5mConfirmToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/disable_5m_confirm', {
+                    setting_key: 'disable_5m_confirm',
+                    setting_value: enabled ? '1' : '0',
+                    description: '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效'
+                });
+                showToast((enabled ? '已开启:跳过 5m 确认' : '已关闭:5m 确认恢复') + '（重启策略进程后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // CHASE 允许慢爬入场 - 即时保存
+        bindToggle('chaseAllowSlowToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/chase_allow_slow', {
+                    setting_key: 'chase_allow_slow',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'CHASE 接受慢爬入场,跳过 leader_gain 3% 阈值,重启策略进程生效'
+                });
+                showToast((enabled ? '已开启:CHASE 允许慢爬' : '已关闭:CHASE 限急涨') + '（重启策略进程后生效）', false);
             } catch (err) {
                 showToast('保存失败: ' + err.message, true);
                 return false;
@@ -738,6 +806,8 @@
 
                     const disableVal = getToggle('disableSlTpHoldToggle') ? '1' : '0';
                     const closeSyncVal = getToggle('closeSyncLiveToggle') ? '1' : '0';
+                    const disable5mVal = getToggle('disable5mConfirmToggle') ? '1' : '0';
+                    const chaseSlowVal = getToggle('chaseAllowSlowToggle') ? '1' : '0';
                     await Promise.all([
                         apiPut('/trading-services', { live_trading_enabled: getToggle('liveToggle') }),
                         apiPut('/strategy-config', {
@@ -752,7 +822,9 @@
                         }),
                         apiPut('/settings/max_positions', { setting_key: 'max_positions', setting_value: String(mpVal), description: '最大持仓数量' }),
                         apiPut('/settings/disable_sl_tp_hold', { setting_key: 'disable_sl_tp_hold', setting_value: disableVal, description: '不设止盈/止损/持仓时间(裸奔模式),仅影响新开仓,重启策略进程生效' }),
-                        apiPut('/settings/close_sync_live_enabled', { setting_key: 'close_sync_live_enabled', setting_value: closeSyncVal, description: '模拟盘平仓时是否自动平 Binance 对应仓位' })
+                        apiPut('/settings/close_sync_live_enabled', { setting_key: 'close_sync_live_enabled', setting_value: closeSyncVal, description: '模拟盘平仓时是否自动平 Binance 对应仓位' }),
+                        apiPut('/settings/disable_5m_confirm', { setting_key: 'disable_5m_confirm', setting_value: disable5mVal, description: '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效' }),
+                        apiPut('/settings/chase_allow_slow', { setting_key: 'chase_allow_slow', setting_value: chaseSlowVal, description: 'CHASE 接受慢爬入场,跳过 leader_gain 3% 阈值,重启策略进程生效' })
                     ]);
 
                     saveBtnText.textContent = '已保存';

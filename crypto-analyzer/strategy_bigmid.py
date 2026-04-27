@@ -229,6 +229,8 @@ TIER_PARAMS = {
 
 # ── 从 system_settings 动态加载的参数 ──────────────────────────
 DISABLE_SL_TP_HOLD = False  # 总开关: 新开仓不设 SL/TP/timeout, 且跳过进程内硬TP/SL/移动TP检查
+# 2026-04-27: 总开关-禁用 5m 阴/阳收盘确认守卫(触发即成交). 走 system_settings.disable_5m_confirm.
+DISABLE_5M_CONFIRM = False
 
 
 # ── 日志 ────────────────────────────────────────────────────────
@@ -246,23 +248,28 @@ log = logging.getLogger("strategy_bigmid")
 
 def _load_bigmid_config() -> None:
     """从 system_settings 读取总开关。进程启动时调用一次。"""
-    global DISABLE_SL_TP_HOLD
+    global DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM
     try:
         conn = _db_conn()
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT setting_key, setting_value FROM system_settings "
-                    "WHERE setting_key='disable_sl_tp_hold'"
+                    "WHERE setting_key IN ('disable_sl_tp_hold','disable_5m_confirm')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
             conn.close()
         _raw = str(rows.get('disable_sl_tp_hold', '0')).strip().lower()
         DISABLE_SL_TP_HOLD = _raw in ('1', 'true', 'yes', 'on')
-        log.info("strategy_bigmid 参数已加载: disable_sl_tp_hold=%s", DISABLE_SL_TP_HOLD)
+        _raw_5m = str(rows.get('disable_5m_confirm', '0')).strip().lower()
+        DISABLE_5M_CONFIRM = _raw_5m in ('1', 'true', 'yes', 'on')
+        log.info("strategy_bigmid 参数已加载: disable_sl_tp_hold=%s disable_5m_confirm=%s",
+                 DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM)
         if DISABLE_SL_TP_HOLD:
             log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/SL/移动TP检查跳过 !!!")
+        if DISABLE_5M_CONFIRM:
+            log.warning("!!! DISABLE_5M_CONFIRM=ON: 限价单触发即成交, 跳过 5m 阴/阳确认 !!!")
     except Exception as exc:
         log.error("_load_bigmid_config 失败，使用默认值: %s", exc)
 
@@ -917,44 +924,48 @@ def _fill_pending_orders(conn):
             continue
 
         # 已触发: 等下根 5m K 线收盘, 方向确认才成交 (2026-04-25 替代 30s 时间确认)
-        first_seen_ms = _trigger_first_seen.get(o["id"])
-        if first_seen_ms is None:
-            _trigger_first_seen[o["id"]] = int(time.time() * 1000)
-            log.info("BIGMID 限价单触发观察 %s %s cur=%.6f limit=%.6f (等下根 5m %s线收盘确认)",
-                     sym, side, cur_p, limit_p,
-                     '阴' if pos_side == 'SHORT' else '阳')
-            _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
-                             cur_price=cur_p, limit_price=limit_p,
-                             detail=f"BIGMID side={side} 等{('阴' if pos_side == 'SHORT' else '阳')}线收盘确认")
-            continue
-        next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
-        next_bar_close_ms = next_bar_open_ms + 300000
-        if int(time.time() * 1000) < next_bar_close_ms:
-            continue
-        c_bar = conn.cursor()
-        c_bar.execute(
-            """SELECT open_price, close_price FROM kline_data
-               WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
-            (sym, next_bar_open_ms),
-        )
-        bar_row = c_bar.fetchone()
-        c_bar.close()
-        if not bar_row:
-            continue
-        bar_o = float(bar_row['open_price'])
-        bar_c = float(bar_row['close_price'])
-        confirm_ok = (pos_side == 'SHORT' and bar_c < bar_o) \
-                     or (pos_side == 'LONG' and bar_c > bar_o)
-        if not confirm_ok:
-            log.info("BIGMID 限价 5m 反向不成交, 等下次触发: %s %s bar[o=%.6f c=%.6f]",
-                     sym, side, bar_o, bar_c)
-            _log_order_event(conn, o['order_id'], '5M_REJECT',
-                             cur_price=cur_p, limit_price=limit_p,
-                             bar_open=bar_o, bar_close=bar_c,
-                             detail=f"BIGMID side={side} 需{('阴' if pos_side == 'SHORT' else '阳')}线 实际 close={bar_c} open={bar_o}")
+        # 2026-04-27: DISABLE_5M_CONFIRM=ON 时整段跳过, 触发即成交
+        if DISABLE_5M_CONFIRM:
             _trigger_first_seen.pop(o["id"], None)
-            continue
-        _trigger_first_seen.pop(o["id"], None)
+        else:
+            first_seen_ms = _trigger_first_seen.get(o["id"])
+            if first_seen_ms is None:
+                _trigger_first_seen[o["id"]] = int(time.time() * 1000)
+                log.info("BIGMID 限价单触发观察 %s %s cur=%.6f limit=%.6f (等下根 5m %s线收盘确认)",
+                         sym, side, cur_p, limit_p,
+                         '阴' if pos_side == 'SHORT' else '阳')
+                _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 detail=f"BIGMID side={side} 等{('阴' if pos_side == 'SHORT' else '阳')}线收盘确认")
+                continue
+            next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
+            next_bar_close_ms = next_bar_open_ms + 300000
+            if int(time.time() * 1000) < next_bar_close_ms:
+                continue
+            c_bar = conn.cursor()
+            c_bar.execute(
+                """SELECT open_price, close_price FROM kline_data
+                   WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
+                (sym, next_bar_open_ms),
+            )
+            bar_row = c_bar.fetchone()
+            c_bar.close()
+            if not bar_row:
+                continue
+            bar_o = float(bar_row['open_price'])
+            bar_c = float(bar_row['close_price'])
+            confirm_ok = (pos_side == 'SHORT' and bar_c < bar_o) \
+                         or (pos_side == 'LONG' and bar_c > bar_o)
+            if not confirm_ok:
+                log.info("BIGMID 限价 5m 反向不成交, 等下次触发: %s %s bar[o=%.6f c=%.6f]",
+                         sym, side, bar_o, bar_c)
+                _log_order_event(conn, o['order_id'], '5M_REJECT',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 bar_open=bar_o, bar_close=bar_c,
+                                 detail=f"BIGMID side={side} 需{('阴' if pos_side == 'SHORT' else '阳')}线 实际 close={bar_c} open={bar_o}")
+                _trigger_first_seen.pop(o["id"], None)
+                continue
+            _trigger_first_seen.pop(o["id"], None)
 
         # 反向滑点熔断
         rev_slip = ((limit_p - cur_p) / limit_p) if pos_side == "LONG" else ((cur_p - limit_p) / limit_p)

@@ -203,6 +203,28 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
+    <!-- 守卫开关（2026-04-27） -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">守卫开关</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">改完需重启策略进程才生效（whale / live / bigmid / f3）。</p>
+        <div class="settings-card rounded-2xl overflow-hidden">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-amber-400">跳过 5m 收盘确认</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">限价触发即按 limit_price 成交，不再等下根 5m 阴/阳 K 闭合验证。反弹中追空可能立刻被打 SL，paper 验证 2-3 天再判断。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_disable5mConfirmToggle" type="checkbox" onchange="autoSave('guardSwitches')"/><span class="slider"></span></label>
+            </div>
+            <div class="setting-row flex items-start justify-between px-4 py-3">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-secondary">CHASE 允许慢爬</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">chase-entry 不再要求"窗口内一根 5m bar 涨幅 ≥3%"，慢爬币也允许追多。注意 chase 的 TP/SL 针对急涨设计，慢爬易 timeout。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_chaseAllowSlowToggle" type="checkbox" onchange="autoSave('guardSwitches')"/><span class="slider"></span></label>
+            </div>
+        </div>
+    </section>
+
     <!-- 当前生效硬编码参数（2026-04-24 只读） -->
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">当前生效参数（只读）</h2>
@@ -390,9 +412,12 @@ function setPill(id, on) {
 // ── Load ──────────────────────────────────────────────────────────────
 async function loadAll() {
     try {
-        const [svcR, cfgR] = await Promise.all([
+        const fetchSetting = (key) => fetch(`${SYS}/settings/${key}`).then(r => r.json()).catch(() => ({ data: { value: '0' } }));
+        const [svcR, cfgR, disable5mR, chaseSlowR] = await Promise.all([
             fetch(`${SYS}/trading-services`).then(r => r.json()),
             fetch(`${SYS}/strategy-config`).then(r => r.json()).catch(() => ({ data: {} })),
+            fetchSetting('disable_5m_confirm'),
+            fetchSetting('chase_allow_slow'),
         ]);
         if (svcR.success) {
             const d = svcR.data;
@@ -411,6 +436,15 @@ async function loadAll() {
         setV('m_whaleTpInput',    cfg.whale_hard_tp_pct      != null ? (parseFloat(cfg.whale_hard_tp_pct)      * 100).toFixed(1) : '20', '20');
         setV('m_whaleLimitInput', cfg.whale_limit_offset_pct != null ? (parseFloat(cfg.whale_limit_offset_pct) * 100).toFixed(1) : '0.3', '0.3');
         setV('m_whaleHoldSelect', cfg.whale_hold_hours != null ? String(cfg.whale_hold_hours) : '6', '6');
+        // 守卫开关
+        const isOn = (s) => {
+            const v = s && s.data ? s.data.value : (s && s.value);
+            return v != null && ['1','true','yes','on'].indexOf(String(v).trim().toLowerCase()) !== -1;
+        };
+        const e1 = document.getElementById('m_disable5mConfirmToggle');
+        if (e1) e1.checked = isOn(disable5mR);
+        const e2 = document.getElementById('m_chaseAllowSlowToggle');
+        if (e2) e2.checked = isOn(chaseSlowR);
     } catch(e) { toast('加载失败: ' + e.message, 'err'); }
 }
 
@@ -452,6 +486,21 @@ async function save(type) {
         }).then(r => r.json());
         if (r.success) toast('策略参数已保存，重启后生效');
         else toast('保存失败', 'err');
+    } else if (type === 'guardSwitches') {
+        const putSetting = (key, val, desc) => fetch(`${SYS}/settings/${key}`, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ setting_key: key, setting_value: val ? '1' : '0', description: desc })
+        }).then(r => r.json());
+        const v5m   = !!document.getElementById('m_disable5mConfirmToggle')?.checked;
+        const vSlow = !!document.getElementById('m_chaseAllowSlowToggle')?.checked;
+        try {
+            const [r1, r2] = await Promise.all([
+                putSetting('disable_5m_confirm', v5m,   '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效'),
+                putSetting('chase_allow_slow',   vSlow, 'CHASE 接受慢爬入场,跳过 leader_gain 3% 阈值,重启策略进程生效'),
+            ]);
+            if ((r1.success !== false) && (r2.success !== false)) toast('守卫开关已保存，重启后生效');
+            else toast('保存失败', 'err');
+        } catch (e) { toast('保存失败: ' + e.message, 'err'); }
     }
 }
 

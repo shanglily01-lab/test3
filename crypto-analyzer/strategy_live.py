@@ -97,6 +97,7 @@ CHASE_PUMP_PCT  = 0.12
 CHASE_SL_PCT             = 0.08
 CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
 CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
+# CHASE_ALLOW_SLOW 在 line ~236 与 DISABLE_5M_CONFIRM 一起声明, 由 _load_live_config 从 DB 加载
 # 末根 5m 反向放量过滤 (2026-04-26): 入场前最后一根 5m 反向跌幅 >= 此阈值则跳过
 # 6 天 94 笔统计: 该子集 23 笔, 胜率 43%, PF 0.71, 净 -467 USDT (整体 PF 1.26)
 # 砍掉后预期 PF 提升至约 1.45, 不影响 76% 正常 chase-entry 流量
@@ -227,6 +228,10 @@ LIVE_HARD_TP_PCT      = HARD_TP_PCT
 LIVE_LIMIT_OFFSET_PCT = 0.03   # 限价单挂单偏移
 LIVE_HOLD_H           = 6      # 最大持仓时长（小时）
 DISABLE_SL_TP_HOLD    = False  # 总开关: 新开仓不设 SL/TP/timeout, 且跳过进程内硬TP/移动TP检查
+# 2026-04-27: 总开关-禁用 5m 阴/阳收盘确认守卫(触发即成交). 走 system_settings.disable_5m_confirm.
+DISABLE_5M_CONFIRM    = False
+# 2026-04-27: 开关-允许 chase 接受慢爬入场. 走 system_settings.chase_allow_slow.
+CHASE_ALLOW_SLOW      = False
 
 
 def _load_live_config() -> None:
@@ -235,7 +240,7 @@ def _load_live_config() -> None:
     global CHASE_SL_PCT, TOP_SL_PCT, BOTLONG_SL_PCT, DUMP_SL_PCT
     global HARD_TP_PCT, LONG_HOLD_MIN, SHORT_HOLD_MIN
     global CHASE_MAX_HOLD, DUMP_MAX_HOLD, TOP_HOLD_H, BOTLONG_HOLD_H
-    global DISABLE_SL_TP_HOLD
+    global DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM, CHASE_ALLOW_SLOW
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -253,7 +258,8 @@ def _load_live_config() -> None:
                 cur.execute(
                     "SELECT setting_key, setting_value FROM system_settings "
                     "WHERE setting_key IN ('live_sl_pct','live_hard_tp_pct',"
-                    "'live_limit_offset_pct','live_hold_hours','disable_sl_tp_hold')"
+                    "'live_limit_offset_pct','live_hold_hours','disable_sl_tp_hold',"
+                    "'disable_5m_confirm','chase_allow_slow')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -264,6 +270,10 @@ def _load_live_config() -> None:
         LIVE_HOLD_H           = int(  rows.get('live_hold_hours',        LIVE_HOLD_H))
         _raw_disable = str(rows.get('disable_sl_tp_hold', '0')).strip().lower()
         DISABLE_SL_TP_HOLD = _raw_disable in ('1', 'true', 'yes', 'on')
+        _raw_5m = str(rows.get('disable_5m_confirm', '0')).strip().lower()
+        DISABLE_5M_CONFIRM = _raw_5m in ('1', 'true', 'yes', 'on')
+        _raw_slow = str(rows.get('chase_allow_slow', '0')).strip().lower()
+        CHASE_ALLOW_SLOW = _raw_slow in ('1', 'true', 'yes', 'on')
         CHASE_SL_PCT   = LIVE_SL_PCT
         TOP_SL_PCT     = LIVE_SL_PCT
         BOTLONG_SL_PCT = LIVE_SL_PCT
@@ -276,12 +286,16 @@ def _load_live_config() -> None:
         TOP_HOLD_H     = LIVE_HOLD_H
         BOTLONG_HOLD_H = LIVE_HOLD_H
         log.info(
-            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh disable_sl_tp_hold=%s",
+            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh disable_sl_tp_hold=%s disable_5m_confirm=%s chase_allow_slow=%s",
             LIVE_SL_PCT * 100, LIVE_HARD_TP_PCT * 100, LIVE_LIMIT_OFFSET_PCT * 100, LIVE_HOLD_H,
-            DISABLE_SL_TP_HOLD,
+            DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM, CHASE_ALLOW_SLOW,
         )
         if DISABLE_SL_TP_HOLD:
             log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/移动TP检查跳过 !!!")
+        if DISABLE_5M_CONFIRM:
+            log.warning("!!! DISABLE_5M_CONFIRM=ON: 限价单触发即成交, 跳过 5m 阴/阳确认 !!!")
+        if CHASE_ALLOW_SLOW:
+            log.warning("!!! CHASE_ALLOW_SLOW=ON: chase 接受慢爬入场, 跳过 leader_gain 3%% 阈值 !!!")
     except Exception as exc:
         log.error("_load_live_config 失败，使用默认值: %s", exc)
 
@@ -783,48 +797,52 @@ def _fill_pending_orders(conn):
         # 已触发: 等下一根 5m K 线收盘, 方向确认才成交
         # SHORT 需要阴线 (close < open), LONG 需要阳线 (close > open), 平 K 算逆向
         # 2026-04-25 替代原 30s 时间确认
-        first_seen_ms = _trigger_first_seen.get(o['id'])
-        if first_seen_ms is None:
-            _trigger_first_seen[o['id']] = int(time.time() * 1000)
-            log.info("限价单触发观察 %s %s cur=%.5f limit=%.5f (等下根 5m %s线收盘确认)",
-                     sym, side, cur_p, limit_p,
-                     '阴' if pos_side == 'SHORT' else '阳')
-            _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
-                             cur_price=cur_p, limit_price=limit_p,
-                             detail=f"side={side} 等{('阴' if pos_side == 'SHORT' else '阳')}线收盘确认")
-            continue
-        # 算下一根 5m bar 的起止 ms (5m bar = 300000 ms)
-        next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
-        next_bar_close_ms = next_bar_open_ms + 300000
-        if int(time.time() * 1000) < next_bar_close_ms:
-            continue  # 还没到下根 5m 收盘
-        # 取这根 5m bar
-        c_bar = conn.cursor()
-        c_bar.execute(
-            """SELECT open_price, close_price FROM kline_data
-               WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
-            (sym, next_bar_open_ms),
-        )
-        bar_row = c_bar.fetchone()
-        c_bar.close()
-        if not bar_row:
-            continue  # kline 数据延迟, 下一轮再查
-        bar_o = float(bar_row['open_price'])
-        bar_c = float(bar_row['close_price'])
-        confirm_ok = (pos_side == 'SHORT' and bar_c < bar_o) \
-                     or (pos_side == 'LONG' and bar_c > bar_o)
-        if not confirm_ok:
-            log.info("限价 5m 反向(%s) 不成交, 等下次触发: %s %s bar[o=%.5f c=%.5f]",
-                     '阴未现' if pos_side == 'SHORT' else '阳未现',
-                     sym, side, bar_o, bar_c)
-            _log_order_event(conn, o['order_id'], '5M_REJECT',
-                             cur_price=cur_p, limit_price=limit_p,
-                             bar_open=bar_o, bar_close=bar_c,
-                             detail=f"side={side} 需{('阴' if pos_side == 'SHORT' else '阳')}线 实际 close={bar_c} open={bar_o}")
+        # 2026-04-27: DISABLE_5M_CONFIRM=ON 时整段跳过, 触发即成交
+        if DISABLE_5M_CONFIRM:
             _trigger_first_seen.pop(o['id'], None)
-            continue
-        # 5m K 线方向确认通过, 进入成交流程
-        _trigger_first_seen.pop(o['id'], None)
+        else:
+            first_seen_ms = _trigger_first_seen.get(o['id'])
+            if first_seen_ms is None:
+                _trigger_first_seen[o['id']] = int(time.time() * 1000)
+                log.info("限价单触发观察 %s %s cur=%.5f limit=%.5f (等下根 5m %s线收盘确认)",
+                         sym, side, cur_p, limit_p,
+                         '阴' if pos_side == 'SHORT' else '阳')
+                _log_order_event(conn, o['order_id'], 'TRIGGER_OBSERVING',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 detail=f"side={side} 等{('阴' if pos_side == 'SHORT' else '阳')}线收盘确认")
+                continue
+            # 算下一根 5m bar 的起止 ms (5m bar = 300000 ms)
+            next_bar_open_ms  = (int(first_seen_ms) // 300000) * 300000 + 300000
+            next_bar_close_ms = next_bar_open_ms + 300000
+            if int(time.time() * 1000) < next_bar_close_ms:
+                continue  # 还没到下根 5m 收盘
+            # 取这根 5m bar
+            c_bar = conn.cursor()
+            c_bar.execute(
+                """SELECT open_price, close_price FROM kline_data
+                   WHERE symbol=%s AND timeframe='5m' AND open_time=%s LIMIT 1""",
+                (sym, next_bar_open_ms),
+            )
+            bar_row = c_bar.fetchone()
+            c_bar.close()
+            if not bar_row:
+                continue  # kline 数据延迟, 下一轮再查
+            bar_o = float(bar_row['open_price'])
+            bar_c = float(bar_row['close_price'])
+            confirm_ok = (pos_side == 'SHORT' and bar_c < bar_o) \
+                         or (pos_side == 'LONG' and bar_c > bar_o)
+            if not confirm_ok:
+                log.info("限价 5m 反向(%s) 不成交, 等下次触发: %s %s bar[o=%.5f c=%.5f]",
+                         '阴未现' if pos_side == 'SHORT' else '阳未现',
+                         sym, side, bar_o, bar_c)
+                _log_order_event(conn, o['order_id'], '5M_REJECT',
+                                 cur_price=cur_p, limit_price=limit_p,
+                                 bar_open=bar_o, bar_close=bar_c,
+                                 detail=f"side={side} 需{('阴' if pos_side == 'SHORT' else '阳')}线 实际 close={bar_c} open={bar_o}")
+                _trigger_first_seen.pop(o['id'], None)
+                continue
+            # 5m K 线方向确认通过, 进入成交流程
+            _trigger_first_seen.pop(o['id'], None)
         # 反向滑点熔断：LIMIT 被反向穿越过大时撤单，避免逆势进场
         if pos_side == 'LONG':
             reverse_slip = (limit_p - cur_p) / limit_p
@@ -1577,11 +1595,12 @@ def chase_tick(conn, sym):
             return
 
     # 急拉验证：窗口内须有至少一根 5m bar 单 bar 涨幅 >= 阈值，排除慢速爬升
+    # 2026-04-27: CHASE_ALLOW_SLOW=ON 时跳过此检查, 接受慢爬入场
     leader_gain = max(
         (float(b['close_price']) - float(b['open_price'])) / float(b['open_price'])
         for b in window_bars
     )
-    if leader_gain < CHASE_LEADER_BAR_MIN_PCT:
+    if not CHASE_ALLOW_SLOW and leader_gain < CHASE_LEADER_BAR_MIN_PCT:
         _chase_funnel['leader<3%'] += 1
         log.info("CHASE 跳过 %-18s: 最大单 bar 涨幅 %.1f%% < %.0f%%，慢速爬升不追",
                  sym, leader_gain * 100, CHASE_LEADER_BAR_MIN_PCT * 100)
