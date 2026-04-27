@@ -277,11 +277,12 @@ class LiveOrderMonitor:
             cursor.execute("SET time_zone = '+08:00'")
 
             # 查询状态为 PENDING 的限价单
-            # 数据流说明 (2026-04-25):
+            # 数据流说明 (2026-04-25, 2026-04-27 修关联字段):
             #   - live_futures_positions.stop_loss_price / take_profit_price 经常 NULL
             #     (paper_limit_sync_service 在 sl_pct/tp_pct 计算失败时会传 None)
             #   - 真实 SL/TP 在 paper 主表 futures_positions, 由策略层维护 (含 trail-tp 更新)
-            #   - 通过 binance_order_id 关联: live_futures_positions <-> futures_orders <-> futures_positions
+            #   - 关联走 live_futures_positions.paper_position_id -> futures_positions.id
+            #     (原版尝试经过 futures_orders.binance_order_id, 但 futures_orders 无此字段, 永远报错)
             #   - COALESCE 优先用 live 表自身值, 缺失时回退到 paper 表值
             #
             # 时间过滤 (created_at >= NOW() - INTERVAL 30 MINUTE):
@@ -299,11 +300,8 @@ class LiveOrderMonitor:
                        0 AS timeout_minutes,
                        TIMESTAMPDIFF(SECOND, p.created_at, NOW()) as elapsed_seconds
                 FROM live_futures_positions p
-                LEFT JOIN futures_orders fo
-                       ON fo.binance_order_id = p.binance_order_id
-                      AND fo.live_sync_status = 'SYNCED'
                 LEFT JOIN futures_positions fp
-                       ON fp.id = fo.position_id
+                       ON fp.id = p.paper_position_id
                 WHERE p.status = 'PENDING'
                   AND p.binance_order_id IS NOT NULL
                   AND p.created_at >= NOW() - INTERVAL 30 MINUTE
