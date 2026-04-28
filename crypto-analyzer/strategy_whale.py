@@ -1313,6 +1313,8 @@ def get_universe(cur) -> list:
     syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _bl]
 
     # 补充: 活跃 kline 品种 (防 price_stats 尚未更新)
+    # 2026-04-28 修复: 原 syms = [...] 写在 if 外面无缩进, 导致 query 1 已 drain
+    # 后再次 fetchall() 返回空, syms 被空列表覆盖, log 永远 "品种列表刷新: 0 个".
     if len(syms) < 10:
         cur.execute("""
             SELECT DISTINCT symbol FROM kline_data
@@ -1321,7 +1323,7 @@ def get_universe(cur) -> list:
             LIMIT 200
         """)
         _bl = _effective_blacklist()
-    syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _bl]
+        syms = [r['symbol'] for r in cur.fetchall() if r['symbol'] not in _bl]
 
     _sym_cache.update({'syms': syms, 'ts': now})
     log.info("品种列表刷新: %d 个", len(syms))
