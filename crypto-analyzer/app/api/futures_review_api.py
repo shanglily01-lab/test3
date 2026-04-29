@@ -1480,436 +1480,97 @@ async def get_opportunity_analysis(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/kline-signal-analysis")
-async def get_kline_signal_analysis(
-    hours: int = Query(24, description="时间范围(小时)")
+@router.get("/strategy-winrate")
+async def get_strategy_winrate(
+    account_id: int = Query(2, description="账户ID: 1=实盘, 2=模拟"),
+    hours: int = Query(24, ge=1, le=2160, description="时间窗(小时), 默认24h, 上限90天")
 ):
     """
-    K线信号分析API - 获取最新的K线强度 + 信号捕捉分析
-    
-    返回数据包括:
-    - 总体统计（捕获率、机会数、错过数）
-    - Top强力信号（1H/15M/5M K线强度）
-    - 错过的高质量机会
-    - 历史趋势
+    策略胜率评估 API - 按 source (子策略) 分组统计已平仓位的盈亏
+
+    返回:
+      summary    整体合计 (n / wins / losses / win_rate / total_pnl / pf / sum_wins / sum_losses)
+      strategies 每个 source 的同样统计, 按 total_pnl 降序
     """
     try:
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        # 获取最新的分析报告
-        cursor.execute("""
-            SELECT 
-                id,
-                analysis_time,
-                total_analyzed,
-                has_position,
-                should_trade,
-                missed_opportunities,
-                wrong_direction,
-                correct_captures,
-                capture_rate,
-                report_json,
-                created_at
-            FROM signal_analysis_reports
-            ORDER BY analysis_time DESC
-            LIMIT 1
-        """)
-
-        latest_report = cursor.fetchone()
-
-        if not latest_report:
-            return {
-                "success": True,
-                "data": {
-                    "has_data": False,
-                    "message": "暂无信号分析数据，请等待首次分析完成"
-                }
-            }
-
-        # 解析JSON数据
-        import json
-        report_data = json.loads(latest_report['report_json']) if latest_report.get('report_json') else {}
-
-        # 获取历史趋势（最近7次）
-        cursor.execute("""
-            SELECT 
-                analysis_time,
-                total_analyzed,
-                should_trade,
-                has_position,
-                missed_opportunities,
-                capture_rate
-            FROM signal_analysis_reports
-            ORDER BY analysis_time DESC
-            LIMIT 7
-        """)
-
-        history = cursor.fetchall()
-
-        # 处理Top机会数据
-        top_opportunities = report_data.get('top_opportunities', [])[:15]
-        
-        # 格式化Top机会
-        formatted_opportunities = []
-        for opp in top_opportunities:
-            s1h = opp.get('strength_1h', {})
-            s15m = opp.get('strength_15m', {})
-            s5m = opp.get('strength_5m', {})
-            sig = opp.get('signal_status', {})
-            
-            # 判断多空倾向
-            net_power = s1h.get('net_power', 0)
-            bull_pct = s1h.get('bull_pct', 50)
-            
-            if net_power >= 3:
-                trend = '强多'
-            elif net_power <= -3:
-                trend = '强空'
-            elif bull_pct > 55:
-                trend = '偏多'
-            elif bull_pct < 45:
-                trend = '偏空'
-            else:
-                trend = '震荡'
-            
-            # 判断捕捉状态
-            has_pos = sig.get('has_position', False)
-            if has_pos:
-                position = sig.get('position', {})
-                status = f"已捕捉({position.get('position_side', 'N/A')})"
-                status_type = 'captured'
-            else:
-                status = "错过"
-                status_type = 'missed'
-            
-            formatted_opportunities.append({
-                'symbol': opp.get('symbol', 'N/A'),
-                'trend': trend,
-                'status': status,
-                'status_type': status_type,
-                'kline_1h': {
-                    'bull_pct': s1h.get('bull_pct', 0),
-                    'bull': s1h.get('bull', 0),
-                    'total': s1h.get('total', 0),
-                    'strong_bull': s1h.get('strong_bull', 0),
-                    'strong_bear': s1h.get('strong_bear', 0),
-                    'net_power': s1h.get('net_power', 0)
-                },
-                'kline_15m': {
-                    'bull_pct': s15m.get('bull_pct', 0),
-                    'bull': s15m.get('bull', 0),
-                    'total': s15m.get('total', 0),
-                    'strong_bull': s15m.get('strong_bull', 0),
-                    'strong_bear': s15m.get('strong_bear', 0),
-                    'net_power': s15m.get('net_power', 0)
-                },
-                'kline_5m': {
-                    'bull_pct': s5m.get('bull_pct', 0),
-                    'bull': s5m.get('bull', 0),
-                    'total': s5m.get('total', 0),
-                    'strong_bull': s5m.get('strong_bull', 0),
-                    'strong_bear': s5m.get('strong_bear', 0),
-                    'net_power': s5m.get('net_power', 0)
-                }
-            })
-
-        # 处理错过机会数据
-        missed_opportunities = report_data.get('missed_opportunities', [])[:10]
-        
-        formatted_missed = []
-        for missed in missed_opportunities:
-            formatted_missed.append({
-                'symbol': missed.get('symbol', 'N/A'),
-                'side': missed.get('side', 'N/A'),
-                'reason': missed.get('reason', ''),
-                'net_power_1h': missed.get('net_power_1h', 0),
-                'net_power_15m': missed.get('net_power_15m', 0),
-                'net_power_5m': missed.get('net_power_5m', 0),
-                'possible_reasons': missed.get('possible_reasons', [])
-            })
-
-        # 处理历史趋势
-        history_data = []
-        for h in history:
-            history_data.append({
-                'time': h['analysis_time'].strftime('%m-%d %H:%M'),
-                'total_analyzed': h['total_analyzed'],
-                'should_trade': h['should_trade'],
-                'has_position': h['has_position'],
-                'missed_opportunities': h['missed_opportunities'],
-                'capture_rate': float(h['capture_rate'])
-            })
-
-        cursor.close()
-        conn.close()
-
-        return {
-            "success": True,
-            "data": {
-                "has_data": True,
-                "analysis_time": latest_report['analysis_time'].strftime('%Y-%m-%d %H:%M:%S'),
-                "summary": {
-                    "total_analyzed": latest_report['total_analyzed'],
-                    "has_position": latest_report['has_position'],
-                    "should_trade": latest_report['should_trade'],
-                    "missed_opportunities": latest_report['missed_opportunities'],
-                    "wrong_direction": latest_report['wrong_direction'],
-                    "correct_captures": latest_report['correct_captures'],
-                    "capture_rate": float(latest_report['capture_rate'])
-                },
-                "top_opportunities": formatted_opportunities,
-                "missed_opportunities": formatted_missed,
-                "history": history_data
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"获取K线信号分析失败: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-@router.get("/realtime-opportunity-analysis")
-async def get_realtime_opportunity_analysis(
-    account_id: int = Query(2, description="账户ID: 1=实盘, 2=模拟")
-):
-    """
-    实时机会分析API - 展示当前信号评分和持仓对比
-
-    返回数据包括:
-    - 当前所有交易对的信号评分
-    - 已开仓的信号（捕获到的机会）
-    - 未开仓的强信号（错过的机会）
-    - 错过原因分析（黑名单、评分不够、资金不足等）
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # 初始化信号分析服务
-        signal_service = SignalAnalysisService(db_config)
-
-        # 1. 获取监控列表中的所有交易对（从K线数据表获取最近活跃的交易对）
-        cursor.execute("""
-            SELECT DISTINCT symbol
-            FROM kline_data
-            WHERE timeframe = '1h'
-            AND timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            ORDER BY symbol
-        """)
-        monitored_symbols = [row['symbol'] for row in cursor.fetchall()]
-
-        if not monitored_symbols:
-            return {
-                "success": True,
-                "data": {
-                    "has_data": False,
-                    "message": "暂无监控交易对"
-                }
-            }
-
-        # 2. 获取当前所有持仓
-        cursor.execute("""
-            SELECT
-                symbol,
-                position_side,
-                margin,
-                quantity,
-                entry_price,
-                unrealized_pnl,
-                created_at,
-                entry_reason
+        cursor.execute(
+            """
+            SELECT id, symbol, position_side, source, realized_pnl
             FROM futures_positions
             WHERE account_id = %s
-            AND status IN ('open', 'building')
-        """, (account_id,))
-
-        current_positions = cursor.fetchall()
-        position_symbols = {pos['symbol']: pos for pos in current_positions}
-
-        # 3. 获取交易黑名单 (从 trading_symbol_rating)
-        cursor.execute("""
-            SELECT symbol, level_change_reason, rating_level, margin_multiplier, created_at
-            FROM trading_symbol_rating
-            WHERE rating_level >= 1
-            ORDER BY rating_level DESC
-        """)
-        blacklist = {
-            row['symbol']: {
-                'reason': row['level_change_reason'],
-                'level': row['rating_level'],
-                'margin_multiplier': row['margin_multiplier']
-            }
-            for row in cursor.fetchall()
-        }
-
-        # 4. 获取账户余额
-        cursor.execute("""
-            SELECT current_balance
-            FROM futures_trading_accounts
-            WHERE id = %s
-        """, (account_id,))
-        account_balance = cursor.fetchone()
-        available_balance = float(account_balance['current_balance']) if account_balance else 0
-
-        # 5. 分析每个交易对的信号强度
-        all_signals = []
-        captured_signals = []
-        missed_opportunities = []
-
-        for symbol in monitored_symbols:
-            # 分析K线强度
-            strength_1h = signal_service.analyze_kline_strength(symbol, '1h', 24)
-            strength_15m = signal_service.analyze_kline_strength(symbol, '15m', 24)
-            strength_5m = signal_service.analyze_kline_strength(symbol, '5m', 24)
-
-            if not all([strength_1h, strength_15m, strength_5m]):
-                continue
-
-            # 计算综合信号强度
-            net_power_1h = strength_1h['net_power']
-            net_power_15m = strength_15m['net_power']
-            net_power_5m = strength_5m['net_power']
-
-            # 判断信号方向和强度
-            signal_direction = None
-            signal_strength = 0
-            signal_quality = "弱"
-
-            # 强多信号：1H和15M都看多
-            if net_power_1h >= 3 and net_power_15m >= 2:
-                signal_direction = 'LONG'
-                signal_strength = abs(net_power_1h) + abs(net_power_15m) * 0.5
-                if net_power_1h >= 5 and net_power_15m >= 3:
-                    signal_quality = "强"
-                else:
-                    signal_quality = "中"
-
-            # 强空信号：1H和15M都看空
-            elif net_power_1h <= -3 and net_power_15m <= -2:
-                signal_direction = 'SHORT'
-                signal_strength = abs(net_power_1h) + abs(net_power_15m) * 0.5
-                if net_power_1h <= -5 and net_power_15m <= -3:
-                    signal_quality = "强"
-                else:
-                    signal_quality = "中"
-
-            signal_data = {
-                'symbol': symbol,
-                'signal_direction': signal_direction,
-                'signal_strength': signal_strength,
-                'signal_quality': signal_quality,
-                'net_power_1h': net_power_1h,
-                'net_power_15m': net_power_15m,
-                'net_power_5m': net_power_5m,
-                'kline_1h': strength_1h,
-                'kline_15m': strength_15m,
-                'kline_5m': strength_5m,
-                'has_position': symbol in position_symbols,
-                'position_info': position_symbols.get(symbol),
-                'in_blacklist': symbol in blacklist,
-                'blacklist_reason': blacklist.get(symbol)
-            }
-
-            all_signals.append(signal_data)
-
-            # 6. 判断是否捕获或错过
-            if signal_direction:  # 有明确信号
-                if symbol in position_symbols:
-                    # 已开仓
-                    pos = position_symbols[symbol]
-                    is_correct_direction = (
-                        (signal_direction == 'LONG' and pos['position_side'] == 'LONG') or
-                        (signal_direction == 'SHORT' and pos['position_side'] == 'SHORT')
-                    )
-
-                    captured_signals.append({
-                        **signal_data,
-                        'captured': True,
-                        'correct_direction': is_correct_direction,
-                        'status': '✅ 正确捕获' if is_correct_direction else '⚠️ 方向错误'
-                    })
-                else:
-                    # 未开仓，分析原因
-                    miss_reasons = []
-
-                    if symbol in blacklist:
-                        bl_info = blacklist[symbol]
-                        miss_reasons.append(f'黑名单Level{bl_info["level"]}: {bl_info["reason"]}')
-
-                    if signal_quality == "弱":
-                        miss_reasons.append('信号强度不足')
-                    elif signal_quality == "中" and signal_strength < 8:
-                        miss_reasons.append('评分未达开仓阈值')
-
-                    if available_balance < 100:
-                        miss_reasons.append('资金不足')
-
-                    if not miss_reasons:
-                        miss_reasons.append('未产生开仓信号或系统未识别')
-
-                    # 只记录强信号和中信号
-                    if signal_quality in ["强", "中"]:
-                        missed_opportunities.append({
-                            **signal_data,
-                            'captured': False,
-                            'miss_reasons': miss_reasons,
-                            'main_reason': miss_reasons[0]
-                        })
-
-        # 7. 按信号强度排序
-        all_signals.sort(key=lambda x: abs(x['signal_strength']), reverse=True)
-        captured_signals.sort(key=lambda x: abs(x['signal_strength']), reverse=True)
-        missed_opportunities.sort(key=lambda x: abs(x['signal_strength']), reverse=True)
-
-        # 8. 统计错过原因
-        miss_reason_stats = {}
-        for missed in missed_opportunities:
-            for reason in missed['miss_reasons']:
-                if reason not in miss_reason_stats:
-                    miss_reason_stats[reason] = {
-                        'count': 0,
-                        'examples': []
-                    }
-                miss_reason_stats[reason]['count'] += 1
-                if len(miss_reason_stats[reason]['examples']) < 3:
-                    miss_reason_stats[reason]['examples'].append({
-                        'symbol': missed['symbol'],
-                        'direction': missed['signal_direction'],
-                        'strength': round(missed['signal_strength'], 1),
-                        'quality': missed['signal_quality']
-                    })
-
-        # 9. 返回数据
+              AND status = 'closed'
+              AND close_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+              AND source LIKE 'strategy%%'
+            """,
+            (account_id, hours),
+        )
+        rows = cursor.fetchall()
         cursor.close()
         conn.close()
+
+        def _block(items):
+            if not items:
+                return None
+            pnls = [float(r["realized_pnl"] or 0) for r in items]
+            wins = [p for p in pnls if p > 0]
+            losses = [p for p in pnls if p < 0]
+            sum_wins = sum(wins)
+            sum_losses = sum(losses)  # negative
+            total = sum(pnls)
+            n = len(pnls)
+            if sum_losses < 0:
+                pf_val = sum_wins / -sum_losses
+                pf = round(pf_val, 3)
+            else:
+                pf = None  # no losses -> infinite, return null
+            return {
+                "n": n,
+                "wins": len(wins),
+                "losses": len(losses),
+                "win_rate": round(len(wins) / n * 100, 2) if n else 0.0,
+                "total_pnl": round(total, 2),
+                "avg_pnl": round(total / n, 2) if n else 0.0,
+                "max_win": round(max(pnls), 2) if pnls else 0.0,
+                "max_loss": round(min(pnls), 2) if pnls else 0.0,
+                "sum_wins": round(sum_wins, 2),
+                "sum_losses": round(sum_losses, 2),
+                "pf": pf,
+            }
+
+        summary = _block(rows) or {
+            "n": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+            "total_pnl": 0.0, "avg_pnl": 0.0, "max_win": 0.0,
+            "max_loss": 0.0, "sum_wins": 0.0, "sum_losses": 0.0, "pf": None,
+        }
+
+        from collections import defaultdict
+        by_src = defaultdict(list)
+        for r in rows:
+            by_src[r["source"] or "(unknown)"].append(r)
+
+        strategies = []
+        for src, items in by_src.items():
+            blk = _block(items)
+            if blk:
+                blk["source"] = src
+                strategies.append(blk)
+        strategies.sort(key=lambda x: x["total_pnl"], reverse=True)
 
         return {
             "success": True,
             "data": {
-                "has_data": True,
-                "analysis_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "summary": {
-                    "total_monitored": len(monitored_symbols),
-                    "total_signals": len([s for s in all_signals if s['signal_direction']]),
-                    "strong_signals": len([s for s in all_signals if s['signal_quality'] == '强']),
-                    "captured": len(captured_signals),
-                    "correct_captures": len([s for s in captured_signals if s.get('correct_direction', False)]),
-                    "wrong_direction": len([s for s in captured_signals if not s.get('correct_direction', True)]),
-                    "missed": len(missed_opportunities),
-                    "capture_rate": round(len(captured_signals) / len([s for s in all_signals if s['signal_direction']]) * 100, 1) if [s for s in all_signals if s['signal_direction']] else 0,
-                    "available_balance": available_balance,
-                    "blacklist_count": len(blacklist)
-                },
-                "all_signals": all_signals[:30],  # 前30个信号
-                "captured_signals": captured_signals,
-                "missed_opportunities": missed_opportunities[:20],  # 前20个错过的机会
-                "miss_reason_stats": miss_reason_stats
-            }
+                "window_hours": hours,
+                "account_id": account_id,
+                "summary": summary,
+                "strategies": strategies,
+            },
         }
 
     except Exception as e:
-        logger.error(f"获取实时机会分析失败: {e}")
+        logger.error(f"获取策略胜率评估失败: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

@@ -188,8 +188,7 @@
   <button id="tab-trades"      onclick="switchTab('trades')"      class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">交易记录</button>
   <button id="tab-analysis"    onclick="switchTab('analysis')"    class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">原因分析</button>
   <button id="tab-suggestions" onclick="switchTab('suggestions')" class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">智能建议</button>
-  <button id="tab-signals"     onclick="switchTab('signals')"     class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">信号质量</button>
-  <button id="tab-opportunity" onclick="switchTab('opportunity')" class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">机会分析</button>
+  <button id="tab-strategy-winrate" onclick="switchTab('strategy-winrate')" class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">策略胜率评估</button>
   <button id="tab-dailypnl"    onclick="switchTab('dailypnl')"    class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">每日盈亏</button>
   <button id="tab-retro"       onclick="switchTab('retro')"       class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">历史复盘</button>
   <button id="tab-symbols"     onclick="switchTab('symbols')"     class="tab-btn px-5 py-4 text-[10px] font-['Space_Grotesk'] font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-on-surface whitespace-nowrap transition-all">交易对表现</button>
@@ -352,111 +351,65 @@
     </div>
   </div>
 
-  <!-- ============ SIGNALS ============ -->
-  <div id="pane-signals" class="tab-pane space-y-6">
-    <div class="bg-surface-container-low rounded-xl p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant">信号组件健康度</h3>
-        <span id="sig-health-badge2" class="text-xs px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant">--</span>
+  <!-- ============ STRATEGY WINRATE ============ -->
+  <div id="pane-strategy-winrate" class="tab-pane space-y-6">
+    <!-- 时间窗切换 -->
+    <div class="flex items-center gap-3">
+      <span class="text-[10px] uppercase text-on-surface-variant tracking-wider">时间窗</span>
+      <button data-hours="24"  class="sw-range-btn px-3 py-1.5 rounded-md text-xs font-medium border border-outline-variant/30 text-on-surface-variant hover:text-on-surface transition-all">24h</button>
+      <button data-hours="168" class="sw-range-btn px-3 py-1.5 rounded-md text-xs font-medium border border-outline-variant/30 text-on-surface-variant hover:text-on-surface transition-all">7d</button>
+      <button data-hours="720" class="sw-range-btn px-3 py-1.5 rounded-md text-xs font-medium border border-outline-variant/30 text-on-surface-variant hover:text-on-surface transition-all">30d</button>
+      <span id="sw-window-hint" class="text-xs text-on-surface-variant ml-2">--</span>
+    </div>
+    <!-- 整体合计 -->
+    <div class="grid grid-cols-6 gap-4">
+      <div class="bg-surface-container-low rounded-xl p-5">
+        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">总笔数</p>
+        <p class="mono text-2xl font-medium text-on-surface" id="sw-sum-n">--</p>
       </div>
-      <div id="sig-analysis-list2" class="space-y-3">
-        <p class="text-xs text-on-surface-variant">加载中...</p>
+      <div class="bg-surface-container-low rounded-xl p-5">
+        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">胜率</p>
+        <p class="mono text-2xl font-medium text-on-surface" id="sw-sum-wr">--</p>
+      </div>
+      <div class="bg-surface-container-low rounded-xl p-5">
+        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">总盈亏 (U)</p>
+        <p class="mono text-2xl font-medium" id="sw-sum-pnl">--</p>
+      </div>
+      <div class="bg-surface-container-low rounded-xl p-5">
+        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">PF</p>
+        <p class="mono text-2xl font-medium text-on-surface" id="sw-sum-pf">--</p>
+      </div>
+      <div class="bg-surface-container-low rounded-xl p-5">
+        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">盈和 (U)</p>
+        <p class="mono text-2xl font-medium text-primary" id="sw-sum-wins">--</p>
+      </div>
+      <div class="bg-surface-container-low rounded-xl p-5">
+        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">亏和 (U)</p>
+        <p class="mono text-2xl font-medium text-error" id="sw-sum-losses">--</p>
       </div>
     </div>
-    <div id="kline-signal-stats" class="grid grid-cols-4 gap-4">
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">K线回调信号</p>
-        <p class="mono text-2xl font-medium text-on-surface" id="ks-total">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">触发成功</p>
-        <p class="mono text-2xl font-medium text-primary" id="ks-triggered">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">平均得分</p>
-        <p class="mono text-2xl font-medium text-secondary" id="ks-avg-score">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">触发率</p>
-        <p class="mono text-2xl font-medium text-on-surface" id="ks-rate">--</p>
-      </div>
-    </div>
-    <div class="grid grid-cols-2 gap-6">
-      <div class="bg-surface-container-low rounded-xl p-6">
-        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant mb-4">TOP 信号</h3>
-        <div id="kline-top-signals" class="space-y-2">
-          <p class="text-xs text-on-surface-variant">暂无数据</p>
-        </div>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-6">
-        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant mb-4">遗漏信号</h3>
-        <div id="kline-missed-signals" class="space-y-2">
-          <p class="text-xs text-on-surface-variant">暂无数据</p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============ OPPORTUNITY ============ -->
-  <div id="pane-opportunity" class="tab-pane space-y-6">
-    <!-- 统计概览 -->
-    <div class="grid grid-cols-5 gap-4">
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">监控交易对</p>
-        <p class="mono text-2xl font-medium text-on-surface" id="opp-total-monitored">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">有效信号</p>
-        <p class="mono text-2xl font-medium text-on-surface" id="opp-total-signals">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">已捕获</p>
-        <p class="mono text-2xl font-medium text-primary" id="opp-captured">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">已错过</p>
-        <p class="mono text-2xl font-medium text-error" id="opp-missed">--</p>
-      </div>
-      <div class="bg-surface-container-low rounded-xl p-5">
-        <p class="text-[10px] uppercase text-on-surface-variant tracking-wider mb-2">捕获率</p>
-        <p class="mono text-2xl font-medium text-secondary" id="opp-rate">--</p>
-      </div>
-    </div>
-    <div class="grid grid-cols-2 gap-6">
-      <!-- 错过原因 -->
-      <div class="bg-surface-container-low rounded-xl p-6">
-        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant mb-4">遗漏原因分布</h3>
-        <div id="opp-miss-reasons" class="space-y-2">
-          <p class="text-xs text-on-surface-variant">加载中...</p>
-        </div>
-      </div>
-      <!-- 已捕获信号 -->
-      <div class="bg-surface-container-low rounded-xl p-6">
-        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant mb-4">已捕获信号</h3>
-        <div id="opp-captured-list" class="space-y-2">
-          <p class="text-xs text-on-surface-variant">加载中...</p>
-        </div>
-      </div>
-    </div>
-    <!-- 错过的机会明细 -->
+    <!-- 子策略表格 -->
     <div class="bg-surface-container-low rounded-xl overflow-hidden">
       <div class="px-6 py-4 border-b border-outline-variant/20">
-        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant">错过的强信号</h3>
+        <h3 class="text-sm font-['Space_Grotesk'] font-bold uppercase tracking-widest text-on-surface-variant">按子策略 (source) 分组 — 按总盈亏降序</h3>
       </div>
-      <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
+      <div class="overflow-x-auto max-h-[560px] overflow-y-auto">
         <table class="w-full text-xs">
           <thead class="bg-surface-container sticky top-0 z-10">
             <tr class="border-b border-outline-variant/20">
-              <th class="px-4 py-3 text-left text-[10px] uppercase text-on-surface-variant tracking-wider">交易对</th>
-              <th class="px-4 py-3 text-left text-[10px] uppercase text-on-surface-variant tracking-wider">方向</th>
-              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">信号强度</th>
-              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">1H力度</th>
-              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">15M力度</th>
-              <th class="px-4 py-3 text-left text-[10px] uppercase text-on-surface-variant tracking-wider">错过原因</th>
+              <th class="px-4 py-3 text-left  text-[10px] uppercase text-on-surface-variant tracking-wider">子策略 (source)</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">笔数</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">盈/亏</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">胜率</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">总盈亏 (U)</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">avg (U)</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">PF</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">最大盈 (U)</th>
+              <th class="px-4 py-3 text-right text-[10px] uppercase text-on-surface-variant tracking-wider">最大亏 (U)</th>
             </tr>
           </thead>
-          <tbody id="opp-missed-body">
-            <tr><td colspan="6" class="px-4 py-6 text-center text-on-surface-variant text-xs">暂无数据</td></tr>
+          <tbody id="sw-strategy-body">
+            <tr><td colspan="9" class="px-4 py-6 text-center text-on-surface-variant text-xs">加载中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -758,8 +711,7 @@ function loadTabData(name) {
   else if (name === 'trades') { loadTrades(); }
   else if (name === 'analysis') { loadAnalysis(); }
   else if (name === 'suggestions') { loadSuggestions(); }
-  else if (name === 'signals') { loadSignals(); }
-  else if (name === 'opportunity') { loadOpportunity(); }
+  else if (name === 'strategy-winrate') { loadStrategyWinrate(swCurrentHours); }
   else if (name === 'dailypnl') { initMonthSelector(); loadDailyPnl(); }
   else if (name === 'retro') { loadRetro(); }
   else if (name === 'symbols') { loadSymbolsPerf(); }
@@ -1101,150 +1053,82 @@ function loadSuggestions() {
 }
 
 // ============================================================
-// SIGNALS
+// STRATEGY WINRATE
 // ============================================================
-function loadSignals() {
-  fetch('/api/futures/review/signal-analysis?account_id=' + accountId() + '&hours=' + currentHours)
-    .then(function(r){ return r.json(); })
-    .then(function(d) {
-      var items = signalStatsToArray(d);
-      renderSignalBars(items, 'sig-analysis-list2', 'sig-health-badge2');
-    })
-    .catch(function(e){ console.error('loadSignals sig error:', e); });
+var swCurrentHours = 24;
 
-  fetch('/api/futures/review/kline-signal-analysis?account_id=' + accountId() + '&hours=' + currentHours)
-    .then(function(r){ return r.json(); })
-    .then(function(d) {
-      var s = d.data || d || {};
-      var sum = s.summary || {};
-      var setT = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v !== undefined && v !== null ? v : '--'; };
-      setT('ks-total', sum.total_analyzed || s.total || '--');
-      setT('ks-triggered', sum.correct_captures !== undefined ? sum.correct_captures : (s.triggered || '--'));
-      setT('ks-avg-score', sum.capture_rate !== undefined ? fmtNum(sum.capture_rate, 1)+'%' : '--');
-      var rate = sum.capture_rate !== undefined ? fmtNum(sum.capture_rate, 1)+'%' : '--';
-      setT('ks-rate', rate);
-      var topEl = document.getElementById('kline-top-signals');
-      if (topEl) {
-        var top = s.top_opportunities || s.top_signals || [];
-        if (!top.length) { topEl.innerHTML = '<p class="text-xs text-on-surface-variant">暂无数据</p>'; }
-        else {
-          topEl.innerHTML = top.slice(0, 8).map(function(t) {
-            var trend = t.trend || '';
-            var statusColor = t.status_type === 'captured' ? 'text-primary' : 'text-on-surface-variant';
-            return '<div class="flex justify-between items-center py-1.5 border-b border-outline-variant/10 text-xs">' +
-              '<span class="text-on-surface">' + shortSym(t.symbol || '--') + '</span>' +
-              '<span class="text-on-surface-variant">' + trend + '</span>' +
-              '<span class="mono ' + statusColor + '">' + (t.status || '--') + '</span></div>';
-          }).join('');
-        }
-      }
-      var missEl = document.getElementById('kline-missed-signals');
-      if (missEl) {
-        var missed = s.missed_opportunities || s.missed_signals || [];
-        if (!missed.length) { missEl.innerHTML = '<p class="text-xs text-on-surface-variant">暂无数据</p>'; }
-        else {
-          missEl.innerHTML = missed.slice(0, 8).map(function(m) {
-            var reasons = m.possible_reasons && m.possible_reasons.length ? m.possible_reasons[0] : (m.reason || '--');
-            return '<div class="flex justify-between items-center py-1.5 border-b border-outline-variant/10 text-xs">' +
-              '<span class="text-on-surface">' + shortSym(m.symbol || '--') + '</span>' +
-              '<span class="text-on-surface-variant truncate max-w-[200px]">' + reasons + '</span></div>';
-          }).join('');
-        }
-      }
-    })
-    .catch(function(e){ console.error('loadSignals kline error:', e); });
-}
+function loadStrategyWinrate(hours) {
+  if (hours) swCurrentHours = hours;
+  // 切换按钮 active 高亮
+  document.querySelectorAll('.sw-range-btn').forEach(function(b) {
+    var active = parseInt(b.getAttribute('data-hours'), 10) === swCurrentHours;
+    b.classList.toggle('bg-primary/15', active);
+    b.classList.toggle('text-primary', active);
+    b.classList.toggle('border-primary/40', active);
+    b.classList.toggle('text-on-surface-variant', !active);
+  });
+  var hint = document.getElementById('sw-window-hint');
+  if (hint) hint.textContent = '最近 ' + (swCurrentHours < 168 ? swCurrentHours + 'h' : (swCurrentHours / 24) + ' 天') + ' 已平仓位';
 
-// ============================================================
-// OPPORTUNITY
-// ============================================================
-function loadOpportunity() {
-  fetch('/api/futures/review/realtime-opportunity-analysis?account_id=' + accountId())
+  fetch('/api/futures/review/strategy-winrate?account_id=' + accountId() + '&hours=' + swCurrentHours)
     .then(function(r){ return r.json(); })
     .then(function(d) {
-      var s = d.data || d || {};
-      if (!s.has_data) {
-        document.getElementById('opp-miss-reasons').innerHTML = '<p class="text-xs text-on-surface-variant">' + (s.message || '暂无数据') + '</p>';
+      var data = d.data || {};
+      var sum = data.summary || {};
+      var setT = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = (v === undefined || v === null) ? '--' : v; };
+      var pnlClass = function(v) { return v > 0 ? 'text-primary' : (v < 0 ? 'text-error' : 'text-on-surface'); };
+
+      setT('sw-sum-n',  sum.n || 0);
+      setT('sw-sum-wr', (sum.win_rate !== undefined ? fmtNum(sum.win_rate, 1) + '%' : '--'));
+      var pnlEl = document.getElementById('sw-sum-pnl');
+      if (pnlEl) {
+        pnlEl.textContent = (sum.total_pnl >= 0 ? '+' : '') + fmtNum(sum.total_pnl || 0, 2);
+        pnlEl.className = 'mono text-2xl font-medium ' + pnlClass(sum.total_pnl || 0);
+      }
+      setT('sw-sum-pf', sum.pf === null || sum.pf === undefined ? '∞' : fmtNum(sum.pf, 2));
+      setT('sw-sum-wins',   '+' + fmtNum(sum.sum_wins || 0, 2));
+      setT('sw-sum-losses', fmtNum(sum.sum_losses || 0, 2));
+
+      var body = document.getElementById('sw-strategy-body');
+      if (!body) return;
+      var rows = data.strategies || [];
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="9" class="px-4 py-6 text-center text-on-surface-variant text-xs">该时间窗内无已平仓位</td></tr>';
         return;
       }
-      var sum = s.summary || {};
-      var setT = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v !== undefined && v !== null ? v : '--'; };
-      setT('opp-total-monitored', sum.total_monitored || '--');
-      setT('opp-total-signals', sum.total_signals || '--');
-      setT('opp-captured', sum.captured || '--');
-      setT('opp-missed', sum.missed || '--');
-      setT('opp-rate', sum.capture_rate !== undefined ? fmtNum(sum.capture_rate, 1) + '%' : '--');
-
-      // 错过原因
-      var mrEl = document.getElementById('opp-miss-reasons');
-      if (mrEl) {
-        var mrs = s.miss_reason_stats || {};
-        var mrsArr = Object.keys(mrs).map(function(k) { return { reason: k, count: mrs[k].count || 0 }; });
-        mrsArr.sort(function(a, b) { return b.count - a.count; });
-        if (!mrsArr.length) {
-          mrEl.innerHTML = '<p class="text-xs text-on-surface-variant">暂无遗漏记录</p>';
-        } else {
-          var maxCnt = mrsArr[0].count;
-          mrEl.innerHTML = mrsArr.slice(0, 10).map(function(m) {
-            var pct = maxCnt > 0 ? Math.round(m.count / maxCnt * 100) : 0;
-            return '<div class="space-y-1">' +
-              '<div class="flex justify-between text-xs"><span class="text-on-surface-variant truncate max-w-[200px]">' + m.reason + '</span>' +
-              '<span class="mono text-on-surface">' + m.count + '</span></div>' +
-              '<div class="bar-bg"><div class="bar-fill" style="width:' + pct + '%;background:#ff716c"></div></div>' +
-              '</div>';
-          }).join('');
-        }
-      }
-
-      // 已捕获信号
-      var capEl = document.getElementById('opp-captured-list');
-      if (capEl) {
-        var caps = s.captured_signals || [];
-        if (!caps.length) {
-          capEl.innerHTML = '<p class="text-xs text-on-surface-variant">暂无已捕获信号</p>';
-        } else {
-          capEl.innerHTML = caps.slice(0, 12).map(function(c) {
-            var dirColor = c.signal_direction === 'LONG' ? 'text-primary' : 'text-error';
-            var qColor = c.signal_quality === '强' ? '#49f4c8' : c.signal_quality === '中' ? '#FFD700' : '#a8abb2';
-            return '<div class="flex justify-between items-center py-1.5 border-b border-outline-variant/10 text-xs">' +
-              '<span class="text-on-surface font-medium">' + shortSym(c.symbol) + '</span>' +
-              '<span class="' + dirColor + ' font-bold text-[10px]">' + (c.signal_direction || '--') + '</span>' +
-              '<span class="text-[10px] font-bold" style="color:' + qColor + '">' + (c.signal_quality || '--') + '</span>' +
-              '<span class="mono text-on-surface-variant">' + fmtNum(c.signal_strength, 1) + '</span>' +
-              '</div>';
-          }).join('');
-        }
-      }
-
-      // 错过的强信号表格
-      var missBody = document.getElementById('opp-missed-body');
-      if (missBody) {
-        var missed = s.missed_opportunities || [];
-        if (!missed.length) {
-          missBody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-on-surface-variant text-xs">暂无错过的强信号</td></tr>';
-        } else {
-          missBody.innerHTML = missed.map(function(m) {
-            var dirColor = m.signal_direction === 'LONG' ? 'text-primary' : 'text-error';
-            var qColor = m.signal_quality === '强' ? 'text-primary' : 'text-yellow-400';
-            var reason = (m.miss_reasons && m.miss_reasons.length) ? m.miss_reasons[0] : (m.main_reason || '--');
-            var np1h = m.net_power_1h !== undefined ? fmtNum(m.net_power_1h, 1) : '--';
-            var np15m = m.net_power_15m !== undefined ? fmtNum(m.net_power_15m, 1) : '--';
-            var np1hColor = parseFloat(np1h) >= 0 ? 'text-primary' : 'text-error';
-            var np15mColor = parseFloat(np15m) >= 0 ? 'text-primary' : 'text-error';
-            return '<tr class="border-b border-outline-variant/10 hover:bg-surface-container transition-colors">' +
-              '<td class="px-4 py-3 text-on-surface font-medium">' + shortSym(m.symbol || '--') + '</td>' +
-              '<td class="px-4 py-3 ' + dirColor + ' font-bold text-[10px] uppercase">' + (m.signal_direction || '--') + '</td>' +
-              '<td class="px-4 py-3 text-right mono ' + qColor + '">' + (m.signal_quality || '--') + ' (' + fmtNum(m.signal_strength, 1) + ')</td>' +
-              '<td class="px-4 py-3 text-right mono ' + np1hColor + '">' + np1h + '</td>' +
-              '<td class="px-4 py-3 text-right mono ' + np15mColor + '">' + np15m + '</td>' +
-              '<td class="px-4 py-3 text-xs text-on-surface-variant truncate max-w-[200px]">' + reason + '</td>' +
-              '</tr>';
-          }).join('');
-        }
-      }
+      body.innerHTML = rows.map(function(r) {
+        var pnl = r.total_pnl || 0;
+        var avg = r.avg_pnl || 0;
+        var mw = r.max_win || 0;
+        var ml = r.max_loss || 0;
+        return '<tr class="border-b border-outline-variant/10 hover:bg-surface-container transition-colors">' +
+          '<td class="px-4 py-3 text-on-surface font-medium">' + (r.source || '--') + '</td>' +
+          '<td class="px-4 py-3 text-right mono text-on-surface">' + r.n + '</td>' +
+          '<td class="px-4 py-3 text-right mono text-on-surface-variant">' +
+            '<span class="text-primary">' + r.wins + '</span> / <span class="text-error">' + r.losses + '</span></td>' +
+          '<td class="px-4 py-3 text-right mono text-on-surface">' + fmtNum(r.win_rate, 1) + '%</td>' +
+          '<td class="px-4 py-3 text-right mono ' + pnlClass(pnl) + '">' + (pnl >= 0 ? '+' : '') + fmtNum(pnl, 2) + '</td>' +
+          '<td class="px-4 py-3 text-right mono ' + pnlClass(avg) + '">' + (avg >= 0 ? '+' : '') + fmtNum(avg, 2) + '</td>' +
+          '<td class="px-4 py-3 text-right mono text-on-surface">' + (r.pf === null || r.pf === undefined ? '∞' : fmtNum(r.pf, 2)) + '</td>' +
+          '<td class="px-4 py-3 text-right mono text-primary">+' + fmtNum(mw, 2) + '</td>' +
+          '<td class="px-4 py-3 text-right mono text-error">' + fmtNum(ml, 2) + '</td>' +
+          '</tr>';
+      }).join('');
     })
-    .catch(function(e){ console.error('loadOpportunity error:', e); });
+    .catch(function(e){
+      console.error('loadStrategyWinrate error:', e);
+      var body = document.getElementById('sw-strategy-body');
+      if (body) body.innerHTML = '<tr><td colspan="9" class="px-4 py-6 text-center text-error text-xs">加载失败: ' + (e.message || e) + '</td></tr>';
+    });
 }
+
+// 时间窗按钮点击
+document.addEventListener('click', function(e) {
+  if (e.target && e.target.classList && e.target.classList.contains('sw-range-btn')) {
+    var h = parseInt(e.target.getAttribute('data-hours'), 10);
+    if (h) loadStrategyWinrate(h);
+  }
+});
 
 // ============================================================
 // DAILY PNL
