@@ -1608,40 +1608,61 @@ async def coin_futures_trading_page():
 @app.get("/live_trading")
 async def live_trading_page(request: Request):
     """
-    实盘合约交易页面（注入JWT token供前端API鉴权）
+    实盘合约交易页面（2026-04-29: 免密自动签发 admin, 与手机版 /m/live 一致）
+
+    顺序:
+      1. Authorization header (已有 Bearer token 直接用)
+      2. mobile_session cookie (手机版同款 session)
+      3. 都没有 -> _get_auto_admin_session() 自动取 users 表里第一个 active admin
+      4. 仍取不到 (DB 连不上 / users 表空) -> 回退 /m/login
     """
     live_path = project_root / "templates" / "live_trading.html"
     if not live_path.exists():
         raise HTTPException(status_code=404, detail="Live trading page not found")
-    # 从 Authorization header 或 cookie 中读取已有token并注入页面
+
     access_token = ''
-    try:
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            access_token = auth_header[7:]
-        if not access_token:
-            # 尝试从 mobile_session cookie 生成token
-            user_id, role = _parse_mobile_session(request)
-            if user_id:
-                import pymysql as _pymysql, os as _os
-                from app.auth.auth_service import get_auth_service as _get_auth_service
-                _conn = _pymysql.connect(
-                    host=_os.getenv("DB_HOST", "localhost"), port=int(_os.getenv("DB_PORT", 3306)),
-                    user=_os.getenv("DB_USER", "root"), password=_os.getenv("DB_PASSWORD", ""),
-                    database=_os.getenv("DB_NAME", "binance-data"), cursorclass=_pymysql.cursors.DictCursor)
-                _cur = _conn.cursor()
-                _cur.execute("SELECT id, username, role FROM users WHERE id=%s", (user_id,))
-                _u = _cur.fetchone(); _cur.close(); _conn.close()
-                if _u:
-                    access_token = _get_auth_service().create_access_token(
-                        user_id=_u['id'], username=_u['username'], role=_u['role'])
-    except Exception:
-        pass
+    user_id = None
+    role = 'admin'
+    auto_token = None
+
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        access_token = auth_header[7:]
+
+    if not access_token:
+        user_id, role = _parse_mobile_session(request)
+        if user_id is None:
+            user_id, role, auto_token = _get_auto_admin_session()
+        if user_id is None:
+            return RedirectResponse(url="/m/login?next=/live_trading", status_code=302)
+
+        try:
+            import pymysql as _pymysql, os as _os
+            from app.auth.auth_service import get_auth_service as _get_auth_service
+            _conn = _pymysql.connect(
+                host=_os.getenv("DB_HOST", "localhost"), port=int(_os.getenv("DB_PORT", 3306)),
+                user=_os.getenv("DB_USER", "root"), password=_os.getenv("DB_PASSWORD", ""),
+                database=_os.getenv("DB_NAME", "binance-data"), cursorclass=_pymysql.cursors.DictCursor)
+            _cur = _conn.cursor()
+            _cur.execute("SELECT id, username, role FROM users WHERE id=%s", (user_id,))
+            _u = _cur.fetchone(); _cur.close(); _conn.close()
+            if _u:
+                access_token = _get_auth_service().create_access_token(
+                    user_id=_u['id'], username=_u['username'], role=_u['role'])
+        except Exception as e:
+            logger.error(f"live_trading_page 签发 JWT 失败: {e}")
+            access_token = ''
+
     html = live_path.read_text(encoding="utf-8")
-    inject = f'<script>window.__ACCESS_TOKEN__="{access_token}";</script>'
+    inject = (f'<script>window.__USER_ID__={user_id if user_id else "null"};'
+              f'window.__USER_ROLE__="{role}";'
+              f'window.__ACCESS_TOKEN__="{access_token}";</script>')
     html = html.replace("</head>", inject + "\n</head>", 1)
     from fastapi.responses import HTMLResponse
-    return HTMLResponse(html)
+    resp = HTMLResponse(html)
+    if auto_token:
+        resp.set_cookie('mobile_session', auto_token, max_age=86400 * 30, httponly=True, samesite='lax')
+    return resp
 
 
 @app.get("/futures_review")

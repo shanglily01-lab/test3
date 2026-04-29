@@ -968,12 +968,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Activate 7D button by default
     setHistoryDays(7);
 
-    // Check token
-    var token = window.__ACCESS_TOKEN__ || localStorage.getItem('auth_token') || localStorage.getItem('access_token');
-    if (!token) {
-        window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
-        return;
-    }
+    // 2026-04-29: 后端 /live_trading 路由已自动注入 admin token, 不再前端跳 /login
 
     // Restore saved api key id
     var savedId = parseInt(localStorage.getItem('active_api_key_id') || '0');
