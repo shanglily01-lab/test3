@@ -233,6 +233,16 @@ DISABLE_5M_CONFIRM    = False
 # 2026-04-27: 开关-允许 chase 接受慢爬入场. 走 system_settings.chase_allow_slow.
 CHASE_ALLOW_SLOW      = False
 
+# 2026-04-30: dump-entry / topshort 入场前 30min 信号等待期 (默认 OFF)
+# 信号触发后不立即下单, 进入 SIG_WAIT 状态等 N 分钟, 期间反向超阈值则信号失效;
+# 等待期满重跑信号检测函数, 仍触发才下限价单. 在震荡市过滤假突破.
+DUMP_SIG_WAIT_ENABLED      = False
+TOPSHORT_SIG_WAIT_ENABLED  = False
+DUMP_SIG_WAIT_MIN          = 30      # 等待期长度 (分钟)
+TOPSHORT_SIG_WAIT_MIN      = 30
+DUMP_SIG_ADVERSE_PCT       = 0.02    # 等待期间反向超 2% 信号失效 (SHORT 涨过 sig*(1+x))
+TOPSHORT_SIG_ADVERSE_PCT   = 0.02
+
 
 def _load_live_config() -> None:
     """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
@@ -241,6 +251,9 @@ def _load_live_config() -> None:
     global HARD_TP_PCT, LONG_HOLD_MIN, SHORT_HOLD_MIN
     global CHASE_MAX_HOLD, DUMP_MAX_HOLD, TOP_HOLD_H, BOTLONG_HOLD_H
     global DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM, CHASE_ALLOW_SLOW
+    global DUMP_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_ENABLED
+    global DUMP_SIG_WAIT_MIN, TOPSHORT_SIG_WAIT_MIN
+    global DUMP_SIG_ADVERSE_PCT, TOPSHORT_SIG_ADVERSE_PCT
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -259,7 +272,9 @@ def _load_live_config() -> None:
                     "SELECT setting_key, setting_value FROM system_settings "
                     "WHERE setting_key IN ('live_sl_pct','live_hard_tp_pct',"
                     "'live_limit_offset_pct','live_hold_hours','disable_sl_tp_hold',"
-                    "'disable_5m_confirm','chase_allow_slow')"
+                    "'disable_5m_confirm','chase_allow_slow',"
+                    "'dump_signal_wait_enabled','dump_signal_wait_min','dump_signal_adverse_pct',"
+                    "'topshort_signal_wait_enabled','topshort_signal_wait_min','topshort_signal_adverse_pct')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -296,6 +311,22 @@ def _load_live_config() -> None:
             log.warning("!!! DISABLE_5M_CONFIRM=ON: 限价单触发即成交, 跳过 5m 阴/阳确认 !!!")
         if CHASE_ALLOW_SLOW:
             log.warning("!!! CHASE_ALLOW_SLOW=ON: chase 接受慢爬入场, 跳过 leader_gain 3%% 阈值 !!!")
+
+        # dump / topshort 信号等待期参数
+        _raw_d_en = str(rows.get('dump_signal_wait_enabled', '0')).strip().lower()
+        DUMP_SIG_WAIT_ENABLED = _raw_d_en in ('1', 'true', 'yes', 'on')
+        DUMP_SIG_WAIT_MIN = int(rows.get('dump_signal_wait_min', DUMP_SIG_WAIT_MIN))
+        DUMP_SIG_ADVERSE_PCT = float(rows.get('dump_signal_adverse_pct', DUMP_SIG_ADVERSE_PCT))
+        _raw_t_en = str(rows.get('topshort_signal_wait_enabled', '0')).strip().lower()
+        TOPSHORT_SIG_WAIT_ENABLED = _raw_t_en in ('1', 'true', 'yes', 'on')
+        TOPSHORT_SIG_WAIT_MIN = int(rows.get('topshort_signal_wait_min', TOPSHORT_SIG_WAIT_MIN))
+        TOPSHORT_SIG_ADVERSE_PCT = float(rows.get('topshort_signal_adverse_pct', TOPSHORT_SIG_ADVERSE_PCT))
+        log.info(
+            "live signal wait: dump enabled=%s wait=%dmin adverse=%.1f%%, "
+            "topshort enabled=%s wait=%dmin adverse=%.1f%%",
+            DUMP_SIG_WAIT_ENABLED, DUMP_SIG_WAIT_MIN, DUMP_SIG_ADVERSE_PCT * 100,
+            TOPSHORT_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_MIN, TOPSHORT_SIG_ADVERSE_PCT * 100,
+        )
     except Exception as exc:
         log.error("_load_live_config 失败，使用默认值: %s", exc)
 
@@ -1639,6 +1670,80 @@ def chase_tick(conn, sym):
                  peak_pnl_pct=0.0, entry_time=now_s())
 
 # ── B. 顶部做空 ──────────────────────────────────────────────────
+def _check_topshort_standard_signal(cur, conn, sym: str, now_ms: int):
+    """检测 topshort standard 信号 (48h pump >= 80% + N-bar no new high). 触发返回 dict, 否则 None.
+    抽自 topshort_tick 原内联代码 (2026-04-30 重构, 为 SIG_WAIT 等待期复用).
+    cur 必须是已 open 的 cursor.
+    """
+    if not _topshort_has_min_listed_history(cur, sym, now_ms):
+        return None
+    cur.execute("""
+        SELECT open_time, high_price, low_price, close_price FROM kline_data
+        WHERE timeframe='1h' AND symbol=%s
+          AND open_time >= UNIX_TIMESTAMP(NOW()-INTERVAL 4 DAY)*1000
+          AND open_time + 3600000 < %s
+        ORDER BY open_time ASC
+    """, (sym, now_ms))
+    bars = cur.fetchall()
+    n = len(bars)
+    if n < TOP_LOOKBACK_H + TOP_NO_NEW_H + 2:
+        return None
+
+    h  = [float(b['high_price'])  for b in bars]
+    lo = [float(b['low_price'])   for b in bars]
+    ts = [b['open_time']          for b in bars]
+
+    for i in range(n - TOP_NO_NEW_H - 2,
+                   max(0, n - TOP_LOOKBACK_H - TOP_NO_NEW_H - 10) - 1, -1):
+        lo_win = min(lo[max(0, i - TOP_LOOKBACK_H):i]) if i > 0 else lo[0]
+        if lo_win == 0:
+            continue
+        pump = (h[i] - lo_win) / lo_win
+        if pump < TOP_PUMP_THRESH:
+            continue
+        peak = h[i]
+        if i + TOP_NO_NEW_H >= n:
+            continue
+        if not all(h[i+j] < peak for j in range(1, TOP_NO_NEW_H + 1)):
+            continue
+        ei = i + TOP_NO_NEW_H
+        entry_ts = ts[ei]
+        if now_ms - entry_ts > TOP_SIGNAL_AGE * 1000:
+            return None  # 信号太老
+
+        try:
+            price = get_price(sym)
+        except Exception:
+            return None
+        if price <= lo_win:
+            log.info("TOPSHORT 跳过  %-18s  现价%.5f <= 启动价%.5f", sym, price, lo_win)
+            return None
+        dd = (peak - price) / peak
+        if dd > 0.50:
+            log.info("TOPSHORT 跳过  %-18s  从峰值已跌%.0f%%, 回落过深", sym, dd * 100)
+            return None
+        cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
+        _r = cur.fetchone()
+        if _r and _r.get('change_24h') is not None:
+            _ch24 = float(_r['change_24h'])
+            if _ch24 < TOP_MIN_24H_CHANGE_PCT:
+                log.info("TOPSHORT 跳过 %-18s: 24h=%.1f%% < %.0f%%, 已跌过多不再做空",
+                         sym, _ch24, TOP_MIN_24H_CHANGE_PCT)
+                return None
+
+        ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='topshort')
+        if not ok_pos:
+            log.info("TOPSHORT 跳过 %-18s: %s", sym, reason)
+            return None
+        h24, l24 = _get_24h_stats(cur, sym)
+        h4,  l4  = _get_4h_stats(cur, sym)
+        lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                                high_4h=h4, low_4h=l4)
+        return {'price': price, 'lp': lp, 'pump': pump, 'dd': dd,
+                'peak': peak, 'entry_ts': entry_ts}
+    return None
+
+
 def topshort_tick(conn, active_syms):
     now_ms = int(now_s() * 1000)
     nowt = now_s()
@@ -1657,6 +1762,9 @@ def topshort_tick(conn, active_syms):
     for pos in active_rows:
         sym = pos['symbol']
         if pos.get('state') == 'DONE':
+            continue
+        if pos.get('state') == 'SIG_WAIT':
+            # SIG_WAIT 由下方独立循环处理, 这里跳过 (2026-04-30)
             continue
         # 挂单状态: 等待限价单成交
         if pos.get('order_id') and not pos.get('pid'):
@@ -1738,6 +1846,62 @@ def topshort_tick(conn, active_syms):
                 last_reason=lr,
             )
 
+    # SIG_WAIT 状态: 等待 N min 后重判信号 (2026-04-30 新增)
+    # 注意 list_active 会把 SIG_WAIT 行也包含进 open_syms (state != IDLE), 防止新信号
+    # 扫描在等待期间重复进入. 这里独立处理 SIG_WAIT 行的转移逻辑.
+    cur_sw = conn.cursor()
+    try:
+        for row in list_all_stype(conn, 'live', 'topshort'):
+            if row.get('state') != 'SIG_WAIT':
+                continue
+            sym_sw = row['symbol']
+            sig_p = float(row.get('entry_p') or 0)
+            sig_t = float(row.get('entry_time') or 0)
+            if sig_p <= 0 or sig_t <= 0:
+                update_state(conn, 'live', sym_sw, 'topshort',
+                             state='IDLE', entry_p=0, entry_time=0)
+                continue
+            try:
+                cur_p_now = get_price(sym_sw)
+            except Exception:
+                continue
+            # 反向: SHORT 信号反向 = 价格涨过 sig_p × (1 + adverse)
+            if cur_p_now >= sig_p * (1 + TOPSHORT_SIG_ADVERSE_PCT):
+                log.info("TOPSHORT 信号反向失效 %-18s sig=%.5f cur=%.5f (+%.2f%%)",
+                         sym_sw, sig_p, cur_p_now, (cur_p_now - sig_p) / sig_p * 100)
+                update_state(conn, 'live', sym_sw, 'topshort',
+                             state='IDLE', entry_p=0, entry_time=0,
+                             last_reason='sig_adverse')
+                continue
+            elapsed = nowt - sig_t
+            if elapsed < TOPSHORT_SIG_WAIT_MIN * 60:
+                continue
+            sig = _check_topshort_standard_signal(cur_sw, conn, sym_sw, now_ms)
+            if not sig:
+                log.info("TOPSHORT 等待期满信号已失效 %-18s, 回 IDLE (等待 %dmin)",
+                         sym_sw, int(elapsed / 60))
+                update_state(conn, 'live', sym_sw, 'topshort',
+                             state='IDLE', entry_p=0, entry_time=0,
+                             last_reason='sig_expired')
+                continue
+            pid, oid, pending = open_order(sym_sw, "SHORT", sig['price'], HARD_TP_PCT,
+                                           TOP_SL_PCT, TOP_HOLD_H * 60, "topshort",
+                                           sig['lp'])
+            if not pid and not oid:
+                update_state(conn, 'live', sym_sw, 'topshort',
+                             state='IDLE', entry_p=0, entry_time=0)
+                continue
+            log.info("TOPSHORT 等待期满入场 %-18s @ %.5f (限价%.5f) 峰=%.5f(泵%.0f%%) 回落%.1f%% 等待%dmin pid=%s oid=%s",
+                     sym_sw, sig['price'], sig['lp'], sig['peak'],
+                     sig['pump'] * 100, sig['dd'] * 100, int(elapsed / 60), pid, oid)
+            update_state(conn, 'live', sym_sw, 'topshort',
+                         state='SHORT', pid=pid, order_id=oid,
+                         entry_p=sig['lp'] if pending else sig['price'],
+                         peak_pnl_pct=0.0, peak=sig['peak'], pump_pct=sig['pump'],
+                         entry_ts=sig['entry_ts'])
+    finally:
+        cur_sw.close()
+
     # 扫描新信号
     open_syms = {r['symbol'] for r in list_active(conn, 'live', 'topshort')}
 
@@ -1760,88 +1924,41 @@ def topshort_tick(conn, active_syms):
                 _climax_pending_cnt += 1
                 open_syms.add(sym)
                 continue
-        if not _topshort_has_min_listed_history(cur, sym, now_ms):
+
+        sig = _check_topshort_standard_signal(cur, conn, sym, now_ms)
+        if not sig:
             continue
 
-        cur.execute("""
-            SELECT open_time, high_price, low_price, close_price FROM kline_data
-            WHERE timeframe='1h' AND symbol=%s
-              AND open_time >= UNIX_TIMESTAMP(NOW()-INTERVAL 4 DAY)*1000
-              AND open_time + 3600000 < %s
-            ORDER BY open_time ASC
-        """, (sym, now_ms))
-        bars = cur.fetchall()
-        n = len(bars)
-        if n < TOP_LOOKBACK_H + TOP_NO_NEW_H + 2:
+        # 检查是否已有相同 entry_ts 的信号（避免重复入场）
+        existing = get_or_create(conn, 'live', sym, 'topshort', {})
+        if existing.get('entry_ts') == sig['entry_ts'] and existing.get('state') != 'IDLE':
             continue
 
-        h  = [float(b['high_price'])  for b in bars]
-        lo = [float(b['low_price'])   for b in bars]
-        c  = [float(b['close_price']) for b in bars]
-        ts = [b['open_time']          for b in bars]
-
-        for i in range(n - TOP_NO_NEW_H - 2,
-                       max(0, n - TOP_LOOKBACK_H - TOP_NO_NEW_H - 10) - 1, -1):
-            lo_win = min(lo[max(0, i - TOP_LOOKBACK_H):i]) if i > 0 else lo[0]
-            if lo_win == 0:
-                continue
-            pump = (h[i] - lo_win) / lo_win
-            if pump < TOP_PUMP_THRESH:
-                continue
-            peak = h[i]
-            if i + TOP_NO_NEW_H >= n:
-                continue
-            if not all(h[i+j] < peak for j in range(1, TOP_NO_NEW_H + 1)):
-                continue
-            ei = i + TOP_NO_NEW_H
-            entry_ts = ts[ei]
-            if now_ms - entry_ts > TOP_SIGNAL_AGE * 1000:
-                break
-
-            # 检查是否已有相同 entry_ts 的信号（避免重复入场）
-            existing = get_or_create(conn, 'live', sym, 'topshort', {})
-            if existing.get('entry_ts') == entry_ts and existing.get('state') != 'IDLE':
-                break
-
-            price = get_price(sym)
-            if price <= lo_win:
-                log.info("TOPSHORT 跳过  %-18s  现价%.5f <= 启动价%.5f", sym, price, lo_win)
-                break
-            dd = (peak - price) / peak
-            if dd > 0.50:
-                log.info("TOPSHORT 跳过  %-18s  从峰值已跌%.0f%%, 回落过深", sym, dd * 100)
-                break
-            # 24h 已跌过多不再开空 (2026-04-25)
-            cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
-            _r = cur.fetchone()
-            if _r and _r.get('change_24h') is not None:
-                _ch24 = float(_r['change_24h'])
-                if _ch24 < TOP_MIN_24H_CHANGE_PCT:
-                    log.info("TOPSHORT 跳过 %-18s: 24h=%.1f%% < %.0f%%, 已跌过多不再做空",
-                             sym, _ch24, TOP_MIN_24H_CHANGE_PCT)
-                    break
-
-            # 入场位置守卫 (2026-04-24)
-            ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='topshort')
-            if not ok_pos:
-                log.info("TOPSHORT 跳过 %-18s: %s", sym, reason)
-                break
-            h24, l24 = _get_24h_stats(cur, sym)
-            h4,  l4  = _get_4h_stats(cur, sym)
-            lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
-                                    high_4h=h4, low_4h=l4)
-            pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, TOP_SL_PCT,
-                                           TOP_HOLD_H * 60, "topshort", lp)
+        if not TOPSHORT_SIG_WAIT_ENABLED:
+            # 现有路径: 立即下单
+            pid, oid, pending = open_order(sym, "SHORT", sig['price'], HARD_TP_PCT,
+                                           TOP_SL_PCT, TOP_HOLD_H * 60, "topshort",
+                                           sig['lp'])
             if not pid and not oid:
-                break
+                continue
             log.info("TOPSHORT 入场  %-18s @ %.5f (限价%.5f)  峰=%.5f(泵%.0f%%)  回落%.1f%%  pid=%s oid=%s",
-                     sym, price, lp, peak, pump*100, dd*100, pid, oid)
+                     sym, sig['price'], sig['lp'], sig['peak'], sig['pump'] * 100,
+                     sig['dd'] * 100, pid, oid)
             update_state(conn, 'live', sym, 'topshort',
                          state='SHORT', pid=pid, order_id=oid,
-                         entry_p=lp if pending else price,
-                         peak_pnl_pct=0.0, peak=peak, pump_pct=pump, entry_ts=entry_ts)
-            open_syms.add(sym)
-            break
+                         entry_p=sig['lp'] if pending else sig['price'],
+                         peak_pnl_pct=0.0, peak=sig['peak'], pump_pct=sig['pump'],
+                         entry_ts=sig['entry_ts'])
+        else:
+            # 新路径: 进 SIG_WAIT 等 N min 重判
+            log.info("TOPSHORT 信号观察期开始 %-18s @ %.5f (等 %d min 重判, 反向阈值 %.1f%%)",
+                     sym, sig['price'], TOPSHORT_SIG_WAIT_MIN,
+                     TOPSHORT_SIG_ADVERSE_PCT * 100)
+            update_state(conn, 'live', sym, 'topshort',
+                         state='SIG_WAIT', entry_p=sig['price'], entry_time=nowt,
+                         side='SHORT', peak=sig['peak'], pump_pct=sig['pump'],
+                         entry_ts=sig['entry_ts'])
+        open_syms.add(sym)
     cur.close()
 
 
@@ -2061,8 +2178,85 @@ def bottomlong_tick(conn, active_syms):
 
 
 # ── C. 追跌策略 ──────────────────────────────────────────────────
+def _check_dump_signal(conn, sym: str, count_funnel: bool = True):
+    """检测当前是否触发 dump 信号, 触发返回 dict, 否则返回 None.
+    抽自 dump_tick 原 IDLE 分支信号检测代码 (2026-04-30 重构, 为 SIG_WAIT 等待期复用).
+    count_funnel=False 时不累加 _dump_funnel (避免 SIG_WAIT 重判时重复计数).
+    """
+    now_ms = int(now_s() * 1000)
+    BAR_MS = 5 * 60 * 1000
+    cur = conn.cursor()
+    try:
+        bars = get_5m_bars(cur, sym, 80)
+        if len(bars) < DUMP_BARS + 2:
+            if count_funnel: _dump_funnel['bars_insufficient'] += 1
+            return None
+
+        completed = [b for b in bars if b['open_time'] + BAR_MS < now_ms]
+        if not completed:
+            if count_funnel: _dump_funnel['no_completed_bar'] += 1
+            return None
+
+        i = len(completed) - 1
+        if i < DUMP_BARS:
+            if count_funnel: _dump_funnel['completed_short'] += 1
+            return None
+        c  = [float(b['close_price']) for b in completed]
+        ts = [b['open_time'] for b in completed]
+
+        wo   = float(completed[max(0, i - DUMP_BARS)]['open_price'])
+        dump = (wo - c[i]) / wo
+        if dump < DUMP_PCT:
+            if count_funnel: _dump_funnel['dump<10%'] += 1
+            return None
+
+        lo_slice = [float(b['low_price']) for b in completed[max(0, i - DUMP_BARS):]]
+        win_low  = min(lo_slice)
+        bounce   = (c[i] - win_low) / win_low
+        if bounce > 0.08:
+            if count_funnel: _dump_funnel['bounce>8%'] += 1
+            return None
+
+        bar_close_ms = ts[i] + BAR_MS
+        bar_age_s = (now_ms - bar_close_ms) / 1000
+        if bar_age_s > 300:
+            if count_funnel: _dump_funnel['bar_age>300s'] += 1
+            return None
+
+        price = get_price(sym)
+        # 24h 已跌过多不追 (避免接飞刀, 2026-04-24)
+        cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
+        _r = cur.fetchone()
+        if _r and _r.get('change_24h') is not None:
+            _ch24 = float(_r['change_24h'])
+            if _ch24 < DUMP_MIN_24H_CHANGE_PCT:
+                if count_funnel:
+                    _dump_funnel['24h<-25%'] += 1
+                    log.info("DUMP  跳过 %-18s: 24h=%.1f%% < %.0f%%，已跌过多不追",
+                             sym, _ch24, DUMP_MIN_24H_CHANGE_PCT)
+                return None
+        # 入场位置守卫: 踩底 / 破顶 / 破底 过滤 (2026-04-24)
+        ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='dump')
+        if not ok_pos:
+            if count_funnel:
+                _dump_funnel['entry_position'] += 1
+                log.info("DUMP  跳过 %-18s: %s", sym, reason)
+            return None
+        h24, l24 = _get_24h_stats(cur, sym)
+        h4,  l4  = _get_4h_stats(cur, sym)
+    finally:
+        cur.close()
+    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
+                            high_4h=h4, low_4h=l4)
+    return {'price': price, 'lp': lp, 'dump_pct': dump,
+            'h24': h24, 'l24': l24, 'h4': h4, 'l4': l4}
+
+
 def dump_tick(conn, sym):
-    """追跌: 检测4h跌幅>=DUMP_PCT直接入场做空, 镜像追多逻辑."""
+    """追跌: 检测4h跌幅>=DUMP_PCT直接入场做空, 镜像追多逻辑.
+    2026-04-30 增加 30min 信号等待期 (DUMP_SIG_WAIT_ENABLED): 触发后进 SIG_WAIT,
+    30min 后重判信号仍触发才下单, 期间反向 >2% 信号失效.
+    """
     # chase 已有持仓时跳过, 避免同一标的双向冲突
     chase_row = get_or_create(conn, 'live', sym, 'chase', {})
     if chase_row.get('state') in ('LONG', 'SHORT'):
@@ -2081,6 +2275,55 @@ def dump_tick(conn, sym):
             s = 'IDLE'
         else:
             return
+
+    # SIG_WAIT 状态: 等待 N min 重判信号 (2026-04-30 新增)
+    if s == 'SIG_WAIT':
+        sig_p = float(ds.get('entry_p') or 0)
+        sig_t = float(ds.get('entry_time') or 0)
+        if sig_p <= 0 or sig_t <= 0:
+            update_state(conn, 'live', sym, 'dump',
+                         state='IDLE', entry_p=0, entry_time=0)
+            return
+        try:
+            cur_p_now = get_price(sym)
+        except Exception:
+            return
+        # 反向检查: SHORT 信号反向 = 价格涨过 sig_p × (1 + adverse)
+        if cur_p_now >= sig_p * (1 + DUMP_SIG_ADVERSE_PCT):
+            log.info("DUMP  信号反向失效 %-18s sig=%.5f cur=%.5f (+%.2f%%)",
+                     sym, sig_p, cur_p_now, (cur_p_now - sig_p) / sig_p * 100)
+            update_state(conn, 'live', sym, 'dump',
+                         state='IDLE', entry_p=0, entry_time=0,
+                         last_reason='sig_adverse')
+            return
+        elapsed = now_s() - sig_t
+        if elapsed < DUMP_SIG_WAIT_MIN * 60:
+            return  # 继续等
+        # 等待期满, 重判信号
+        sig = _check_dump_signal(conn, sym, count_funnel=False)
+        if not sig:
+            log.info("DUMP  等待期满信号已失效 %-18s, 回 IDLE (等待 %dmin)",
+                     sym, int(elapsed / 60))
+            update_state(conn, 'live', sym, 'dump',
+                         state='IDLE', entry_p=0, entry_time=0,
+                         last_reason='sig_expired')
+            return
+        # 信号仍有效, 下单
+        pid, oid, pending = open_order(sym, "SHORT", sig['price'], HARD_TP_PCT,
+                                       DUMP_SL_PCT, DUMP_MAX_HOLD, "dump-entry",
+                                       sig['lp'])
+        if not pid and not oid:
+            update_state(conn, 'live', sym, 'dump',
+                         state='IDLE', entry_p=0, entry_time=0)
+            return
+        log.info("DUMP  等待期满入场 SHORT %-18s @ %.5f (限价%.5f)  跌%.1f%% 等待 %dmin  pid=%s oid=%s",
+                 sym, sig['price'], sig['lp'], sig['dump_pct']*100,
+                 int(elapsed / 60), pid, oid)
+        update_state(conn, 'live', sym, 'dump',
+                     state='SHORT', pid=pid, order_id=oid,
+                     entry_p=sig['lp'] if pending else sig['price'],
+                     peak_pnl_pct=0.0, entry_time=now_s())
+        return
 
     ok, ds = _check_pending_db(conn, sym, 'dump')
     if not ok:
@@ -2113,85 +2356,31 @@ def dump_tick(conn, sym):
     if s != 'IDLE':
         return
 
-    now_ms = int(now_s() * 1000)
-    BAR_MS = 5 * 60 * 1000
-    cur = conn.cursor()
-    bars = get_5m_bars(cur, sym, 80)
-    if len(bars) < DUMP_BARS + 2:
-        _dump_funnel['bars_insufficient'] += 1
-        cur.close()
+    # IDLE: 跑信号检测; 触发后根据 DUMP_SIG_WAIT_ENABLED 决定立即下单 or 进 SIG_WAIT
+    sig = _check_dump_signal(conn, sym)
+    if not sig:
         return
 
-    completed = [b for b in bars if b['open_time'] + BAR_MS < now_ms]
-    if not completed:
-        _dump_funnel['no_completed_bar'] += 1
-        cur.close()
-        return
-
-    i = len(completed) - 1
-    if i < DUMP_BARS:
-        _dump_funnel['completed_short'] += 1
-        cur.close()
-        return
-    c  = [float(b['close_price']) for b in completed]
-    ts = [b['open_time'] for b in completed]
-
-    wo   = float(completed[max(0, i - DUMP_BARS)]['open_price'])
-    dump = (wo - c[i]) / wo
-    if dump < DUMP_PCT:
-        _dump_funnel['dump<10%'] += 1
-        cur.close()
-        return
-
-    lo_slice = [float(b['low_price']) for b in completed[max(0, i - DUMP_BARS):]]
-    win_low  = min(lo_slice)
-    bounce   = (c[i] - win_low) / win_low
-    if bounce > 0.08:
-        _dump_funnel['bounce>8%'] += 1
-        cur.close()
-        return
-
-    bar_close_ms = ts[i] + BAR_MS
-    bar_age_s = (now_ms - bar_close_ms) / 1000
-    if bar_age_s > 300:
-        _dump_funnel['bar_age>300s'] += 1
-        cur.close()
-        return
-
-    price = get_price(sym)
-    # 24h 已跌过多不追 (避免接飞刀, 2026-04-24)
-    cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
-    _r = cur.fetchone()
-    if _r and _r.get('change_24h') is not None:
-        _ch24 = float(_r['change_24h'])
-        if _ch24 < DUMP_MIN_24H_CHANGE_PCT:
-            _dump_funnel['24h<-25%'] += 1
-            log.info("DUMP  跳过 %-18s: 24h=%.1f%% < %.0f%%，已跌过多不追",
-                     sym, _ch24, DUMP_MIN_24H_CHANGE_PCT)
-            cur.close()
+    if not DUMP_SIG_WAIT_ENABLED:
+        # 现有路径: 立即下单
+        pid, oid, pending = open_order(sym, "SHORT", sig['price'], HARD_TP_PCT,
+                                       DUMP_SL_PCT, DUMP_MAX_HOLD, "dump-entry",
+                                       sig['lp'])
+        if not pid and not oid:
             return
-    # 入场位置守卫: 踩底 / 破顶 / 破底 过滤 (2026-04-24)
-    ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='dump')
-    if not ok_pos:
-        _dump_funnel['entry_position'] += 1
-        log.info("DUMP  跳过 %-18s: %s", sym, reason)
-        cur.close()
-        return
-    h24, l24 = _get_24h_stats(cur, sym)
-    h4,  l4  = _get_4h_stats(cur, sym)
-    cur.close()
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
-                            high_4h=h4, low_4h=l4)
-    pid, oid, pending = open_order(sym, "SHORT", price, HARD_TP_PCT, DUMP_SL_PCT,
-                                   DUMP_MAX_HOLD, "dump-entry", lp)
-    if not pid and not oid:
-        return
-    log.info("DUMP  入场 SHORT %-18s @ %.5f (限价%.5f)  跌%.1f%%  pid=%s oid=%s",
-             sym, price, lp, dump*100, pid, oid)
-    update_state(conn, 'live', sym, 'dump',
-                 state='SHORT', pid=pid, order_id=oid,
-                 entry_p=lp if pending else price,
-                 peak_pnl_pct=0.0, entry_time=now_s())
+        log.info("DUMP  入场 SHORT %-18s @ %.5f (限价%.5f)  跌%.1f%%  pid=%s oid=%s",
+                 sym, sig['price'], sig['lp'], sig['dump_pct']*100, pid, oid)
+        update_state(conn, 'live', sym, 'dump',
+                     state='SHORT', pid=pid, order_id=oid,
+                     entry_p=sig['lp'] if pending else sig['price'],
+                     peak_pnl_pct=0.0, entry_time=now_s())
+    else:
+        # 新路径: 进 SIG_WAIT 等待 N min 重判
+        log.info("DUMP  信号观察期开始 %-18s @ %.5f (等 %d min 重判, 反向阈值 %.1f%%)",
+                 sym, sig['price'], DUMP_SIG_WAIT_MIN, DUMP_SIG_ADVERSE_PCT * 100)
+        update_state(conn, 'live', sym, 'dump',
+                     state='SIG_WAIT', entry_p=sig['price'], entry_time=now_s(),
+                     side='SHORT', peak_pnl_pct=0.0)
 
 
 
