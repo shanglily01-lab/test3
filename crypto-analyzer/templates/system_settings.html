@@ -417,6 +417,126 @@
 </div>
 </div>
 
+<!-- 2.4c 长持子策略 longhold (W底/M顶 2 周窗口) - 默认 OFF -->
+<div class="mt-4 rounded-xl bg-[#0b2a1f]/60 border border-emerald-500/40 p-4">
+<div class="cfg-row mb-3">
+<div class="min-w-0">
+<div class="text-sm font-medium text-emerald-400">长持子策略 longhold (W 底/M 顶 2 周窗口)</div>
+<p class="text-xs text-slate-400 mt-0.5">strategy_whale 子策略：1h × 14 天扫 W 底做多 / M 顶做空, 持仓 1 周, 限价 ±3%, 反弹/回撤阈值 ≥8%, 同 symbol 7 天冷却。<span class="text-slate-500">改完需重启 strategy_whale 进程生效。</span></p>
+</div>
+<div id="longholdEnabledToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止损 %</label>
+<div class="relative"><input id="longholdSlInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-emerald-500/40" type="number" min="1" max="20" step="0.5" value="4"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止盈 %</label>
+<div class="relative"><input id="longholdTpInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-emerald-500/40" type="number" min="1" max="50" step="0.5" value="20"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">限价偏移 %</label>
+<div class="relative"><input id="longholdLimitInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-emerald-500/40" type="number" min="0.5" max="10" step="0.5" value="3"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">持仓 (小时)</label>
+<input id="longholdHoldHoursInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-emerald-500/40" type="number" min="24" max="336" step="6" value="168"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">反弹/回撤 %</label>
+<div class="relative"><input id="longholdReboundInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-emerald-500/40" type="number" min="3" max="20" step="0.5" value="8"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+</div>
+</div>
+
+<!-- 2.4d 信号 30min 等待期 (dump-entry / topshort) - 默认 OFF -->
+<div class="mt-4 rounded-xl bg-[#1a1428]/60 border border-purple-500/40 p-4">
+<div class="text-sm font-medium text-purple-400 mb-1">信号 30min 等待期 (dump-entry / topshort)</div>
+<p class="text-xs text-slate-400 mb-3">strategy_live 入场守卫: 信号触发后等 N 分钟重判, 期间反向 ≥阈值 信号失效。在震荡市过滤假突破。<span class="text-slate-500">改完需重启 strategy_live 进程生效。</span></p>
+<div class="rounded-lg bg-[#070b10]/70 border border-slate-700/40 p-3 mb-2">
+<div class="cfg-row">
+<div class="text-sm text-slate-200">DUMP-ENTRY 入场等待</div>
+<div id="dumpSigWaitToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3 mt-3">
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">等待 (分钟)</label>
+<input id="dumpSigWaitMinInput" class="w-full bg-[#151a20] border border-slate-800 rounded-lg py-2.5 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-purple-500/40" type="number" min="5" max="180" step="5" value="30"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">反向阈值 %</label>
+<div class="relative"><input id="dumpSigAdverseInput" class="w-full bg-[#151a20] border border-slate-800 rounded-lg py-2.5 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-purple-500/40" type="number" min="0.5" max="10" step="0.1" value="2"/><span class="absolute right-3 top-2 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+</div>
+</div>
+<div class="rounded-lg bg-[#070b10]/70 border border-slate-700/40 p-3">
+<div class="cfg-row">
+<div class="text-sm text-slate-200">TOPSHORT 入场等待</div>
+<div id="topshortSigWaitToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3 mt-3">
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">等待 (分钟)</label>
+<input id="topshortSigWaitMinInput" class="w-full bg-[#151a20] border border-slate-800 rounded-lg py-2.5 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-purple-500/40" type="number" min="5" max="180" step="5" value="30"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">反向阈值 %</label>
+<div class="relative"><input id="topshortSigAdverseInput" class="w-full bg-[#151a20] border border-slate-800 rounded-lg py-2.5 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-purple-500/40" type="number" min="0.5" max="10" step="0.1" value="2"/><span class="absolute right-3 top-2 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- 2.4e Gemini AI 决策策略 (strategy_bigmid 改造版) - 默认 OFF -->
+<div class="mt-4 rounded-xl bg-[#0e1f2a]/60 border border-cyan-500/40 p-4">
+<div class="cfg-row mb-3">
+<div class="min-w-0">
+<div class="text-sm font-medium text-cyan-400">Gemini AI 决策策略 (strategy_bigmid)</div>
+<p class="text-xs text-slate-400 mt-0.5">每 6h 给 top-28 大币种发 15 天日线 / 4 天 1h / 8h 15m+1h 数据 + RSI, 让 Gemini 给 long/short/skip 决策, expected_pnl ≥ 阈值才下限价单。<span class="text-slate-500">改完需重启 strategy_bigmid 进程生效。</span></p>
+</div>
+<div id="geminiEnabledToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止损 %</label>
+<div class="relative"><input id="geminiSlInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="0.5" max="10" step="0.1" value="2"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止盈 %</label>
+<div class="relative"><input id="geminiTpInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="1" max="20" step="0.5" value="3"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">限价偏移 %</label>
+<div class="relative"><input id="geminiLimitInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="0.1" max="3" step="0.1" value="0.5"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">持仓 (小时)</label>
+<input id="geminiHoldHoursInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="1" max="48" step="1" value="6"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">最小预期 PnL %</label>
+<div class="relative"><input id="geminiMinPnlInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="0" max="5" step="0.1" value="1"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">最大持仓数</label>
+<input id="geminiMaxOpenInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="1" max="20" step="1" value="5"/>
+</div>
+<div class="col-span-2">
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">同 symbol 冷却 (小时)</label>
+<input id="geminiCooldownInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-cyan-500/40" type="number" min="1" max="168" step="1" value="24"/>
+</div>
+</div>
+</div>
+
 <!-- 2.5 平仓同步实盘 -->
 <div class="mt-4 rounded-xl bg-[#10272e]/60 border border-amber-500/40 p-4">
 <div class="cfg-row">
@@ -649,14 +769,44 @@
 
         async function loadAll() {
             try {
-                const [svcData, stratData, maxPosData, disableData, closeSyncData, disable5mData, chaseSlowData] = await Promise.all([
+                // 通用 settings 取值兜底
+                const fetchKv = (key, fallback) => apiGet('/settings/' + key).catch(function() { return { data: { value: fallback } }; });
+                const [svcData, stratData, maxPosData, disableData, closeSyncData, disable5mData, chaseSlowData,
+                       lhEn, lhSl, lhTp, lhLim, lhHold, lhReb,
+                       dumpEn, dumpMin, dumpAdv,
+                       topEn, topMin, topAdv,
+                       gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
                     apiGet('/trading-services'),
                     apiGet('/strategy-config').catch(function() { return { data: {} }; }),
                     apiGet('/settings/max_positions').catch(function() { return { data: { value: '50' } }; }),
                     apiGet('/settings/disable_sl_tp_hold').catch(function() { return { data: { value: '0' } }; }),
                     apiGet('/settings/close_sync_live_enabled').catch(function() { return { data: { value: '0' } }; }),
                     apiGet('/settings/disable_5m_confirm').catch(function() { return { data: { value: '0' } }; }),
-                    apiGet('/settings/chase_allow_slow').catch(function() { return { data: { value: '0' } }; })
+                    apiGet('/settings/chase_allow_slow').catch(function() { return { data: { value: '0' } }; }),
+                    // longhold
+                    fetchKv('longhold_enabled',          '0'),
+                    fetchKv('longhold_sl_pct',           '0.04'),
+                    fetchKv('longhold_tp_pct',           '0.20'),
+                    fetchKv('longhold_limit_offset_pct', '0.03'),
+                    fetchKv('longhold_hold_hours',       '168'),
+                    fetchKv('longhold_rebound_pct',      '0.08'),
+                    // dump signal wait
+                    fetchKv('dump_signal_wait_enabled',  '0'),
+                    fetchKv('dump_signal_wait_min',      '30'),
+                    fetchKv('dump_signal_adverse_pct',   '0.02'),
+                    // topshort signal wait
+                    fetchKv('topshort_signal_wait_enabled','0'),
+                    fetchKv('topshort_signal_wait_min',  '30'),
+                    fetchKv('topshort_signal_adverse_pct','0.02'),
+                    // gemini
+                    fetchKv('gemini_strategy_enabled',     '0'),
+                    fetchKv('gemini_sl_pct',               '0.02'),
+                    fetchKv('gemini_tp_pct',               '0.03'),
+                    fetchKv('gemini_limit_offset_pct',     '0.005'),
+                    fetchKv('gemini_hold_hours',           '6'),
+                    fetchKv('gemini_min_pnl_pct',          '0.01'),
+                    fetchKv('gemini_max_open_positions',   '5'),
+                    fetchKv('gemini_symbol_cooldown_hours','24')
                 ]);
 
                 const svc  = svcData.data  || svcData;
@@ -705,6 +855,38 @@
                 // CHASE 允许慢爬入场
                 const rawSlow = chaseSlowSetting.value != null ? String(chaseSlowSetting.value).trim().toLowerCase() : '0';
                 setToggle('chaseAllowSlowToggle', ['1', 'true', 'yes', 'on'].indexOf(rawSlow) !== -1);
+
+                // ---- longhold / signal-wait / gemini (通用辅助) ----
+                const kvVal  = (rsp, fb) => (rsp && rsp.data && rsp.data.value != null) ? String(rsp.data.value) : fb;
+                const kvBool = (rsp) => ['1','true','yes','on'].indexOf(kvVal(rsp, '0').trim().toLowerCase()) !== -1;
+                const setNum = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+                const pctTo  = (rsp, fb) => (parseFloat(kvVal(rsp, fb)) * 100).toFixed(1);
+
+                // longhold
+                setToggle('longholdEnabledToggle', kvBool(lhEn));
+                setNum('longholdSlInput',          pctTo(lhSl,  '0.04'));
+                setNum('longholdTpInput',          pctTo(lhTp,  '0.20'));
+                setNum('longholdLimitInput',       pctTo(lhLim, '0.03'));
+                setNum('longholdHoldHoursInput',   kvVal(lhHold,'168'));
+                setNum('longholdReboundInput',     pctTo(lhReb, '0.08'));
+
+                // signal wait
+                setToggle('dumpSigWaitToggle',     kvBool(dumpEn));
+                setNum('dumpSigWaitMinInput',      kvVal(dumpMin, '30'));
+                setNum('dumpSigAdverseInput',      pctTo(dumpAdv, '0.02'));
+                setToggle('topshortSigWaitToggle', kvBool(topEn));
+                setNum('topshortSigWaitMinInput',  kvVal(topMin, '30'));
+                setNum('topshortSigAdverseInput',  pctTo(topAdv, '0.02'));
+
+                // gemini
+                setToggle('geminiEnabledToggle',   kvBool(gEn));
+                setNum('geminiSlInput',            pctTo(gSl,    '0.02'));
+                setNum('geminiTpInput',            pctTo(gTp,    '0.03'));
+                setNum('geminiLimitInput',         pctTo(gLim,   '0.005'));
+                setNum('geminiHoldHoursInput',     kvVal(gHold,  '6'));
+                setNum('geminiMinPnlInput',        pctTo(gMinPnl,'0.01'));
+                setNum('geminiMaxOpenInput',       kvVal(gMaxOpen,'5'));
+                setNum('geminiCooldownInput',      kvVal(gCd,    '24'));
 
             } catch (err) {
                 console.error('loadAll 失败:', err);
@@ -772,6 +954,66 @@
             }
         });
 
+        // longhold 总开关 - 即时保存
+        bindToggle('longholdEnabledToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/longhold_enabled', {
+                    setting_key: 'longhold_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: '长持子策略 longhold (W底/M顶 2 周窗口) 总开关, 改完重启 strategy_whale 进程'
+                });
+                showToast((enabled ? '已开启 longhold 子策略' : '已关闭 longhold 子策略') + '（重启 strategy_whale 后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // dump-entry 信号等待 - 即时保存
+        bindToggle('dumpSigWaitToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/dump_signal_wait_enabled', {
+                    setting_key: 'dump_signal_wait_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'strategy_live dump-entry 入场前 30min 信号等待期, 改完重启 strategy_live 进程'
+                });
+                showToast((enabled ? '已开启 dump 信号等待' : '已关闭 dump 信号等待') + '（重启 strategy_live 后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // topshort 信号等待 - 即时保存
+        bindToggle('topshortSigWaitToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/topshort_signal_wait_enabled', {
+                    setting_key: 'topshort_signal_wait_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'strategy_live topshort 入场前 30min 信号等待期, 改完重启 strategy_live 进程'
+                });
+                showToast((enabled ? '已开启 topshort 信号等待' : '已关闭 topshort 信号等待') + '（重启 strategy_live 后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // Gemini AI 策略 - 即时保存
+        bindToggle('geminiEnabledToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/gemini_strategy_enabled', {
+                    setting_key: 'gemini_strategy_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'Gemini AI 决策策略总开关 (strategy_bigmid), 改完重启 strategy_bigmid 进程'
+                });
+                showToast((enabled ? '已开启 Gemini 决策' : '已关闭 Gemini 决策') + '（重启 strategy_bigmid 后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
         // 平仓同步实盘 - 即时保存即时生效
         bindToggle('closeSyncLiveToggle', async function (enabled) {
             try {
@@ -808,6 +1050,13 @@
                     const closeSyncVal = getToggle('closeSyncLiveToggle') ? '1' : '0';
                     const disable5mVal = getToggle('disable5mConfirmToggle') ? '1' : '0';
                     const chaseSlowVal = getToggle('chaseAllowSlowToggle') ? '1' : '0';
+                    // 通用 KV PUT helper
+                    const putKv = (key, val, desc) => apiPut('/settings/' + key, { setting_key: key, setting_value: String(val), description: desc });
+                    const numIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb));
+                    const intIn  = (id, fb) => String(parseInt(document.getElementById(id)?.value || fb, 10));
+                    // 数值百分比 (UI 是 %, DB 存 decimal)
+                    const pctIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb) / 100);
+
                     await Promise.all([
                         apiPut('/trading-services', { live_trading_enabled: getToggle('liveToggle') }),
                         apiPut('/strategy-config', {
@@ -824,7 +1073,26 @@
                         apiPut('/settings/disable_sl_tp_hold', { setting_key: 'disable_sl_tp_hold', setting_value: disableVal, description: '不设止盈/止损/持仓时间(裸奔模式),仅影响新开仓,重启策略进程生效' }),
                         apiPut('/settings/close_sync_live_enabled', { setting_key: 'close_sync_live_enabled', setting_value: closeSyncVal, description: '模拟盘平仓时是否自动平 Binance 对应仓位' }),
                         apiPut('/settings/disable_5m_confirm', { setting_key: 'disable_5m_confirm', setting_value: disable5mVal, description: '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效' }),
-                        apiPut('/settings/chase_allow_slow', { setting_key: 'chase_allow_slow', setting_value: chaseSlowVal, description: 'CHASE 接受慢爬入场,跳过 leader_gain 3% 阈值,重启策略进程生效' })
+                        apiPut('/settings/chase_allow_slow', { setting_key: 'chase_allow_slow', setting_value: chaseSlowVal, description: 'CHASE 接受慢爬入场,跳过 leader_gain 3% 阈值,重启策略进程生效' }),
+                        // longhold (toggle 已即时保存, 这里只同步数值)
+                        putKv('longhold_sl_pct',           pctIn('longholdSlInput',     '4'),    '长持子策略止损比例'),
+                        putKv('longhold_tp_pct',           pctIn('longholdTpInput',     '20'),   '长持子策略硬止盈比例'),
+                        putKv('longhold_limit_offset_pct', pctIn('longholdLimitInput',  '3'),    '长持子策略限价偏移'),
+                        putKv('longhold_hold_hours',       intIn('longholdHoldHoursInput', '168'), '长持子策略持仓上限 (小时)'),
+                        putKv('longhold_rebound_pct',      pctIn('longholdReboundInput', '8'),   '长持 W底反弹/M顶回撤最小阈值'),
+                        // signal wait (toggle 已即时保存, 这里只同步数值)
+                        putKv('dump_signal_wait_min',      intIn('dumpSigWaitMinInput',     '30'), 'dump-entry 信号等待时长 (分钟)'),
+                        putKv('dump_signal_adverse_pct',   pctIn('dumpSigAdverseInput',     '2'),  'dump-entry 等待期反向阈值'),
+                        putKv('topshort_signal_wait_min',  intIn('topshortSigWaitMinInput', '30'), 'topshort 信号等待时长 (分钟)'),
+                        putKv('topshort_signal_adverse_pct',pctIn('topshortSigAdverseInput','2'),  'topshort 等待期反向阈值'),
+                        // gemini (toggle 已即时保存, 这里只同步数值)
+                        putKv('gemini_sl_pct',             pctIn('geminiSlInput',     '2'),   'Gemini 策略止损比例'),
+                        putKv('gemini_tp_pct',             pctIn('geminiTpInput',     '3'),   'Gemini 策略硬止盈比例'),
+                        putKv('gemini_limit_offset_pct',   pctIn('geminiLimitInput',  '0.5'), 'Gemini 策略限价偏移'),
+                        putKv('gemini_hold_hours',         intIn('geminiHoldHoursInput', '6'),'Gemini 策略持仓上限 (小时)'),
+                        putKv('gemini_min_pnl_pct',        pctIn('geminiMinPnlInput', '1'),   'Gemini 预期 PnL 阈值'),
+                        putKv('gemini_max_open_positions', intIn('geminiMaxOpenInput','5'),   'Gemini 全局同时持仓上限'),
+                        putKv('gemini_symbol_cooldown_hours',intIn('geminiCooldownInput','24'),'Gemini 同 symbol 冷却时长 (小时)')
                     ]);
 
                     saveBtnText.textContent = '已保存';

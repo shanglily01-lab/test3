@@ -225,6 +225,132 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
+    <!-- 长持子策略 longhold (W底/M顶 2 周窗口, 默认 OFF) -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">长持子策略 longhold</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_whale 子策略：1h × 14 天扫 W 底做多 / M 顶做空, 持仓 1 周, 限价 ±3%。改完重启 strategy_whale 进程。</p>
+        <div class="settings-card rounded-2xl overflow-hidden">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-emerald-400">总开关 (longhold_enabled)</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">默认 OFF。打开后 strategy_whale 每 tick 扫 longhold-w / longhold-m 信号。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_longholdEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+            <div class="grid grid-cols-2 gap-3 px-4 py-3 border-b border-outline-variant/10">
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">止损 %</label>
+                    <div class="relative"><input id="m_longholdSlInput" type="number" min="1" max="20" step="0.5" value="4" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">止盈 %</label>
+                    <div class="relative"><input id="m_longholdTpInput" type="number" min="1" max="50" step="0.5" value="20" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">限价偏移 %</label>
+                    <div class="relative"><input id="m_longholdLimitInput" type="number" min="0.5" max="10" step="0.5" value="3" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">持仓 (小时)</label>
+                    <input id="m_longholdHoldHoursInput" type="number" min="24" max="336" step="6" value="168" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-emerald-500/40 mono-data"/>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-[10px] text-on-surface-variant mb-1">反弹/回撤阈值 %</label>
+                    <div class="relative"><input id="m_longholdReboundInput" type="number" min="3" max="20" step="0.5" value="8" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 信号 30min 等待期 (dump-entry / topshort, 默认 OFF) -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">信号 30min 等待期</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_live 入场守卫：信号触发后等 N 分钟重判, 期间反向 ≥阈值 信号失效。震荡市过滤假突破。改完重启 strategy_live 进程。</p>
+        <div class="settings-card rounded-2xl overflow-hidden mb-3">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-purple-400">DUMP-ENTRY 入场等待</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">SHORT 急跌信号触发后等 N 分钟重判。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_dumpSigWaitToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+            <div class="grid grid-cols-2 gap-3 px-4 py-3">
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">等待 (分钟)</label>
+                    <input id="m_dumpSigWaitMinInput" type="number" min="5" max="180" step="5" value="30" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-purple-500/40 mono-data"/>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">反向阈值 %</label>
+                    <div class="relative"><input id="m_dumpSigAdverseInput" type="number" min="0.5" max="10" step="0.1" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-purple-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+            </div>
+        </div>
+        <div class="settings-card rounded-2xl overflow-hidden">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-purple-400">TOPSHORT 入场等待</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">SHORT 顶部信号触发后等 N 分钟重判。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_topshortSigWaitToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+            <div class="grid grid-cols-2 gap-3 px-4 py-3">
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">等待 (分钟)</label>
+                    <input id="m_topshortSigWaitMinInput" type="number" min="5" max="180" step="5" value="30" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-purple-500/40 mono-data"/>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">反向阈值 %</label>
+                    <div class="relative"><input id="m_topshortSigAdverseInput" type="number" min="0.5" max="10" step="0.1" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-purple-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Gemini AI 决策策略 (strategy_bigmid 改造版, 默认 OFF) -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">Gemini AI 决策策略</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_bigmid 改造版：每 6h 给 top-28 大币种发市场数据 (15天日线/4天1h/8h K线+RSI), 让 Gemini 给 long/short/skip 决策。改完重启 strategy_bigmid 进程。</p>
+        <div class="settings-card rounded-2xl overflow-hidden">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-cyan-400">总开关 (gemini_strategy_enabled)</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">默认 OFF。打开后每 6h 扫一轮, 调 Gemini API 决策。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_geminiEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+            <div class="grid grid-cols-2 gap-3 px-4 py-3 border-b border-outline-variant/10">
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">止损 %</label>
+                    <div class="relative"><input id="m_geminiSlInput" type="number" min="0.5" max="10" step="0.1" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-cyan-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">止盈 %</label>
+                    <div class="relative"><input id="m_geminiTpInput" type="number" min="1" max="20" step="0.5" value="3" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-cyan-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">限价偏移 %</label>
+                    <div class="relative"><input id="m_geminiLimitInput" type="number" min="0.1" max="3" step="0.1" value="0.5" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-cyan-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">持仓 (小时)</label>
+                    <input id="m_geminiHoldHoursInput" type="number" min="1" max="48" step="1" value="6" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-cyan-500/40 mono-data"/>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">最小预期 PnL %</label>
+                    <div class="relative"><input id="m_geminiMinPnlInput" type="number" min="0" max="5" step="0.1" value="1" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-cyan-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">最大持仓数</label>
+                    <input id="m_geminiMaxOpenInput" type="number" min="1" max="20" step="1" value="5" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-cyan-500/40 mono-data"/>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-[10px] text-on-surface-variant mb-1">同 symbol 冷却 (小时)</label>
+                    <input id="m_geminiCooldownInput" type="number" min="1" max="168" step="1" value="24" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-cyan-500/40 mono-data"/>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- 当前生效硬编码参数（2026-04-24 只读） -->
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">当前生效参数（只读）</h2>
@@ -412,12 +538,36 @@ function setPill(id, on) {
 // ── Load ──────────────────────────────────────────────────────────────
 async function loadAll() {
     try {
-        const fetchSetting = (key) => fetch(`${SYS}/settings/${key}`).then(r => r.json()).catch(() => ({ data: { value: '0' } }));
-        const [svcR, cfgR, disable5mR, chaseSlowR] = await Promise.all([
+        const fetchSetting = (key, fb) => fetch(`${SYS}/settings/${key}`).then(r => r.json()).catch(() => ({ data: { value: fb || '0' } }));
+        const [svcR, cfgR, disable5mR, chaseSlowR,
+               lhEn, lhSl, lhTp, lhLim, lhHold, lhReb,
+               dumpEn, dumpMin, dumpAdv,
+               topEn, topMin, topAdv,
+               gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
             fetch(`${SYS}/trading-services`).then(r => r.json()),
             fetch(`${SYS}/strategy-config`).then(r => r.json()).catch(() => ({ data: {} })),
             fetchSetting('disable_5m_confirm'),
             fetchSetting('chase_allow_slow'),
+            fetchSetting('longhold_enabled',          '0'),
+            fetchSetting('longhold_sl_pct',           '0.04'),
+            fetchSetting('longhold_tp_pct',           '0.20'),
+            fetchSetting('longhold_limit_offset_pct', '0.03'),
+            fetchSetting('longhold_hold_hours',       '168'),
+            fetchSetting('longhold_rebound_pct',      '0.08'),
+            fetchSetting('dump_signal_wait_enabled',  '0'),
+            fetchSetting('dump_signal_wait_min',      '30'),
+            fetchSetting('dump_signal_adverse_pct',   '0.02'),
+            fetchSetting('topshort_signal_wait_enabled','0'),
+            fetchSetting('topshort_signal_wait_min',  '30'),
+            fetchSetting('topshort_signal_adverse_pct','0.02'),
+            fetchSetting('gemini_strategy_enabled',     '0'),
+            fetchSetting('gemini_sl_pct',               '0.02'),
+            fetchSetting('gemini_tp_pct',               '0.03'),
+            fetchSetting('gemini_limit_offset_pct',     '0.005'),
+            fetchSetting('gemini_hold_hours',           '6'),
+            fetchSetting('gemini_min_pnl_pct',          '0.01'),
+            fetchSetting('gemini_max_open_positions',   '5'),
+            fetchSetting('gemini_symbol_cooldown_hours','24')
         ]);
         if (svcR.success) {
             const d = svcR.data;
@@ -445,6 +595,38 @@ async function loadAll() {
         if (e1) e1.checked = isOn(disable5mR);
         const e2 = document.getElementById('m_chaseAllowSlowToggle');
         if (e2) e2.checked = isOn(chaseSlowR);
+
+        // ── 扩展 settings: longhold / signal-wait / gemini ──
+        const kvVal  = (rsp, fb) => (rsp && rsp.data && rsp.data.value != null) ? String(rsp.data.value) : fb;
+        const setNum = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        const setChk = (id, on)  => { const el = document.getElementById(id); if (el) el.checked = !!on; };
+        const pct100 = (rsp, fb) => (parseFloat(kvVal(rsp, fb)) * 100).toFixed(1);
+
+        // longhold
+        setChk('m_longholdEnabledToggle',  isOn(lhEn));
+        setNum('m_longholdSlInput',        pct100(lhSl,  '0.04'));
+        setNum('m_longholdTpInput',        pct100(lhTp,  '0.20'));
+        setNum('m_longholdLimitInput',     pct100(lhLim, '0.03'));
+        setNum('m_longholdHoldHoursInput', kvVal(lhHold, '168'));
+        setNum('m_longholdReboundInput',   pct100(lhReb, '0.08'));
+
+        // signal wait
+        setChk('m_dumpSigWaitToggle',      isOn(dumpEn));
+        setNum('m_dumpSigWaitMinInput',    kvVal(dumpMin, '30'));
+        setNum('m_dumpSigAdverseInput',    pct100(dumpAdv, '0.02'));
+        setChk('m_topshortSigWaitToggle',  isOn(topEn));
+        setNum('m_topshortSigWaitMinInput',kvVal(topMin, '30'));
+        setNum('m_topshortSigAdverseInput',pct100(topAdv, '0.02'));
+
+        // gemini
+        setChk('m_geminiEnabledToggle',    isOn(gEn));
+        setNum('m_geminiSlInput',          pct100(gSl,    '0.02'));
+        setNum('m_geminiTpInput',          pct100(gTp,    '0.03'));
+        setNum('m_geminiLimitInput',       pct100(gLim,   '0.005'));
+        setNum('m_geminiHoldHoursInput',   kvVal(gHold,   '6'));
+        setNum('m_geminiMinPnlInput',      pct100(gMinPnl,'0.01'));
+        setNum('m_geminiMaxOpenInput',     kvVal(gMaxOpen,'5'));
+        setNum('m_geminiCooldownInput',    kvVal(gCd,     '24'));
     } catch(e) { toast('加载失败: ' + e.message, 'err'); }
 }
 
@@ -500,6 +682,44 @@ async function save(type) {
             ]);
             if ((r1.success !== false) && (r2.success !== false)) toast('守卫开关已保存，重启后生效');
             else toast('保存失败', 'err');
+        } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+    } else if (type === 'extendedSettings') {
+        // longhold / signal-wait / gemini 一并保存
+        const putKv = (key, val, desc) => fetch(`${SYS}/settings/${key}`, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ setting_key: key, setting_value: String(val), description: desc })
+        }).then(r => r.json());
+        const chk    = (id) => !!document.getElementById(id)?.checked;
+        const numIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb));
+        const intIn  = (id, fb) => String(parseInt(document.getElementById(id)?.value || fb, 10));
+        const pctIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb) / 100);
+        try {
+            await Promise.all([
+                // longhold
+                putKv('longhold_enabled',          chk('m_longholdEnabledToggle') ? '1' : '0', '长持子策略 longhold 总开关'),
+                putKv('longhold_sl_pct',           pctIn('m_longholdSlInput',     '4'),   '长持止损'),
+                putKv('longhold_tp_pct',           pctIn('m_longholdTpInput',     '20'),  '长持止盈'),
+                putKv('longhold_limit_offset_pct', pctIn('m_longholdLimitInput',  '3'),   '长持限价偏移'),
+                putKv('longhold_hold_hours',       intIn('m_longholdHoldHoursInput','168'),'长持持仓上限(小时)'),
+                putKv('longhold_rebound_pct',      pctIn('m_longholdReboundInput','8'),   '长持反弹/回撤阈值'),
+                // signal wait
+                putKv('dump_signal_wait_enabled',  chk('m_dumpSigWaitToggle') ? '1' : '0', 'dump-entry 30min 信号等待期总开关'),
+                putKv('dump_signal_wait_min',      intIn('m_dumpSigWaitMinInput',     '30'), 'dump-entry 等待时长(分钟)'),
+                putKv('dump_signal_adverse_pct',   pctIn('m_dumpSigAdverseInput',     '2'),  'dump-entry 反向阈值'),
+                putKv('topshort_signal_wait_enabled', chk('m_topshortSigWaitToggle') ? '1' : '0', 'topshort 30min 信号等待期总开关'),
+                putKv('topshort_signal_wait_min',  intIn('m_topshortSigWaitMinInput', '30'), 'topshort 等待时长(分钟)'),
+                putKv('topshort_signal_adverse_pct',pctIn('m_topshortSigAdverseInput','2'),  'topshort 反向阈值'),
+                // gemini
+                putKv('gemini_strategy_enabled',     chk('m_geminiEnabledToggle') ? '1' : '0', 'Gemini AI 决策策略总开关'),
+                putKv('gemini_sl_pct',               pctIn('m_geminiSlInput',     '2'),    'Gemini 止损'),
+                putKv('gemini_tp_pct',               pctIn('m_geminiTpInput',     '3'),    'Gemini 止盈'),
+                putKv('gemini_limit_offset_pct',     pctIn('m_geminiLimitInput',  '0.5'),  'Gemini 限价偏移'),
+                putKv('gemini_hold_hours',           intIn('m_geminiHoldHoursInput', '6'), 'Gemini 持仓上限(小时)'),
+                putKv('gemini_min_pnl_pct',          pctIn('m_geminiMinPnlInput', '1'),    'Gemini 预期 PnL 阈值'),
+                putKv('gemini_max_open_positions',   intIn('m_geminiMaxOpenInput','5'),    'Gemini 全局持仓上限'),
+                putKv('gemini_symbol_cooldown_hours',intIn('m_geminiCooldownInput','24'),  'Gemini 同 symbol 冷却(小时)')
+            ]);
+            toast('扩展策略参数已保存, 重启对应进程后生效');
         } catch (e) { toast('保存失败: ' + e.message, 'err'); }
     }
 }
