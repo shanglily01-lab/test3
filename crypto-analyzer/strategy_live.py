@@ -2469,12 +2469,21 @@ def main():
     init_conn.close()
 
     poll_count = 0
+    _last_cfg_reload = 0  # 主循环每 60s 重读 system_settings, 改 DB 后无需重启
 
     while True:
         try:
             conn = get_db()
             cur  = conn.cursor()
             poll_count += 1
+
+            # 动态重载配置 (每 60s 一次)
+            try:
+                if time.time() - _last_cfg_reload >= 60:
+                    _load_live_config()
+                    _last_cfg_reload = time.time()
+            except Exception as e:
+                log.warning("配置重载失败: %s", e)
 
             try:
                 _fill_pending_orders(conn)
