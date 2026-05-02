@@ -243,6 +243,12 @@ TOPSHORT_SIG_WAIT_MIN      = 30
 DUMP_SIG_ADVERSE_PCT       = 0.02    # 等待期间反向超 2% 信号失效 (SHORT 涨过 sig*(1+x))
 TOPSHORT_SIG_ADVERSE_PCT   = 0.02
 
+# 2026-05-01: chase-entry / dump-entry 入场总开关. 数据显示这两个 source "顺势追突破"
+# 在加密市场频发的假突破环境下结构性反向 (LONG 高位追多 -789U / SHORT 低位杀跌 -288U).
+# 默认 True 兼容; 设 False 时已有持仓继续 monitor SL/TP, 但 IDLE 不再触发新信号入场.
+CHASE_ENTRY_ENABLED = True
+DUMP_ENTRY_ENABLED  = True
+
 
 def _load_live_config() -> None:
     """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
@@ -254,6 +260,7 @@ def _load_live_config() -> None:
     global DUMP_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_ENABLED
     global DUMP_SIG_WAIT_MIN, TOPSHORT_SIG_WAIT_MIN
     global DUMP_SIG_ADVERSE_PCT, TOPSHORT_SIG_ADVERSE_PCT
+    global CHASE_ENTRY_ENABLED, DUMP_ENTRY_ENABLED
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -274,7 +281,8 @@ def _load_live_config() -> None:
                     "'live_limit_offset_pct','live_hold_hours','disable_sl_tp_hold',"
                     "'disable_5m_confirm','chase_allow_slow',"
                     "'dump_signal_wait_enabled','dump_signal_wait_min','dump_signal_adverse_pct',"
-                    "'topshort_signal_wait_enabled','topshort_signal_wait_min','topshort_signal_adverse_pct')"
+                    "'topshort_signal_wait_enabled','topshort_signal_wait_min','topshort_signal_adverse_pct',"
+                    "'chase_entry_enabled','dump_entry_enabled')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -327,6 +335,18 @@ def _load_live_config() -> None:
             DUMP_SIG_WAIT_ENABLED, DUMP_SIG_WAIT_MIN, DUMP_SIG_ADVERSE_PCT * 100,
             TOPSHORT_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_MIN, TOPSHORT_SIG_ADVERSE_PCT * 100,
         )
+
+        # chase / dump 入场总开关
+        _raw_chase = str(rows.get('chase_entry_enabled', '1')).strip().lower()
+        CHASE_ENTRY_ENABLED = _raw_chase in ('1', 'true', 'yes', 'on')
+        _raw_dump  = str(rows.get('dump_entry_enabled',  '1')).strip().lower()
+        DUMP_ENTRY_ENABLED = _raw_dump in ('1', 'true', 'yes', 'on')
+        log.info("live entry switches: chase_entry_enabled=%s dump_entry_enabled=%s",
+                 CHASE_ENTRY_ENABLED, DUMP_ENTRY_ENABLED)
+        if not CHASE_ENTRY_ENABLED:
+            log.warning("!!! CHASE_ENTRY_ENABLED=OFF: chase-entry 不再触发新入场, 已有仓位继续 monitor !!!")
+        if not DUMP_ENTRY_ENABLED:
+            log.warning("!!! DUMP_ENTRY_ENABLED=OFF: dump-entry 不再触发新入场, 已有仓位继续 monitor !!!")
     except Exception as exc:
         log.error("_load_live_config 失败，使用默认值: %s", exc)
 
@@ -1542,6 +1562,10 @@ def chase_tick(conn, sym):
     if s != 'IDLE':
         return
 
+    # 入场总开关: 关掉时不触发新入场, 已有持仓上面分支照常 monitor (2026-05-01)
+    if not CHASE_ENTRY_ENABLED:
+        return
+
     # 顶空仓位冲突检查：同标的已有 topshort 持仓/挂单时，不追多，避免双向对冲
     ts_row = get_or_create(conn, 'live', sym, 'topshort', {'state': 'IDLE'})
     ts_state = (ts_row.get('state') or 'IDLE').upper()
@@ -2354,6 +2378,10 @@ def dump_tick(conn, sym):
         return
 
     if s != 'IDLE':
+        return
+
+    # 入场总开关: 关掉时不触发新入场, 已有持仓上面分支照常 monitor (2026-05-01)
+    if not DUMP_ENTRY_ENABLED:
         return
 
     # IDLE: 跑信号检测; 触发后根据 DUMP_SIG_WAIT_ENABLED 决定立即下单 or 进 SIG_WAIT

@@ -225,6 +225,28 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
+    <!-- 入场总开关: chase-entry / dump-entry (2026-05-01 数据驱动止血) -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">入场总开关 (chase / dump)</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">近 7 天 chase 高位追多 -789U / dump 低位杀跌 -288U, "顺势追突破"在加密假突破市结构性反向。关掉后已有持仓继续 monitor SL/TP, IDLE 不再触发新入场。60s 内动态生效。</p>
+        <div class="settings-card rounded-2xl overflow-hidden">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-error">CHASE-ENTRY 入场</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">追涨突破信号入场, 关掉则不触发新 LONG。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_chaseEntryEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+            <div class="setting-row flex items-start justify-between px-4 py-3">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-error">DUMP-ENTRY 入场</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">追跌突破信号入场, 关掉则不触发新 SHORT。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_dumpEntryEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+        </div>
+    </section>
+
     <!-- 长持子策略 longhold (W底/M顶 2 周窗口, 默认 OFF) -->
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">长持子策略 longhold</h2>
@@ -543,7 +565,8 @@ async function loadAll() {
                lhEn, lhSl, lhTp, lhLim, lhHold, lhReb,
                dumpEn, dumpMin, dumpAdv,
                topEn, topMin, topAdv,
-               gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
+               gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd,
+               chaseEntryEn, dumpEntryEn] = await Promise.all([
             fetch(`${SYS}/trading-services`).then(r => r.json()),
             fetch(`${SYS}/strategy-config`).then(r => r.json()).catch(() => ({ data: {} })),
             fetchSetting('disable_5m_confirm'),
@@ -567,7 +590,9 @@ async function loadAll() {
             fetchSetting('gemini_hold_hours',           '6'),
             fetchSetting('gemini_min_pnl_pct',          '0.01'),
             fetchSetting('gemini_max_open_positions',   '5'),
-            fetchSetting('gemini_symbol_cooldown_hours','24')
+            fetchSetting('gemini_symbol_cooldown_hours','24'),
+            fetchSetting('chase_entry_enabled', '1'),
+            fetchSetting('dump_entry_enabled',  '1')
         ]);
         if (svcR.success) {
             const d = svcR.data;
@@ -627,6 +652,10 @@ async function loadAll() {
         setNum('m_geminiMinPnlInput',      pct100(gMinPnl,'0.01'));
         setNum('m_geminiMaxOpenInput',     kvVal(gMaxOpen,'5'));
         setNum('m_geminiCooldownInput',    kvVal(gCd,     '24'));
+
+        // chase / dump 入场总开关 (2026-05-01)
+        setChk('m_chaseEntryEnabledToggle', isOn(chaseEntryEn));
+        setChk('m_dumpEntryEnabledToggle',  isOn(dumpEntryEn));
     } catch(e) { toast('加载失败: ' + e.message, 'err'); }
 }
 
@@ -717,7 +746,12 @@ async function save(type) {
                 putKv('gemini_hold_hours',           intIn('m_geminiHoldHoursInput', '6'), 'Gemini 持仓上限(小时)'),
                 putKv('gemini_min_pnl_pct',          pctIn('m_geminiMinPnlInput', '1'),    'Gemini 预期 PnL 阈值'),
                 putKv('gemini_max_open_positions',   intIn('m_geminiMaxOpenInput','5'),    'Gemini 全局持仓上限'),
-                putKv('gemini_symbol_cooldown_hours',intIn('m_geminiCooldownInput','24'),  'Gemini 同 symbol 冷却(小时)')
+                putKv('gemini_symbol_cooldown_hours',intIn('m_geminiCooldownInput','24'),  'Gemini 同 symbol 冷却(小时)'),
+                // chase / dump 入场总开关 (2026-05-01)
+                putKv('chase_entry_enabled', chk('m_chaseEntryEnabledToggle') ? '1' : '0',
+                      'strategy_live chase-entry 入场总开关. 0=不触发新入场.'),
+                putKv('dump_entry_enabled',  chk('m_dumpEntryEnabledToggle')  ? '1' : '0',
+                      'strategy_live dump-entry 入场总开关. 0=不触发新入场.')
             ]);
             toast('扩展策略参数已保存, 重启对应进程后生效');
         } catch (e) { toast('保存失败: ' + e.message, 'err'); }

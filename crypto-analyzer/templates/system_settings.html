@@ -417,6 +417,28 @@
 </div>
 </div>
 
+<!-- 2.4b1 入场总开关: chase-entry / dump-entry (2026-05-01 数据驱动止血) -->
+<div class="mt-4 rounded-xl bg-[#2a0b0d]/60 border border-[#ff716c]/40 p-4">
+<div class="text-sm font-medium text-[#ff716c] mb-1">入场总开关 (chase / dump)</div>
+<p class="text-xs text-slate-400 mb-3">近 7 天数据: <span class="text-[#ff716c]">chase-entry 高位追多 -789U / dump-entry 低位杀跌 -288U</span>，"顺势追突破"在加密假突破频发市场结构性反向。关掉后已有持仓继续 monitor SL/TP, IDLE 不再触发新入场。<span class="text-slate-500">60s 内动态生效，不需要重启。</span></p>
+<div class="rounded-lg bg-[#070b10]/70 border border-slate-700/40 p-3 mb-2">
+<div class="cfg-row">
+<div class="text-sm text-slate-200">CHASE-ENTRY 入场</div>
+<div id="chaseEntryEnabledToggle" data-enabled="true" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+</div>
+<div class="rounded-lg bg-[#070b10]/70 border border-slate-700/40 p-3">
+<div class="cfg-row">
+<div class="text-sm text-slate-200">DUMP-ENTRY 入场</div>
+<div id="dumpEntryEnabledToggle" data-enabled="true" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+</div>
+</div>
+
 <!-- 2.4c 长持子策略 longhold (W底/M顶 2 周窗口) - 默认 OFF -->
 <div class="mt-4 rounded-xl bg-[#0b2a1f]/60 border border-emerald-500/40 p-4">
 <div class="cfg-row mb-3">
@@ -775,7 +797,8 @@
                        lhEn, lhSl, lhTp, lhLim, lhHold, lhReb,
                        dumpEn, dumpMin, dumpAdv,
                        topEn, topMin, topAdv,
-                       gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
+                       gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd,
+                       chaseEntryEn, dumpEntryEn] = await Promise.all([
                     apiGet('/trading-services'),
                     apiGet('/strategy-config').catch(function() { return { data: {} }; }),
                     apiGet('/settings/max_positions').catch(function() { return { data: { value: '50' } }; }),
@@ -806,7 +829,10 @@
                     fetchKv('gemini_hold_hours',           '6'),
                     fetchKv('gemini_min_pnl_pct',          '0.01'),
                     fetchKv('gemini_max_open_positions',   '5'),
-                    fetchKv('gemini_symbol_cooldown_hours','24')
+                    fetchKv('gemini_symbol_cooldown_hours','24'),
+                    // chase / dump 入场总开关 (2026-05-01)
+                    fetchKv('chase_entry_enabled', '1'),
+                    fetchKv('dump_entry_enabled',  '1')
                 ]);
 
                 const svc  = svcData.data  || svcData;
@@ -887,6 +913,10 @@
                 setNum('geminiMinPnlInput',        pctTo(gMinPnl,'0.01'));
                 setNum('geminiMaxOpenInput',       kvVal(gMaxOpen,'5'));
                 setNum('geminiCooldownInput',      kvVal(gCd,    '24'));
+
+                // chase / dump 入场总开关
+                setToggle('chaseEntryEnabledToggle', kvBool(chaseEntryEn));
+                setToggle('dumpEntryEnabledToggle',  kvBool(dumpEntryEn));
 
             } catch (err) {
                 console.error('loadAll 失败:', err);
@@ -993,6 +1023,36 @@
                     description: 'strategy_live topshort 入场前 30min 信号等待期, 改完重启 strategy_live 进程'
                 });
                 showToast((enabled ? '已开启 topshort 信号等待' : '已关闭 topshort 信号等待') + '（重启 strategy_live 后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // CHASE-ENTRY 入场总开关 - 即时保存 (60s 内动态生效)
+        bindToggle('chaseEntryEnabledToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/chase_entry_enabled', {
+                    setting_key: 'chase_entry_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'strategy_live chase-entry 入场总开关. 0=不触发新入场(已有仓位继续monitor), 1=正常.'
+                });
+                showToast((enabled ? '已开启 chase-entry 入场' : '已关闭 chase-entry 入场') + '（60s 内动态生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // DUMP-ENTRY 入场总开关 - 即时保存 (60s 内动态生效)
+        bindToggle('dumpEntryEnabledToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/dump_entry_enabled', {
+                    setting_key: 'dump_entry_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'strategy_live dump-entry 入场总开关. 0=不触发新入场(已有仓位继续monitor), 1=正常.'
+                });
+                showToast((enabled ? '已开启 dump-entry 入场' : '已关闭 dump-entry 入场') + '（60s 内动态生效）', false);
             } catch (err) {
                 showToast('保存失败: ' + err.message, true);
                 return false;

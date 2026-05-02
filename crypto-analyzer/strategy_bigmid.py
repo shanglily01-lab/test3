@@ -833,6 +833,37 @@ def _settle_closed_positions(conn):
                          last_reason=(r.get("notes") or "")[:32])
 
 
+def _settle_cancelled_pending(conn):
+    """清理: strategy_state.state=PENDING 但对应 futures_orders 已 CANCELLED.
+    把卡死的 PENDING 翻成 IDLE, 让下一轮 gemini_round 能重新入场.
+    (2026-05-01 修复: 限价单超时撤单后状态机没翻, 导致 active_count 永远=5 卡死轮次)
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.symbol, s.order_id
+            FROM strategy_state s
+            WHERE s.strategy='bigmid' AND s.stype='gemini' AND s.state='PENDING'
+              AND s.order_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM futures_orders o
+                WHERE o.order_id = s.order_id
+                  AND o.status IN ('CANCELLED', 'REJECTED')
+              )
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        for r in rows:
+            log.info("Gemini 限价单已撤, 清空状态机让下次重试: %s oid=%s",
+                     r['symbol'], r['order_id'])
+            update_state(conn, "bigmid", r['symbol'], "gemini",
+                         state="IDLE", pid=None, order_id=None,
+                         entry_p=0, entry_time=0,
+                         last_reason='order_cancelled')
+    except Exception as e:
+        log.warning("_settle_cancelled_pending 异常: %s", e)
+
+
 # ── 主循环 ──────────────────────────────────────────────────────
 def main():
     _load_bigmid_config()
@@ -872,6 +903,8 @@ def main():
             except Exception as e: log.warning("_close_overdue %s", e)
             try: _settle_closed_positions(conn)
             except Exception as e: log.warning("_settle_closed_positions %s", e)
+            try: _settle_cancelled_pending(conn)
+            except Exception as e: log.warning("_settle_cancelled_pending %s", e)
 
             # 每 6h 调 Gemini 一轮
             if GEMINI_ENABLED and (now_s() - last_round_ts >= GEMINI_ROUND_INTERVAL_S):
