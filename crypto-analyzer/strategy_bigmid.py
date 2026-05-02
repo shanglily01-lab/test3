@@ -253,12 +253,16 @@ def _has_any_open(sym: str) -> bool:
 
 
 def _gemini_active_count(conn) -> int:
-    """gemini 子策略当前 active 持仓数 (state != IDLE)"""
+    """gemini 子策略当前 active 持仓数 (PENDING / SHORT / LONG, 不含 DONE).
+    2026-05-02 修: 之前 state != IDLE 把 DONE 也算上, 5 个 DONE 在 cooldown 中也会
+    把 active 占满, 死锁 gemini_round. DONE 是冷却态, 不该占 max_open 配额.
+    """
     try:
         cur = conn.cursor()
         cur.execute(
             "SELECT COUNT(1) AS n FROM strategy_state "
-            "WHERE strategy='bigmid' AND stype='gemini' AND state != 'IDLE'"
+            "WHERE strategy='bigmid' AND stype='gemini' "
+            "  AND state IN ('PENDING','SHORT','LONG')"
         )
         r = cur.fetchone()
         cur.close()
@@ -836,30 +840,37 @@ def _settle_closed_positions(conn):
 def _settle_cancelled_pending(conn):
     """清理: strategy_state.state=PENDING 但对应 futures_orders 已 CANCELLED.
     把卡死的 PENDING 翻成 IDLE, 让下一轮 gemini_round 能重新入场.
-    (2026-05-01 修复: 限价单超时撤单后状态机没翻, 导致 active_count 永远=5 卡死轮次)
+
+    2026-05-01 修复: 限价单超时撤单后状态机没翻, 导致 active_count 永远=5 卡死轮次.
+    2026-05-02 改: 拆两步查询, 避免 strategy_state.order_id (utf8mb4_0900_ai_ci) 和
+                   futures_orders.order_id (utf8mb4_unicode_ci) 跨表比较 collation 冲突.
     """
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT s.symbol, s.order_id
-            FROM strategy_state s
-            WHERE s.strategy='bigmid' AND s.stype='gemini' AND s.state='PENDING'
-              AND s.order_id IS NOT NULL
-              AND EXISTS (
-                SELECT 1 FROM futures_orders o
-                WHERE o.order_id = s.order_id
-                  AND o.status IN ('CANCELLED', 'REJECTED')
-              )
+            SELECT symbol, order_id FROM strategy_state
+            WHERE strategy='bigmid' AND stype='gemini' AND state='PENDING'
+              AND order_id IS NOT NULL
         """)
-        rows = cur.fetchall()
+        pending_rows = cur.fetchall()
         cur.close()
-        for r in rows:
-            log.info("Gemini 限价单已撤, 清空状态机让下次重试: %s oid=%s",
-                     r['symbol'], r['order_id'])
-            update_state(conn, "bigmid", r['symbol'], "gemini",
-                         state="IDLE", pid=None, order_id=None,
-                         entry_p=0, entry_time=0,
-                         last_reason='order_cancelled')
+        if not pending_rows:
+            return
+        for r in pending_rows:
+            c2 = conn.cursor()
+            try:
+                c2.execute("SELECT status FROM futures_orders WHERE order_id=%s LIMIT 1",
+                           (r['order_id'],))
+                order = c2.fetchone()
+            finally:
+                c2.close()
+            if order and (order.get('status') or '').upper() in ('CANCELLED', 'REJECTED'):
+                log.info("Gemini 限价单已撤, 清空状态机让下次重试: %s oid=%s",
+                         r['symbol'], r['order_id'])
+                update_state(conn, "bigmid", r['symbol'], "gemini",
+                             state="IDLE", pid=None, order_id=None,
+                             entry_p=0, entry_time=0,
+                             last_reason='order_cancelled')
     except Exception as e:
         log.warning("_settle_cancelled_pending 异常: %s", e)
 
