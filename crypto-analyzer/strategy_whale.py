@@ -165,6 +165,21 @@ LH_LIMIT_TTL_S          = 24 * 3600     # 限价单 24h 未成交撤掉
 LH_COOLDOWN_S           = 7 * 24 * 3600 # 同品种触发后冷却 7 天
 LH_MAX_OPEN_POSITIONS   = 3             # 全局上限 (longhold-w + longhold-m 合计)
 
+# ── 4 天 4H 极值反转子策略 (REV4D, 2026-05-02 新增, 默认 OFF) ─────────
+# 触底法: cur_p ≤ 4d_low × (1+0.005) → LONG; cur_p ≥ 4d_high × (1-0.005) → SHORT
+# 紧 SL 短持反转策略 (与长持 longhold 互补)
+REV4D_ENABLED            = False        # 总开关
+REV4D_DATA_MIN_BARS      = 24           # 4H × 4 天
+REV4D_THRESHOLD_PCT      = 0.005        # 距极值 0.5% 内算入场
+REV4D_SL_PCT             = 0.02         # 止损 2% (紧)
+REV4D_HARD_TP_PCT        = 0.05         # 止盈 5%
+REV4D_LIMIT_OFFSET_PCT   = 0.003        # 限价偏移 0.3% (与 whale 主一致)
+REV4D_HOLD_MIN           = 24 * 60      # 24h
+REV4D_COOLDOWN_S         = 48 * 3600    # 48h 同 symbol 冷却
+REV4D_MAX_OPEN_POSITIONS = 3
+REV4D_LONG_24H_MIN_PCT   = -0.25        # 24h 跌幅超 25% 不 LONG (避免接飞刀)
+REV4D_SHORT_24H_MAX_PCT  = 0.30         # 24h 涨幅超 30% 不 SHORT (避免追顶)
+
 
 def _load_whale_config() -> None:
     """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
@@ -172,6 +187,8 @@ def _load_whale_config() -> None:
     global SL_PCT, HARD_TP_PCT, SHORT_HOLD_H, LONG_HOLD_H
     global DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM
     global LH_ENABLED, LH_SL_PCT, LH_HARD_TP_PCT, LH_LIMIT_OFFSET_PCT, LH_HOLD_MIN, LH_REBOUND_MIN_PCT
+    global REV4D_ENABLED, REV4D_THRESHOLD_PCT, REV4D_SL_PCT, REV4D_HARD_TP_PCT
+    global REV4D_HOLD_MIN, REV4D_COOLDOWN_S
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -192,7 +209,9 @@ def _load_whale_config() -> None:
                     "'whale_limit_offset_pct','whale_hold_hours','disable_sl_tp_hold',"
                     "'disable_5m_confirm',"
                     "'longhold_enabled','longhold_sl_pct','longhold_tp_pct',"
-                    "'longhold_limit_offset_pct','longhold_hold_hours','longhold_rebound_pct')"
+                    "'longhold_limit_offset_pct','longhold_hold_hours','longhold_rebound_pct',"
+                    "'rev4d_enabled','rev4d_threshold_pct','rev4d_sl_pct','rev4d_tp_pct',"
+                    "'rev4d_hold_hours','rev4d_cooldown_hours')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -230,6 +249,23 @@ def _load_whale_config() -> None:
             LH_ENABLED, LH_SL_PCT * 100, LH_HARD_TP_PCT * 100, LH_LIMIT_OFFSET_PCT * 100,
             LH_HOLD_MIN // 60, LH_REBOUND_MIN_PCT * 100,
         )
+
+        # rev4d 子策略参数 (4 天 4H 极值反转)
+        _raw_r4d = str(rows.get('rev4d_enabled', '0')).strip().lower()
+        REV4D_ENABLED         = _raw_r4d in ('1', 'true', 'yes', 'on')
+        REV4D_THRESHOLD_PCT   = float(rows.get('rev4d_threshold_pct', REV4D_THRESHOLD_PCT))
+        REV4D_SL_PCT          = float(rows.get('rev4d_sl_pct',        REV4D_SL_PCT))
+        REV4D_HARD_TP_PCT     = float(rows.get('rev4d_tp_pct',        REV4D_HARD_TP_PCT))
+        _r4d_hold_h           = int(  rows.get('rev4d_hold_hours',     REV4D_HOLD_MIN // 60))
+        REV4D_HOLD_MIN        = _r4d_hold_h * 60
+        _r4d_cd_h             = int(  rows.get('rev4d_cooldown_hours', REV4D_COOLDOWN_S // 3600))
+        REV4D_COOLDOWN_S      = _r4d_cd_h * 3600
+        log.info(
+            "rev4d 参数: enabled=%s threshold=%.1f%% SL=%.1f%% TP=%.0f%% hold=%dh cooldown=%dh",
+            REV4D_ENABLED, REV4D_THRESHOLD_PCT * 100, REV4D_SL_PCT * 100,
+            REV4D_HARD_TP_PCT * 100, REV4D_HOLD_MIN // 60, REV4D_COOLDOWN_S // 3600,
+        )
+
         if DISABLE_SL_TP_HOLD:
             log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/移动TP检查跳过 !!!")
         if DISABLE_5M_CONFIRM:
@@ -1547,6 +1583,177 @@ def longhold_m_tick(conn, sym: str):
     )
 
 
+# ── REV4D 子策略: 4 天 4H 极值反转 (2026-05-02 新增) ─────────────────
+def _get_4h_bars(cur, sym: str, limit: int = 30) -> list:
+    """最近 N 根完成的 4h K 线 (排除最后一根未完成)."""
+    now_ms = int(now_s() * 1000)
+    cur.execute("""
+        SELECT open_price, high_price, low_price, close_price, volume
+        FROM kline_data
+        WHERE symbol=%s AND timeframe='4h'
+          AND open_time + %s < %s
+        ORDER BY open_time DESC LIMIT %s
+    """, (sym, 4 * 3600 * 1000, now_ms, limit))
+    return list(reversed(cur.fetchall()))
+
+
+def _get_24h_change(cur, sym: str):
+    """从 price_stats_24h 取 change_24h (小数, 例 0.05 = +5%). None=无数据."""
+    try:
+        cur.execute(
+            "SELECT change_24h FROM price_stats_24h WHERE symbol=%s LIMIT 1",
+            (sym,),
+        )
+        r = cur.fetchone()
+        if r and r.get('change_24h') is not None:
+            ch = float(r['change_24h'])
+            # price_stats_24h.change_24h 的单位看 schema 是 % (例如 5.23 = 5.23%)
+            # 不是小数 0.0523, 这里转成小数方便比较
+            return ch / 100.0
+    except Exception:
+        pass
+    return None
+
+
+def detect_rev4d_signal(bars_4h: list, cur_p: float, ch_24h):
+    """4 天 4H 极值反转信号检测.
+    LONG: cur_p ≤ 4d_low × (1+threshold), 24h 跌幅 < 25%.
+    SHORT: cur_p ≥ 4d_high × (1-threshold), 24h 涨幅 < 30%.
+    返回 sig dict 或 None.
+    """
+    if len(bars_4h) < REV4D_DATA_MIN_BARS:
+        return None
+    highs = [float(b['high_price']) for b in bars_4h]
+    lows  = [float(b['low_price'])  for b in bars_4h]
+    hi4d = max(highs)
+    lo4d = min(lows)
+    if hi4d <= 0 or lo4d <= 0:
+        return None
+
+    # LONG 触底
+    if cur_p <= lo4d * (1 + REV4D_THRESHOLD_PCT):
+        if ch_24h is not None and ch_24h < REV4D_LONG_24H_MIN_PCT:
+            return None  # 24h 已跌过深, 飞刀不接
+        return {
+            'side':         'LONG',
+            'extreme':      lo4d,
+            'cur_price':    cur_p,
+            'distance_pct': (cur_p - lo4d) / lo4d if lo4d else 0,
+            'range_pct':    (hi4d - lo4d) / lo4d if lo4d else 0,
+            'ch_24h':       ch_24h,
+        }
+
+    # SHORT 触顶
+    if cur_p >= hi4d * (1 - REV4D_THRESHOLD_PCT):
+        if ch_24h is not None and ch_24h > REV4D_SHORT_24H_MAX_PCT:
+            return None  # 24h 已涨过高, 顶部不追
+        return {
+            'side':         'SHORT',
+            'extreme':      hi4d,
+            'cur_price':    cur_p,
+            'distance_pct': (hi4d - cur_p) / hi4d if hi4d else 0,
+            'range_pct':    (hi4d - lo4d) / lo4d if lo4d else 0,
+            'ch_24h':       ch_24h,
+        }
+    return None
+
+
+def _rev4d_active_count(conn) -> int:
+    """REV4D 子策略当前 active 持仓数 (PENDING/SHORT/LONG, 不含 DONE).
+    注: DONE 是冷却态不占配额, 学到 Gemini bug 教训."""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(1) AS n FROM strategy_state "
+            "WHERE strategy='whale' AND stype='rev4d' "
+            "  AND state IN ('PENDING','SHORT','LONG')"
+        )
+        r = cur.fetchone()
+        cur.close()
+        return int(r['n']) if r else 0
+    except Exception:
+        return 0
+
+
+def rev4d_tick(conn, sym: str):
+    """REV4D 子策略每个品种的扫描. 4 天 4H 极值反转, SL 2% / TP 5% / hold 24h."""
+    if not REV4D_ENABLED:
+        return
+
+    ss = get_or_create(conn, 'whale', sym, 'rev4d', {
+        'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
+        'peak_pnl_pct': 0.0, 'side': None,
+        'entry_time': 0.0, 'done_time': 0.0,
+    })
+    s = ss.get('state') or 'IDLE'
+
+    # 同品种 48h 冷却
+    if s == 'DONE':
+        anchor = ensure_cooldown_anchor_epoch(conn, 'whale', sym, 'rev4d', ss, now_s())
+        if now_s() - anchor > REV4D_COOLDOWN_S:
+            update_state(conn, 'whale', sym, 'rev4d', state='IDLE')
+        return
+    if s != 'IDLE':
+        return  # PENDING/SHORT/LONG 由 _close_overdue + _fill_pending_orders 管理
+
+    # 互斥: 同 symbol 已有 whale 系任意子策略 active
+    if _any_whale_active(conn, sym):
+        return
+
+    # 全局上限
+    if _rev4d_active_count(conn) >= REV4D_MAX_OPEN_POSITIONS:
+        return
+
+    cur = conn.cursor()
+    try:
+        bars = _get_4h_bars(cur, sym, limit=REV4D_DATA_MIN_BARS + 5)
+        ch_24h = _get_24h_change(cur, sym)
+    finally:
+        cur.close()
+    if len(bars) < REV4D_DATA_MIN_BARS:
+        return
+
+    try:
+        cur_p = get_price(sym)
+    except Exception:
+        return
+
+    sig = detect_rev4d_signal(bars, cur_p, ch_24h)
+    if not sig:
+        return
+
+    side = sig['side']
+    if side == 'LONG':
+        lp = round(cur_p * (1 - REV4D_LIMIT_OFFSET_PCT), 8)
+    else:
+        lp = round(cur_p * (1 + REV4D_LIMIT_OFFSET_PCT), 8)
+
+    pid, oid, pending = open_order(
+        sym, side, cur_p,
+        tp_pct=REV4D_HARD_TP_PCT, sl_pct=REV4D_SL_PCT,
+        hold_min=REV4D_HOLD_MIN,
+        tag='rev4d', limit_price=lp,
+    )
+    if not (pid or oid):
+        return
+
+    log.info(
+        "[REV4D] %s %s @ %.6f extreme=%.6f distance=%.2f%% range=%.1f%% 24h=%s lp=%.6f "
+        "(TP=%.0f%% SL=%.0f%% hold=%dh)",
+        sym, side, cur_p, sig['extreme'], sig['distance_pct'] * 100,
+        sig['range_pct'] * 100,
+        f"{sig['ch_24h']*100:+.1f}%" if sig.get('ch_24h') is not None else 'N/A',
+        lp, REV4D_HARD_TP_PCT * 100, REV4D_SL_PCT * 100, REV4D_HOLD_MIN // 60,
+    )
+    update_state(
+        conn, 'whale', sym, 'rev4d',
+        state='PENDING' if pending else side,
+        pid=pid, order_id=oid, side=side,
+        entry_p=lp if pending else cur_p,
+        peak_pnl_pct=0.0, entry_time=now_s(),
+    )
+
+
 # ── 仓位管理 ──────────────────────────────────────────────────────────
 def whale_tick(conn, sym: str):
     """每个品种的主逻辑"""
@@ -1707,7 +1914,9 @@ def _sync_state(conn):
             if not src.startswith("strategy_whale:"):
                 continue
             # 按 source 后缀分配 stype: longhold-w/-m 必须先判 (子串包含 'w-bottom'/'m-top' 风险)
-            if "longhold-w" in src:
+            if "rev4d" in src:
+                stype = 'rev4d'
+            elif "longhold-w" in src:
                 stype = 'longhold-w'
             elif "longhold-m" in src:
                 stype = 'longhold-m'
@@ -1803,6 +2012,12 @@ def main():
                     longhold_m_tick(conn, sym)
                 except Exception as e:
                     log.warning("longhold_m_tick %s error: %s", sym, e)
+                # rev4d 子策略 (4 天 4H 极值反转, 24h 持仓, SL 2%/TP 5%, 2026-05-02 新增)
+                # REV4D_ENABLED=False (system_settings.rev4d_enabled) 时 tick 内立即 return
+                try:
+                    rev4d_tick(conn, sym)
+                except Exception as e:
+                    log.warning("rev4d_tick %s error: %s", sym, e)
                 processed += 1
 
             poll_count += 1

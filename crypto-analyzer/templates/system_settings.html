@@ -474,6 +474,41 @@
 </div>
 </div>
 
+<!-- 2.4c2 REV4D 4天4H 极值反转子策略 - 默认 OFF -->
+<div class="mt-4 rounded-xl bg-[#0b1e2a]/60 border border-sky-500/40 p-4">
+<div class="cfg-row mb-3">
+<div class="min-w-0">
+<div class="text-sm font-medium text-sky-400">REV4D 4天4H 极值反转 (strategy_whale)</div>
+<p class="text-xs text-slate-400 mt-0.5">触底法: cur ≤ 4d_low × (1+threshold) → LONG; 触顶法: cur ≥ 4d_high × (1-threshold) → SHORT。24h 跌 &gt;25% 不 LONG, 24h 涨 &gt;30% 不 SHORT。<span class="text-slate-500">60s 内动态生效。</span></p>
+</div>
+<div id="rev4dEnabledToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">距极值阈值 %</label>
+<div class="relative"><input id="rev4dThresholdInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-sky-500/40" type="number" min="0.1" max="5" step="0.1" value="0.5"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止损 %</label>
+<div class="relative"><input id="rev4dSlInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-sky-500/40" type="number" min="0.5" max="10" step="0.5" value="2"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止盈 %</label>
+<div class="relative"><input id="rev4dTpInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-sky-500/40" type="number" min="1" max="20" step="0.5" value="5"/><span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span></div>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">持仓 (小时)</label>
+<input id="rev4dHoldHoursInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-sky-500/40" type="number" min="6" max="96" step="6" value="24"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">冷却 (小时)</label>
+<input id="rev4dCooldownHoursInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-sky-500/40" type="number" min="6" max="168" step="6" value="48"/>
+</div>
+</div>
+</div>
+
 <!-- 2.4d 信号 30min 等待期 (dump-entry / topshort) - 默认 OFF -->
 <div class="mt-4 rounded-xl bg-[#1a1428]/60 border border-purple-500/40 p-4">
 <div class="text-sm font-medium text-purple-400 mb-1">信号 30min 等待期 (dump-entry / topshort)</div>
@@ -798,7 +833,8 @@
                        dumpEn, dumpMin, dumpAdv,
                        topEn, topMin, topAdv,
                        gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd,
-                       chaseEntryEn, dumpEntryEn] = await Promise.all([
+                       chaseEntryEn, dumpEntryEn,
+                       r4dEn, r4dTh, r4dSl, r4dTp, r4dHold, r4dCd] = await Promise.all([
                     apiGet('/trading-services'),
                     apiGet('/strategy-config').catch(function() { return { data: {} }; }),
                     apiGet('/settings/max_positions').catch(function() { return { data: { value: '50' } }; }),
@@ -832,7 +868,14 @@
                     fetchKv('gemini_symbol_cooldown_hours','24'),
                     // chase / dump 入场总开关 (2026-05-01)
                     fetchKv('chase_entry_enabled', '1'),
-                    fetchKv('dump_entry_enabled',  '1')
+                    fetchKv('dump_entry_enabled',  '1'),
+                    // REV4D 子策略 (2026-05-02)
+                    fetchKv('rev4d_enabled',        '0'),
+                    fetchKv('rev4d_threshold_pct',  '0.005'),
+                    fetchKv('rev4d_sl_pct',         '0.02'),
+                    fetchKv('rev4d_tp_pct',         '0.05'),
+                    fetchKv('rev4d_hold_hours',     '24'),
+                    fetchKv('rev4d_cooldown_hours', '48')
                 ]);
 
                 const svc  = svcData.data  || svcData;
@@ -917,6 +960,14 @@
                 // chase / dump 入场总开关
                 setToggle('chaseEntryEnabledToggle', kvBool(chaseEntryEn));
                 setToggle('dumpEntryEnabledToggle',  kvBool(dumpEntryEn));
+
+                // REV4D 4天4H 极值反转
+                setToggle('rev4dEnabledToggle',     kvBool(r4dEn));
+                setNum('rev4dThresholdInput',       pctTo(r4dTh,   '0.005'));
+                setNum('rev4dSlInput',              pctTo(r4dSl,   '0.02'));
+                setNum('rev4dTpInput',              pctTo(r4dTp,   '0.05'));
+                setNum('rev4dHoldHoursInput',       kvVal(r4dHold, '24'));
+                setNum('rev4dCooldownHoursInput',   kvVal(r4dCd,   '48'));
 
             } catch (err) {
                 console.error('loadAll 失败:', err);
@@ -1023,6 +1074,21 @@
                     description: 'strategy_live topshort 入场前 30min 信号等待期, 改完重启 strategy_live 进程'
                 });
                 showToast((enabled ? '已开启 topshort 信号等待' : '已关闭 topshort 信号等待') + '（重启 strategy_live 后生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // REV4D 子策略总开关 - 即时保存 (60s 内动态生效)
+        bindToggle('rev4dEnabledToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/rev4d_enabled', {
+                    setting_key: 'rev4d_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'strategy_whale REV4D 4 天 4H 极值反转子策略总开关. 60s 动态生效.'
+                });
+                showToast((enabled ? '已开启 REV4D 子策略' : '已关闭 REV4D 子策略') + '（60s 内动态生效）', false);
             } catch (err) {
                 showToast('保存失败: ' + err.message, true);
                 return false;
@@ -1152,7 +1218,13 @@
                         putKv('gemini_hold_hours',         intIn('geminiHoldHoursInput', '6'),'Gemini 策略持仓上限 (小时)'),
                         putKv('gemini_min_pnl_pct',        pctIn('geminiMinPnlInput', '1'),   'Gemini 预期 PnL 阈值'),
                         putKv('gemini_max_open_positions', intIn('geminiMaxOpenInput','5'),   'Gemini 全局同时持仓上限'),
-                        putKv('gemini_symbol_cooldown_hours',intIn('geminiCooldownInput','24'),'Gemini 同 symbol 冷却时长 (小时)')
+                        putKv('gemini_symbol_cooldown_hours',intIn('geminiCooldownInput','24'),'Gemini 同 symbol 冷却时长 (小时)'),
+                        // REV4D 数值参数 (2026-05-02)
+                        putKv('rev4d_threshold_pct', pctIn('rev4dThresholdInput',     '0.5'),  'REV4D 距极值阈值'),
+                        putKv('rev4d_sl_pct',        pctIn('rev4dSlInput',            '2'),    'REV4D 止损'),
+                        putKv('rev4d_tp_pct',        pctIn('rev4dTpInput',            '5'),    'REV4D 硬止盈'),
+                        putKv('rev4d_hold_hours',    intIn('rev4dHoldHoursInput',     '24'),   'REV4D 持仓上限 (小时)'),
+                        putKv('rev4d_cooldown_hours',intIn('rev4dCooldownHoursInput', '48'),   'REV4D 同 symbol 冷却 (小时)')
                     ]);
 
                     saveBtnText.textContent = '已保存';

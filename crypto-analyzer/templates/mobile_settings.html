@@ -284,6 +284,43 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
+    <!-- REV4D 4天4H 极值反转子策略 (默认 OFF) -->
+    <section>
+        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">REV4D 4天4H 极值反转</h2>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_whale 子策略：cur ≤ 4d_low × (1+threshold) → LONG; cur ≥ 4d_high × (1-threshold) → SHORT。24h 跌&gt;25% 不 LONG, 涨&gt;30% 不 SHORT。60s 动态生效。</p>
+        <div class="settings-card rounded-2xl overflow-hidden">
+            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
+                <div class="flex flex-col pr-3 min-w-0">
+                    <span class="text-sm font-medium text-sky-400">总开关 (rev4d_enabled)</span>
+                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">默认 OFF。开启后每 tick 扫 4 天 4H 极值, 满足触发即下限价单。</span>
+                </div>
+                <label class="custom-toggle"><input id="m_rev4dEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
+            </div>
+            <div class="grid grid-cols-2 gap-3 px-4 py-3 border-b border-outline-variant/10">
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">距极值阈值 %</label>
+                    <div class="relative"><input id="m_rev4dThresholdInput" type="number" min="0.1" max="5" step="0.1" value="0.5" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-sky-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">止损 %</label>
+                    <div class="relative"><input id="m_rev4dSlInput" type="number" min="0.5" max="10" step="0.5" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-sky-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">止盈 %</label>
+                    <div class="relative"><input id="m_rev4dTpInput" type="number" min="1" max="20" step="0.5" value="5" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-sky-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-on-surface-variant mb-1">持仓 (小时)</label>
+                    <input id="m_rev4dHoldHoursInput" type="number" min="6" max="96" step="6" value="24" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-sky-500/40 mono-data"/>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-[10px] text-on-surface-variant mb-1">冷却 (小时)</label>
+                    <input id="m_rev4dCooldownHoursInput" type="number" min="6" max="168" step="6" value="48" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-sky-500/40 mono-data"/>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- 信号 30min 等待期 (dump-entry / topshort, 默认 OFF) -->
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">信号 30min 等待期</h2>
@@ -566,7 +603,8 @@ async function loadAll() {
                dumpEn, dumpMin, dumpAdv,
                topEn, topMin, topAdv,
                gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd,
-               chaseEntryEn, dumpEntryEn] = await Promise.all([
+               chaseEntryEn, dumpEntryEn,
+               r4dEn, r4dTh, r4dSl, r4dTp, r4dHold, r4dCd] = await Promise.all([
             fetch(`${SYS}/trading-services`).then(r => r.json()),
             fetch(`${SYS}/strategy-config`).then(r => r.json()).catch(() => ({ data: {} })),
             fetchSetting('disable_5m_confirm'),
@@ -592,7 +630,14 @@ async function loadAll() {
             fetchSetting('gemini_max_open_positions',   '5'),
             fetchSetting('gemini_symbol_cooldown_hours','24'),
             fetchSetting('chase_entry_enabled', '1'),
-            fetchSetting('dump_entry_enabled',  '1')
+            fetchSetting('dump_entry_enabled',  '1'),
+            // REV4D (2026-05-02)
+            fetchSetting('rev4d_enabled',        '0'),
+            fetchSetting('rev4d_threshold_pct',  '0.005'),
+            fetchSetting('rev4d_sl_pct',         '0.02'),
+            fetchSetting('rev4d_tp_pct',         '0.05'),
+            fetchSetting('rev4d_hold_hours',     '24'),
+            fetchSetting('rev4d_cooldown_hours', '48')
         ]);
         if (svcR.success) {
             const d = svcR.data;
@@ -656,6 +701,14 @@ async function loadAll() {
         // chase / dump 入场总开关 (2026-05-01)
         setChk('m_chaseEntryEnabledToggle', isOn(chaseEntryEn));
         setChk('m_dumpEntryEnabledToggle',  isOn(dumpEntryEn));
+
+        // REV4D (2026-05-02)
+        setChk('m_rev4dEnabledToggle',     isOn(r4dEn));
+        setNum('m_rev4dThresholdInput',    pct100(r4dTh,   '0.005'));
+        setNum('m_rev4dSlInput',           pct100(r4dSl,   '0.02'));
+        setNum('m_rev4dTpInput',           pct100(r4dTp,   '0.05'));
+        setNum('m_rev4dHoldHoursInput',    kvVal(r4dHold,  '24'));
+        setNum('m_rev4dCooldownHoursInput',kvVal(r4dCd,    '48'));
     } catch(e) { toast('加载失败: ' + e.message, 'err'); }
 }
 
@@ -751,7 +804,15 @@ async function save(type) {
                 putKv('chase_entry_enabled', chk('m_chaseEntryEnabledToggle') ? '1' : '0',
                       'strategy_live chase-entry 入场总开关. 0=不触发新入场.'),
                 putKv('dump_entry_enabled',  chk('m_dumpEntryEnabledToggle')  ? '1' : '0',
-                      'strategy_live dump-entry 入场总开关. 0=不触发新入场.')
+                      'strategy_live dump-entry 入场总开关. 0=不触发新入场.'),
+                // REV4D (2026-05-02)
+                putKv('rev4d_enabled',        chk('m_rev4dEnabledToggle') ? '1' : '0',
+                      'strategy_whale REV4D 4天4H 极值反转总开关.'),
+                putKv('rev4d_threshold_pct',  pctIn('m_rev4dThresholdInput',     '0.5'),  'REV4D 距极值阈值'),
+                putKv('rev4d_sl_pct',         pctIn('m_rev4dSlInput',            '2'),    'REV4D 止损'),
+                putKv('rev4d_tp_pct',         pctIn('m_rev4dTpInput',            '5'),    'REV4D 止盈'),
+                putKv('rev4d_hold_hours',     intIn('m_rev4dHoldHoursInput',     '24'),   'REV4D 持仓上限 (小时)'),
+                putKv('rev4d_cooldown_hours', intIn('m_rev4dCooldownHoursInput', '48'),   'REV4D 同 symbol 冷却 (小时)')
             ]);
             toast('扩展策略参数已保存, 重启对应进程后生效');
         } catch (e) { toast('保存失败: ' + e.message, 'err'); }
