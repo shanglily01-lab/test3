@@ -58,24 +58,55 @@ TARGET_STYPES = ("swan", "rev4d", "longhold-w", "longhold-m", "w-bottom", "m-top
 
 
 def find_zombies(conn) -> list[dict]:
+    """两步查询. strategy_state 和 futures_orders 的 order_id 列 collation 不同
+    (utf8mb4_unicode_ci vs utf8mb4_general_ci), 不能直接 JOIN -- 历史踩过坑."""
+    # 第 1 步: 子策略 PENDING 行
     placeholder = ",".join(["%s"] * len(TARGET_STYPES))
-    sql = (
-        "SELECT ss.id AS state_id, ss.symbol, ss.stype, ss.state, "
-        "       ss.order_id, ss.side, ss.updated_at, "
-        "       fo.id AS order_id_pk, fo.status AS order_status, "
-        "       fo.cancellation_reason, fo.canceled_at "
-        "FROM strategy_state ss "
-        "LEFT JOIN futures_orders fo ON fo.order_id = ss.order_id "
-        "WHERE ss.strategy='whale' "
-        f"  AND ss.stype IN ({placeholder}) "
-        "  AND ss.state='PENDING' "
-        "  AND (fo.status='CANCELLED' OR fo.status='REJECTED' "
-        "       OR fo.id IS NULL) "
-        "ORDER BY ss.updated_at DESC"
-    )
     with conn.cursor() as cur:
-        cur.execute(sql, TARGET_STYPES)
-        return cur.fetchall()
+        cur.execute(
+            "SELECT id AS state_id, symbol, stype, state, "
+            "       order_id, side, updated_at "
+            "FROM strategy_state "
+            "WHERE strategy='whale' "
+            f"  AND stype IN ({placeholder}) "
+            "  AND state='PENDING' "
+            "ORDER BY updated_at DESC",
+            TARGET_STYPES,
+        )
+        pendings = cur.fetchall()
+    if not pendings:
+        return []
+
+    # 第 2 步: 这些 order_id 在 futures_orders 的实际状态 (单独查, 无跨表 collation)
+    oids = [r["order_id"] for r in pendings if r["order_id"]]
+    order_map: dict[str, dict] = {}
+    if oids:
+        ph = ",".join(["%s"] * len(oids))
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT order_id, id AS order_pk, status, "
+                f"       cancellation_reason, canceled_at "
+                f"FROM futures_orders WHERE order_id IN ({ph})",
+                oids,
+            )
+            for r in cur.fetchall():
+                order_map[r["order_id"]] = r
+
+    # 第 3 步: Python 端筛 -- order=CANCELLED/REJECTED/丢失 的才算僵尸
+    zombies: list[dict] = []
+    for ss in pendings:
+        oid = ss["order_id"]
+        fo = order_map.get(oid) if oid else None
+        if fo is None:
+            ss["order_status"] = "MISSING"
+            ss["cancellation_reason"] = None
+            zombies.append(ss)
+        elif (fo.get("status") or "").upper() in ("CANCELLED", "REJECTED"):
+            ss["order_status"] = fo.get("status")
+            ss["cancellation_reason"] = fo.get("cancellation_reason")
+            zombies.append(ss)
+        # else: PENDING/FILLING/FILLED 都不是僵尸, 跳过
+    return zombies
 
 
 def fix_zombies(conn, rows: list[dict]) -> int:
