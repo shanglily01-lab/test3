@@ -509,6 +509,49 @@
 </div>
 </div>
 
+<!-- 2.4c3 SWAN Gemini 红黑天鹅自动下单 - 默认 OFF -->
+<div class="mt-4 rounded-xl bg-[#2a1a1e]/60 border border-tertiary/40 p-4">
+<div class="cfg-row mb-3">
+<div class="min-w-0">
+<div class="text-sm font-medium text-tertiary">SWAN 红黑天鹅自动下单 (strategy_whale)</div>
+<p class="text-xs text-slate-400 mt-0.5">读 dimesion.gemini_swan_verdicts 的 STRONG 判定 (3/3 轮 + avg_conf ≥ 门槛), 顺势开限价单: red_swan→LONG, black_swan→SHORT。24h 涨 &gt;30% 不 LONG, 跌 &gt;25% 不 SHORT。<span class="text-slate-500">60s 内动态生效。</span></p>
+</div>
+<div id="swanEnabledToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
+<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">置信门槛</label>
+<input id="swanMinConfInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-tertiary/40" type="number" min="0.5" max="1.0" step="0.05" value="0.7"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">单笔本金 (USDT)</label>
+<input id="swanPositionUsdtInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-tertiary/40" type="number" min="50" max="5000" step="50" value="500"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">杠杆 (倍)</label>
+<input id="swanLeverageInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-tertiary/40" type="number" min="1" max="20" step="1" value="5"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">同时持仓上限</label>
+<input id="swanMaxOpenInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-tertiary/40" type="number" min="1" max="20" step="1" value="5"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">持仓 (小时)</label>
+<input id="swanHoldHoursInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-tertiary/40" type="number" min="1" max="72" step="1" value="12"/>
+</div>
+<div>
+<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">同 symbol 冷却 (小时)</label>
+<input id="swanCooldownHoursInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-tertiary/40" type="number" min="1" max="168" step="1" value="12"/>
+</div>
+<div class="col-span-2 sm:col-span-2 text-[11px] text-slate-500 self-end pb-1">
+SL 2% / TP 5% / 限价偏 0.3% 当前在 strategy_whale.py 写死 (跟 REV4D 一致), 暂未做 UI.
+持仓 12h 由 _close_overdue 自动到期平仓。
+</div>
+</div>
+</div>
+
 <!-- 2.4d 信号 30min 等待期 (dump-entry / topshort) - 默认 OFF -->
 <div class="mt-4 rounded-xl bg-[#1a1428]/60 border border-purple-500/40 p-4">
 <div class="text-sm font-medium text-purple-400 mb-1">信号 30min 等待期 (dump-entry / topshort)</div>
@@ -834,7 +877,8 @@
                        topEn, topMin, topAdv,
                        gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd,
                        chaseEntryEn, dumpEntryEn,
-                       r4dEn, r4dTh, r4dSl, r4dTp, r4dHold, r4dCd] = await Promise.all([
+                       r4dEn, r4dTh, r4dSl, r4dTp, r4dHold, r4dCd,
+                       swEn, swConf, swPos, swLev, swMax, swHoldMin, swCd] = await Promise.all([
                     apiGet('/trading-services'),
                     apiGet('/strategy-config').catch(function() { return { data: {} }; }),
                     apiGet('/settings/max_positions').catch(function() { return { data: { value: '50' } }; }),
@@ -875,7 +919,15 @@
                     fetchKv('rev4d_sl_pct',         '0.02'),
                     fetchKv('rev4d_tp_pct',         '0.05'),
                     fetchKv('rev4d_hold_hours',     '24'),
-                    fetchKv('rev4d_cooldown_hours', '48')
+                    fetchKv('rev4d_cooldown_hours', '48'),
+                    // SWAN 子策略 (2026-05-03, Gemini 红黑天鹅自动下单)
+                    fetchKv('swan_strategy_enabled', '0'),
+                    fetchKv('swan_min_confidence',   '0.7'),
+                    fetchKv('swan_position_usdt',    '500'),
+                    fetchKv('swan_leverage',         '5'),
+                    fetchKv('swan_max_open',         '5'),
+                    fetchKv('swan_hold_minutes',     '720'),
+                    fetchKv('swan_cooldown_hours',   '12')
                 ]);
 
                 const svc  = svcData.data  || svcData;
@@ -968,6 +1020,17 @@
                 setNum('rev4dTpInput',              pctTo(r4dTp,   '0.05'));
                 setNum('rev4dHoldHoursInput',       kvVal(r4dHold, '24'));
                 setNum('rev4dCooldownHoursInput',   kvVal(r4dCd,   '48'));
+
+                // SWAN 红黑天鹅自动下单 (2026-05-03)
+                // confidence/usdt/leverage/max_open/cooldown 是直接数值, 不是 % 形式
+                // hold 内部存 minutes (720), UI 显示 hours (12)
+                setToggle('swanEnabledToggle',      kvBool(swEn));
+                setNum('swanMinConfInput',          parseFloat(kvVal(swConf, '0.7')).toFixed(2));
+                setNum('swanPositionUsdtInput',     kvVal(swPos,    '500'));
+                setNum('swanLeverageInput',         kvVal(swLev,    '5'));
+                setNum('swanMaxOpenInput',          kvVal(swMax,    '5'));
+                setNum('swanHoldHoursInput',        String(Math.round(parseInt(kvVal(swHoldMin, '720'), 10) / 60)));
+                setNum('swanCooldownHoursInput',    kvVal(swCd,     '12'));
 
             } catch (err) {
                 console.error('loadAll 失败:', err);
@@ -1089,6 +1152,21 @@
                     description: 'strategy_whale REV4D 4 天 4H 极值反转子策略总开关. 60s 动态生效.'
                 });
                 showToast((enabled ? '已开启 REV4D 子策略' : '已关闭 REV4D 子策略') + '（60s 内动态生效）', false);
+            } catch (err) {
+                showToast('保存失败: ' + err.message, true);
+                return false;
+            }
+        });
+
+        // SWAN 红黑天鹅子策略总开关 - 即时保存 (60s 内动态生效)
+        bindToggle('swanEnabledToggle', async function (enabled) {
+            try {
+                await apiPut('/settings/swan_strategy_enabled', {
+                    setting_key: 'swan_strategy_enabled',
+                    setting_value: enabled ? '1' : '0',
+                    description: 'strategy_whale SWAN 红黑天鹅自动下单子策略总开关. 60s 动态生效.'
+                });
+                showToast((enabled ? '已开启 SWAN 子策略' : '已关闭 SWAN 子策略') + '（60s 内动态生效）', false);
             } catch (err) {
                 showToast('保存失败: ' + err.message, true);
                 return false;
@@ -1224,7 +1302,17 @@
                         putKv('rev4d_sl_pct',        pctIn('rev4dSlInput',            '2'),    'REV4D 止损'),
                         putKv('rev4d_tp_pct',        pctIn('rev4dTpInput',            '5'),    'REV4D 硬止盈'),
                         putKv('rev4d_hold_hours',    intIn('rev4dHoldHoursInput',     '24'),   'REV4D 持仓上限 (小时)'),
-                        putKv('rev4d_cooldown_hours',intIn('rev4dCooldownHoursInput', '48'),   'REV4D 同 symbol 冷却 (小时)')
+                        putKv('rev4d_cooldown_hours',intIn('rev4dCooldownHoursInput', '48'),   'REV4D 同 symbol 冷却 (小时)'),
+                        // SWAN 数值参数 (2026-05-03, Gemini 红黑天鹅自动下单)
+                        // confidence 是直接小数 (0.7), 不走 pctIn; hold UI 用 hours, 存 minutes
+                        putKv('swan_min_confidence', String(parseFloat(document.getElementById('swanMinConfInput')?.value || '0.7')),
+                              'SWAN 最低 avg_confidence 门槛'),
+                        putKv('swan_position_usdt', intIn('swanPositionUsdtInput', '500'), 'SWAN 单笔本金 USDT'),
+                        putKv('swan_leverage',      intIn('swanLeverageInput',     '5'),   'SWAN 杠杆倍数'),
+                        putKv('swan_max_open',      intIn('swanMaxOpenInput',      '5'),   'SWAN 同时持仓上限'),
+                        putKv('swan_hold_minutes',  String(parseInt(document.getElementById('swanHoldHoursInput')?.value || '12', 10) * 60),
+                              'SWAN 持仓时长 (分钟, UI 用 hours)'),
+                        putKv('swan_cooldown_hours',intIn('swanCooldownHoursInput','12'),  'SWAN 同 symbol 冷却 (小时)')
                     ]);
 
                     saveBtnText.textContent = '已保存';
