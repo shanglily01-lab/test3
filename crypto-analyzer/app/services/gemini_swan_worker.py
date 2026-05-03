@@ -54,20 +54,32 @@ GEMINI_TIMEOUT_S = int(os.getenv("GEMINI_SWAN_TIMEOUT_S", "180"))
 
 # ------------------ DB ------------------
 def _load_remote_db_cfg() -> dict:
-    """从 table_schemas.txt 头部读 host (IP 会变, 不硬编码)."""
-    project_root = Path(__file__).resolve().parents[2]
-    path = project_root / "table_schemas.txt"
-    head = path.read_text(encoding="utf-8").splitlines()[:15]
+    """
+    返回 dimesion DB 连接配置.
+
+    host 解析优先级:
+      1. 环境变量 DIMENSION_DB_HOST (服务器本地用 127.0.0.1 走回环, 避免公网 IP 抖动 + 安全组绕一圈)
+      2. table_schemas.txt 头部 host: 行 (dev 机/外部访问用, IP 会变, 不硬编码到代码)
+    """
     cfg = {"port": 3306, "user": "admin", "password": "Yintao@110",
            "database": "dimesion", "charset": "utf8mb4",
            "cursorclass": pymysql.cursors.DictCursor}
+
+    env_host = os.getenv("DIMENSION_DB_HOST", "").strip()
+    if env_host:
+        cfg["host"] = env_host
+        return cfg
+
+    project_root = Path(__file__).resolve().parents[2]
+    path = project_root / "table_schemas.txt"
+    head = path.read_text(encoding="utf-8").splitlines()[:15]
     for line in head:
         m = re.match(r"\s*host\s*[:=]\s*([\d\.]+)", line)
         if m:
             cfg["host"] = m.group(1)
             break
     if "host" not in cfg:
-        raise RuntimeError("table_schemas.txt 头部没解析到 host IP")
+        raise RuntimeError("DIMENSION_DB_HOST 未设, 且 table_schemas.txt 头部没解析到 host IP")
     return cfg
 
 
