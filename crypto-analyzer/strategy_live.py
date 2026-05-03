@@ -793,6 +793,33 @@ def _check_pending_db(conn, sym, stype):
         return True, {**row, 'state': 'DONE', 'pid': None, 'order_id': None, 'done_time': t, 'last_reason': 'cancel'}
     return False, row  # still PENDING
 
+
+def _sync_state_on_cancel(conn, sym: str, order_source) -> None:
+    """限价单被 _fill_pending_orders 撤掉后, 按 order_source 同步把对应
+    strategy_state 行设 DONE. 否则 PENDING 卡死, 子策略 active_count 永远满槽.
+
+    本函数会跨进程更新 (例如 strategy_live 撤掉了 strategy_whale:swan 挂的单,
+    这里也会写 strategy='whale' stype='swan' 那行). DB 行锁兜底, 安全.
+    """
+    src = (order_source or "").strip()
+    if ":" not in src:
+        return
+    strategy, _, stype = src.partition(":")
+    strategy = strategy.replace("strategy_", "").strip()
+    stype = stype.strip()
+    if not strategy or not stype:
+        return
+    try:
+        update_state(
+            conn, strategy, sym, stype,
+            state="DONE", pid=None, order_id=None,
+            done_time=time.time(), last_reason="cancel",
+        )
+    except Exception as e:
+        log.warning("[live-cancel-sync] %s %s:%s 同步 DONE 失败: %s",
+                    sym, strategy, stype, e)
+
+
 def _fill_pending_orders(conn):
     """扫描 PENDING 限价单, 价格到位则以市价成交"""
     cur = conn.cursor()
@@ -829,6 +856,7 @@ def _fill_pending_orders(conn):
                     side,
                     o['order_id'],
                 )
+                _sync_state_on_cancel(conn, sym, o.get('order_source'))
                 continue
         try:
             cur_p = get_price(sym)
@@ -908,6 +936,7 @@ def _fill_pending_orders(conn):
             conn.commit(); c2.close()
             log.info("反向滑点熔断撤单 %s %s limit=%.5f cur=%.5f 偏离=%.2f%% (>%.1f%%)",
                      sym, side, limit_p, cur_p, reverse_slip * 100, REVERSE_SLIPPAGE_LIMIT * 100)
+            _sync_state_on_cancel(conn, sym, o.get('order_source'))
             continue
         # 先把订单标成 FILLING，防止同一订单被重复触发（API 超时/异常后下一 tick 再捞到）
         c2 = conn.cursor()
