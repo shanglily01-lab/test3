@@ -1079,6 +1079,16 @@ except ImportError:
 except Exception as e:
     logger.warning("Binance公告监控API路由注册失败: %s", e)
 
+# Gemini 红黑天鹅榜 API
+try:
+    from app.api.gemini_swan_api import router as gemini_swan_router
+    app.include_router(gemini_swan_router)
+    logger.info("Gemini swan API registered (/api/gemini-swan)")
+except ImportError:
+    pass
+except Exception as e:
+    logger.warning("Gemini swan API registration failed: %s", e)
+
 # ==================== API路由 ====================
 
 @app.get("/")
@@ -1596,13 +1606,14 @@ async def futures_trading_page():
 @app.get("/coin_futures_trading")
 async def coin_futures_trading_page():
     """
-    币本位合约交易页面
+    红黑天鹅榜 (原币本位合约页, 2026-05-03 替换).
+    Gemini 每 2h 跑 3 轮聚合, 落 gemini_swan_runs/verdicts, 前端读 /api/gemini-swan/latest.
     """
     coin_futures_path = project_root / "templates" / "coin_futures_trading.html"
     if coin_futures_path.exists():
         return FileResponse(str(coin_futures_path))
     else:
-        raise HTTPException(status_code=404, detail="Coin futures trading page not found")
+        raise HTTPException(status_code=404, detail="Swan board page not found")
 
 
 @app.get("/live_trading")
