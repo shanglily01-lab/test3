@@ -667,6 +667,21 @@ def _fill_pending_orders(conn):
                 conn.commit(); c2.close()
                 log.info("WHALE 限价单超时取消 %s %s  oid=%s  age=%.1fh ttl=%.1fh",
                          sym, side, o['order_id'], age_s / 3600.0, ttl_s / 3600.0)
+                # 子策略同步回收 strategy_state: 否则 PENDING 卡死, _xxx_active_count
+                # 永远 >= max_open. 主策略 'whale' 由 _check_pending_db 单独处理, 这里
+                # 也写一遍幂等无害.
+                src = (o.get('order_source') or '')
+                if src.startswith('strategy_whale:'):
+                    stype = src.split(':', 1)[1].strip() or 'whale'
+                    try:
+                        update_state(
+                            conn, 'whale', sym, stype,
+                            state='DONE', pid=None, order_id=None,
+                            done_time=time.time(), last_reason='cancel',
+                        )
+                    except Exception as _e:
+                        log.warning("[whale-cancel-sync] %s stype=%s 同步 DONE 失败: %s",
+                                    sym, stype, _e)
                 continue
         try:
             cur_p = get_price(sym)
