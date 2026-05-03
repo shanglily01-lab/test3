@@ -407,3 +407,93 @@
 - 5 处原生调用全替换：`futures_trading.html` / `symbol_blacklist.html` / `binance_news.html` / `auth.js` / `app.js`
 - 跨页 JS（auth.js / app.js）保留原生 alert 作 fallback
 - prompt 全项目 0 处使用，不需要替换
+
+---
+
+## 6. v1.3 更新汇总（2026-04-30 ~ 2026-05-03）
+
+### 6.1 入场总开关（strategy_live）
+
+#### F-L-EG-03 chase / dump 入场关闭
+- 7 天 paper 数据复盘：chase 高位追多 37 笔 -789U / dump 低位杀跌 24 笔 -288U，结构性方向反
+- `system_settings.chase_entry_enabled` / `dump_entry_enabled`（默认 1，当前 0）= 0 时 tick 入场逻辑直接 return
+- 已有持仓的 SL/TP/trail-tp 出场不受影响，只关新入场
+- topshort（顶部空 +271U）/ f3-entry / Gemini 反转型策略接管
+- 60s 动态生效（不重启进程）
+
+#### F-L-EG-04 dump / topshort 信号 30min 等待期（默认 OFF）
+- 信号触发 → state=SIG_WAIT 等 30min 观察价格走势
+- `*_signal_wait_enabled` / `*_signal_wait_min(30)` / `*_signal_adverse_pct(0.02)`
+- 30min 内若价格往不利方向走超 2%，取消等待回 IDLE；否则 30min 满期再开仓
+- 防止抢顶/抢底立即被反弹/反砸
+
+### 6.2 strategy_bigmid 改造为 Gemini AI 决策
+
+#### F-BM-GEMINI-01 替换原 BIG/MID 双档逻辑
+- 原 strategy_bigmid 整体废弃 BIG（whale-entry）+ MID（chase/dump），改造为单一 Gemini AI 决策入口
+- 28 个硬编码 GEMINI_TOP30 大币种，每 6h 跑一轮，prompt 含 15d daily / 4d 1h / 8h 15m+1h / RSI
+- stype='gemini'，主参数 `gemini_sl_pct(0.02) / gemini_tp_pct(0.03) / gemini_limit_offset_pct(0.002) / gemini_hold_hours(6)`
+- 风控门控 `gemini_min_pnl_pct(0.01) / gemini_max_open_positions(5) / gemini_symbol_cooldown_hours(24)`
+- 总开关 `gemini_strategy_enabled`，默认 OFF，需手动启用
+- 改 google-genai SDK，已修 collation 死锁 + active_count 含 DONE 死锁两个老坑
+
+### 6.3 REV4D 子策略（strategy_whale 新增，2026-05-02）
+
+#### F-W-REV4D-01 4 天 4H 极值反转
+- 抓 4 天 96 根 4H K 线极值（最高/最低）当前价反转到极值附近 0.5% 内
+- 同时 24h 涨跌幅过滤：触底反弹 LONG 要求 24h ≤ -8%，触顶反弹 SHORT 要求 24h ≥ +8%
+- 仓位：SL 2% / TP 5% / 持仓 24h / cooldown 48h
+- `rev4d_enabled / rev4d_threshold_pct(0.005) / rev4d_sl_pct(0.02) / rev4d_tp_pct(0.05) / rev4d_hold_hours(24) / rev4d_cooldown_hours(48)`
+- 默认 OFF，2026-05-02 上线
+
+### 6.4 SWAN 子策略（strategy_whale 新增，2026-05-03）
+
+#### F-W-SWAN-01 Gemini 红黑天鹅自动下限价单
+- 数据源：远程 dimesion.gemini_swan_verdicts（每 2h 跑一次 3 轮聚合）
+- red_swan → LONG（极端正向尾部 / 暴涨 / 空头挤压）
+- black_swan → SHORT（极端负向尾部 / 急跌 / 多头踩踏）
+- 仅消化 STRONG 一致性（3 轮中至少 2 轮同方向）+ avg_confidence ≥ 0.70
+- 仓位：SL 2% / TP 5% / 持仓 12h / cooldown 12h（同 symbol 平仓后）
+- 限价偏移 0.3%，5 仓上限 (`swan_max_open=5`)
+- 24h 涨跌守卫：LONG 不追 24h > +30%，SHORT 不接 24h < -25% 飞刀
+- `swan_strategy_enabled / swan_min_confidence(0.70) / swan_max_open(5) / swan_hold_minutes(720) / swan_cooldown_hours(12)`
+- 默认 OFF
+- 进度游标 `swan_last_run_id` 防止重复处理同一轮 verdict（60s reload 自动同步）
+
+#### F-W-SWAN-02 红黑天鹅榜前端
+- 桌面页 `/swan_board`（替换原币本位合约空壳页）+ 移动端 `/m/swan`
+- 后台每 2h 自动跑一次（`gemini_swan_enabled=1`）+ "立即重跑"手动触发
+- 双列卡片（红/黑）按 STRONG/MODERATE/WEAK 一致性等级展示，最高 conf 排序
+- 移动端 4 tab 底部导航（设置/U本位/天鹅/实盘）
+
+### 6.5 配置动态加载（2026-05-01）
+
+#### F-CFG-RELOAD-01 4 个进程 60s 自动 reload
+- strategy_live / whale / bigmid / f3 主循环每 60s 调 `_load_*_config()` 重读 system_settings
+- 改 DB 后 60s 内自动生效，不再需要重启进程
+- 少数仍需重启的场景：Gemini Client 实例 (`_init_gemini_client`)，硬编码 GEMINI_TOP30 列表
+
+### 6.6 限价单撤单 state 同步修复（2026-05-03）
+
+#### F-LM-CANCEL-SYNC-01 撤单同步回收 strategy_state
+- **问题**：`_fill_pending_orders` 把 PENDING 限价单标 CANCELLED 时只更新 futures_orders，没碰 strategy_state
+- **后果**：state 卡 PENDING 不释放，子策略 active_count 永远满槽，新候选全部 skip
+- **触发实例**：5/3 SWAN 子策略 5 个槽位被 BABY/B/KNC + AXL/BR 五笔僵尸 PENDING 死占，run 9-10 两轮 STRONG 候选全被挡
+- **根因叠加**：
+  - strategy_whale / strategy_live 的 `_fill_pending_orders` 跨进程乱扫单（没按 order_source 过滤）
+  - strategy_whale 的 `_check_pending_db` 写死 stype='whale'，子策略（swan/rev4d/longhold-w/m/w-bottom/m-top）无兜底
+- **修复**：5 处 CANCELLED 写入点全部加 state 同步：
+  - strategy_whale.py timeout 撤单（按 order_source 解析 stype）
+  - strategy_live.py timeout / reverse_slippage 撤单（按 order_source 跨进程同步）
+  - strategy_bigmid.py / strategy_f3.py timeout 撤单（防御性显式同步，原本有 _settle/_check 兜底）
+
+### 6.7 数据查询 / 诊断脚本规范
+
+#### F-DIAG-01 strategy_state × futures_orders 不能直接 JOIN
+- 两表 order_id 列 collation 不同（utf8mb4_unicode_ci vs utf8mb4_general_ci），JOIN 抛 1267
+- 修法：拆两步查询（先取 PENDING 列表 → 再 IN 反查 → Python 端 join）
+- 历史踩坑：commit 0b09a17b 修过 strategy_bigmid `_settle_cancelled_pending`，2026-05-03 fix_swan_zombie_pending.py 又踩同一坑
+
+#### F-DIAG-02 SWAN 全链路诊断脚本
+- `scripts/diag/diag_swan_strategy_status.py`：6 段连查 system_settings / verdicts / state / orders
+- `scripts/diag/fix_swan_zombie_pending.py`：兜底清理已存在的僵尸 PENDING（dry-run / --yes / 交互三档）

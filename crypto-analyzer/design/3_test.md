@@ -1333,3 +1333,186 @@ Body: {"live_trading_enabled": true}
 **前置**：F3 LIMIT created_at = NOW() - 3.1 小时
 
 **期望**：状态置 CANCELLED（F3 等更长）
+
+---
+
+## 11. v1.3 新增测试用例（2026-04-30 ~ 2026-05-03）
+
+### 11.1 chase / dump 入场总开关
+
+#### TC-L-EG-03-01 chase_entry_enabled=0 拒绝新开仓
+**前置**：`system_settings.chase_entry_enabled='0'`，60s reload 已生效，标的 24h 涨幅 +14% 满足 chase 条件
+
+**操作**：跑 chase 主 tick
+
+**期望**：tick 入场逻辑直接 return，不挂限价单。state 不变。
+
+#### TC-L-EG-03-02 既有持仓 SL/TP 不受影响
+**前置**：标的已开 chase 多仓 state=LONG，`chase_entry_enabled='0'`
+
+**期望**：仓位继续被 trail-tp / 早期 SL / 持仓时长出场监控，平仓后正常进 cooldown。
+
+### 11.2 dump / topshort 信号 30min 等待期
+
+#### TC-L-SIGW-01 SIG_WAIT 期间不利方向 2% 取消
+**前置**：dump_signal_wait_enabled=1，dump 信号触发，state=SIG_WAIT，记录 entry_anchor_price=100
+
+**操作**：等 5min，价格涨到 102.1（不利方向 +2.1%）
+
+**期望**：state 回 IDLE，本轮信号作废。
+
+#### TC-L-SIGW-02 30min 满期入场
+**前置**：同上，价格在 -2% ~ +2% 之间窄幅震荡 30min
+
+**期望**：满期后正常进入限价挂单，state=PENDING。
+
+### 11.3 strategy_bigmid Gemini AI
+
+#### TC-BM-GEMINI-01 Gemini 决策低置信不下单
+**前置**：Gemini 返回 BTC LONG confidence=0.005（< gemini_min_pnl_pct=0.01）
+
+**期望**：跳过 BTC，不挂限价单。
+
+#### TC-BM-GEMINI-02 max_open_positions 上限
+**前置**：当前 stype='gemini' active=5（max=5），Gemini 返回新候选 ETH SHORT
+
+**期望**：跳过 ETH 不下单。
+
+#### TC-BM-GEMINI-03 _settle_cancelled_pending collation 不抛
+**前置**：strategy_bigmid 主 tick 调 `_settle_cancelled_pending(conn)`，PENDING 行的 order 已 CANCELLED
+
+**期望**：state 回收为 IDLE，无 1267 collation 冲突报错（应拆两步查询）。
+
+### 11.4 REV4D 子策略
+
+#### TC-W-REV4D-01 触底反弹 LONG 触发
+**前置**：rev4d_enabled=1，4 天 4H MIN_LOW=100，cur_p=100.4（距底 0.4% < 0.5%），24h_change=-9%（≤ -8%）
+
+**期望**：挂 LONG 限价 lp=99.7（offset 0.3%），state stype='rev4d' = PENDING。
+
+#### TC-W-REV4D-02 触底但 24h 涨幅不够（-5%）拒绝
+**前置**：同上但 24h_change=-5%（不满足 ≤ -8%）
+
+**期望**：跳过，不挂单。
+
+#### TC-W-REV4D-03 距极值过远（0.6%）拒绝
+**前置**：MIN_LOW=100，cur_p=100.6（距底 0.6% > 0.5%）
+
+**期望**：跳过。
+
+### 11.5 SWAN 子策略
+
+#### TC-W-SWAN-01 STRONG red_swan 顺势 LONG
+**前置**：swan_strategy_enabled=1，cursor=10，verdicts run_id=11 KNC red_swan STRONG conf=0.85，24h=+8%
+
+**期望**：开 KNC LONG，限价 lp=cur*0.997，state stype='swan'=PENDING。cursor 推进到 11。
+
+#### TC-W-SWAN-02 conf 不足拒绝
+**前置**：verdicts BIO red_swan STRONG conf=0.65（< 0.70）
+
+**期望**：跳过 BIO。
+
+#### TC-W-SWAN-03 LONG 24h 已过 +30% 不追顶
+**前置**：MEME red_swan STRONG conf=0.90，24h=+45%（> +30%）
+
+**期望**：跳过，避免追顶。
+
+#### TC-W-SWAN-04 SHORT 24h 已过 -25% 不接飞刀
+**前置**：LAB black_swan STRONG conf=0.90，24h=-30%（< -25%）
+
+**期望**：跳过，避免接飞刀。
+
+#### TC-W-SWAN-05 max_open=5 槽位满 break
+**前置**：当前 stype='swan' active=5（PENDING+LONG+SHORT）
+
+**操作**：tick 处理新 STRONG 候选
+
+**期望**：第一个候选检测到 active>=max_open 直接 break，cursor 仍推到本轮最大 run_id（避免下次重复处理）。
+
+#### TC-W-SWAN-06 cursor 持久化
+**前置**：cursor=10，处理完 run 11+12 候选
+
+**期望**：`system_settings.swan_last_run_id` 写为 12，60s reload 后内存 SWAN_LAST_RUN_ID=12。
+
+### 11.6 限价撤单 state 同步
+
+#### TC-CANCEL-SYNC-01 strategy_whale.timeout 同步 swan state
+**前置**：strategy_whale 挂的 swan PENDING 限价单 created_at = NOW() - 3.1h
+
+**操作**：strategy_whale 主 tick 跑 `_fill_pending_orders`
+
+**期望**：futures_orders.status='CANCELLED'，strategy_state stype='swan' 那行 state='DONE' + done_time=now + last_reason='cancel'，pid/order_id 都置 NULL。
+
+#### TC-CANCEL-SYNC-02 strategy_live 跨进程撤 swan 单也同步
+**前置**：strategy_whale:swan 挂的 PENDING 单（reverse_slippage 触发 strategy_live 反向滑点撤单）
+
+**操作**：strategy_live 主 tick 跑 `_fill_pending_orders`
+
+**期望**：order_source 解析出 strategy='whale' stype='swan'，跨进程 update_state，state stype='swan' 设 DONE。
+
+#### TC-CANCEL-SYNC-03 helper 解析 order_source 异常不崩
+**前置**：futures_orders 一行 order_source='manual'（无冒号）
+
+**期望**：`_sync_state_on_cancel` 直接 return 不抛，不影响主流程。
+
+#### TC-CANCEL-SYNC-04 active_count 不再卡死
+**前置**：跑 `fix_swan_zombie_pending.py --yes` 清理后，再连续触发 5 次 timeout 撤单
+
+**期望**：每次撤单后 `_swan_active_count` 立即 -1，下一轮 STRONG 候选能正常下单。
+
+### 11.7 fix_swan_zombie_pending.py
+
+#### TC-FIX-ZOMBIE-01 dry-run 不动数据
+**前置**：strategy_state 有 5 行僵尸 PENDING
+
+**操作**：`python scripts/diag/fix_swan_zombie_pending.py --dry-run`
+
+**期望**：列出 5 行 + 按 stype 汇总 + "[--dry-run] 不执行 UPDATE 退出"。复查 state 仍是 PENDING。
+
+#### TC-FIX-ZOMBIE-02 --yes 实际清理
+**前置**：同上
+
+**操作**：`python scripts/diag/fix_swan_zombie_pending.py --yes`
+
+**期望**：影响 5 行，state 全部置 DONE + done_time=now + last_reason='cancel-cleanup'。复查 0 个僵尸。
+
+#### TC-FIX-ZOMBIE-03 collation 拆两步查询
+**前置**：strategy_state.order_id (utf8mb4_unicode_ci) × futures_orders.order_id (utf8mb4_general_ci)
+
+**期望**：脚本不抛 1267，正常输出僵尸列表（拆两步查询规避）。
+
+### 11.8 红黑天鹅榜前端
+
+#### TC-SWAN-UI-01 桌面页加载 latest
+**前置**：访问 `/swan_board`
+
+**期望**：拉 `/api/gemini-swan/latest` 渲染双列卡片，header 显示 asof_utc + timeAgo。
+
+#### TC-SWAN-UI-02 移动页 4 tab 导航
+**前置**：访问 `/m/swan`
+
+**期望**：底部 4 tab（设置 / U本位 / 天鹅 / 实盘），当前"天鹅"高亮 #49f4c8。
+
+#### TC-SWAN-UI-03 移动页 tab 切换
+**前置**：当前在红天鹅 tab，黑天鹅有 3 个 STRONG 候选
+
+**操作**：点黑天鹅 tab
+
+**期望**：切到黑列表渲染 3 张卡片，pill 样式从 active-red 切到 active-black。
+
+#### TC-SWAN-UI-04 立即重跑触发后台
+**前置**：点桌面或移动页"重跑"按钮
+
+**期望**：POST `/api/gemini-swan/trigger` 返回 accepted=true，按钮变"运行中..."，每 10s 轮询 `/trigger/status`，运行完毕 toast 提示 + 自动 loadLatest。
+
+### 11.9 配置动态加载
+
+#### TC-CFG-RELOAD-01 改 SL pct 60s 内生效
+**前置**：strategy_live 跑着，`live_sl_pct=0.08`，UPDATE system_settings 改成 0.05
+
+**期望**：60s 内 `_load_live_config` 跑下一轮，新开仓 SL 使用 5%（旧仓不变）。
+
+#### TC-CFG-RELOAD-02 改总开关 60s 内生效
+**前置**：swan_strategy_enabled=0，UPDATE 改成 1
+
+**期望**：60s 内 strategy_whale 主循环 reload，下一轮 swan_strategy_tick 不再早 return。

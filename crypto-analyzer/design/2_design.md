@@ -1142,3 +1142,171 @@ BIG_WHITELIST = {
 ### 8.7 前端 modal 替换 native 弹框
 
 5 处原生调用全替换为 `static/js/modal.js` 提供的 `showAlert / showConfirm / showToast`。跨页 JS（auth.js / app.js）保留原生 fallback。
+
+---
+
+## 9. v1.3 设计变更（2026-04-30 ~ 2026-05-03）
+
+### 9.1 strategy_bigmid 改造为 Gemini AI 决策
+
+老 BIG/MID 双档逻辑整体废弃，进程改成单一 Gemini AI 决策入口。
+
+```python
+# 主循环 gemini_round (每 6h 跑一轮)
+# 1. 拉 28 个 GEMINI_TOP30 大币种最近 15d daily / 4d 1h / 8h 15m+1h / RSI
+# 2. 组装 prompt 调 google-genai SDK (gemini-3-flash-preview)
+# 3. 解析 JSON 决策: [{symbol, side, confidence, catalyst, ...}]
+# 4. 过滤 confidence >= gemini_min_pnl_pct, 当前未持仓, 不在 cooldown
+# 5. 限价 0.2% offset 挂单, stype='gemini'
+```
+
+主参数从 system_settings 60s reload：
+- `gemini_strategy_enabled`（总开关）
+- `gemini_sl_pct(0.02) / gemini_tp_pct(0.03) / gemini_limit_offset_pct(0.002)`
+- `gemini_hold_hours(6) / gemini_max_open_positions(5) / gemini_symbol_cooldown_hours(24)`
+
+兜底：主 tick 每轮调 `_settle_cancelled_pending`，反查 stype='gemini' PENDING 行实际 order status，CANCELLED 时回收 state=IDLE。已修过 collation 死锁（拆两步查询）和 active_count 含 DONE 死锁（DONE 是冷却态不算 active）。
+
+### 9.2 REV4D 子策略（strategy_whale，2026-05-02）
+
+```python
+# 4 天 4H 极值反转入场
+# 1. 取 96 根 4H K 线, 找 MAX_HIGH / MIN_LOW
+# 2. 触底反弹 LONG: cur_p / MIN_LOW - 1 <= 0.005 AND 24h_change <= -0.08
+# 3. 触顶反弹 SHORT: 1 - cur_p / MAX_HIGH <= 0.005 AND 24h_change >= +0.08
+# 4. 限价 0.3% offset, stype='rev4d'
+# 5. SL 2% / TP 5% / 持仓 24h / cooldown 48h
+```
+
+REV4D 配置（默认 OFF）：
+- `rev4d_enabled / rev4d_threshold_pct(0.005) / rev4d_sl_pct(0.02) / rev4d_tp_pct(0.05)`
+- `rev4d_hold_hours(24) / rev4d_cooldown_hours(48)`
+
+### 9.3 SWAN 子策略（strategy_whale，2026-05-03）
+
+#### 9.3.1 数据流
+
+```
+┌──────────────────────────────────┐
+│ app/services/gemini_swan_worker  │  每 2h 跑 1 次, 3 轮聚合 (~135s)
+│ /api/gemini-swan/trigger 手动跑  │  Gemini 输出 JSON: catalyst/triggers/confidence
+└──────────────┬───────────────────┘
+               │ 落 dimesion.gemini_swan_runs (元数据) + verdicts (每 symbol 1 行)
+               ▼
+┌──────────────────────────────────┐
+│ strategy_whale.swan_strategy_tick│  60s 主循环
+│ 读 verdicts WHERE run_id > cursor│
+│  AND consistency_level = 'STRONG'│
+│  AND avg_confidence >= 0.70      │
+└──────────────┬───────────────────┘
+               │ 顺势开限价 (red→LONG, black→SHORT)
+               ▼
+┌──────────────────────────────────┐
+│ futures_orders.order_source =    │
+│  'strategy_whale:swan'           │
+│ + strategy_state stype='swan'    │
+└──────────────────────────────────┘
+```
+
+#### 9.3.2 守卫顺序（swan_strategy_tick）
+
+```python
+# 1. SWAN_ENABLED 总开关 (system_settings.swan_strategy_enabled)
+# 2. cursor swan_last_run_id, 只取 run_id > cursor 的新 verdicts
+# 3. min_confidence >= 0.70 + STRONG 一致性
+# 4. symbol 在交易对黑名单 → skip
+# 5. 已有持仓 _has_any_open(sym) → skip
+# 6. _any_whale_active(sym): whale 系其他子策略已占用 → skip
+# 7. 自身 cooldown 12h (state=DONE + done_time 锚点)
+# 8. _swan_active_count(conn) >= max_open(5) → break (后续都开不出)
+# 9. 24h 涨跌守卫: LONG 不追 +30%, SHORT 不接 -25%
+# 10. open_order(tag='swan', limit_price=cur*(1±0.003))
+# 11. 推进 cursor: swan_last_run_id = max(processed_run_id)
+```
+
+#### 9.3.3 进度游标
+
+`system_settings.swan_last_run_id` 是 SWAN 已处理的最大 verdict run_id。代码自写自读，60s reload 自动同步。游标 = 最新 run_id 是健康态（说明实时消化），游标 < 最新 - 2 才需要排查。
+
+### 9.4 限价撤单 state 同步修复（2026-05-03）
+
+#### 9.4.1 问题
+
+`_fill_pending_orders` 把限价单超时 / 反向滑点撤单时只 UPDATE futures_orders.status='CANCELLED'，**不动 strategy_state**。子策略 stype 卡 PENDING 不释放，`_xxx_active_count` 永远 ≥ max_open。
+
+```
+SWAN 5 槽位 → BABY/B/KNC + AXL/BR 五笔僵尸 PENDING → max_open 死锁
+→ run 9-10 两轮新 STRONG 候选全部 skip
+```
+
+#### 9.4.2 5 处 CANCELLED 写入点
+
+| 文件:行 | 路径 | 扫描范围 | 兜底 | 修法 |
+|---|---|---|---|---|
+| strategy_whale.py:666 | timeout | **全 account** | 主策略 _check_pending_db 写死 'whale'，子策略无兜底 | 内嵌按 order_source 解析 stype 同步 |
+| strategy_live.py:849 | timeout | **全 account** | _check_pending_db(stype) 兜本进程；whale/bigmid 子策略无兜底 | helper `_sync_state_on_cancel` 跨进程同步 |
+| strategy_live.py:933 | reverse_slippage | 同上 | 同上 | 同上 |
+| strategy_bigmid.py:686 | timeout | `LIKE 'strategy_bigmid:%%'` | 主 tick `_settle_cancelled_pending` | 防御性显式同步 |
+| strategy_f3.py:429 | timeout | `LIKE 'strategy_f3:%%'` | 主 tick `_check_pending_db('f3')` | 防御性显式同步 |
+
+#### 9.4.3 helper 设计（strategy_live.py）
+
+```python
+def _sync_state_on_cancel(conn, sym: str, order_source) -> None:
+    """限价单被 _fill_pending_orders 撤掉后, 按 order_source 同步把对应
+    strategy_state 行设 DONE. 跨进程更新靠 DB 行锁兜底.
+    order_source 格式: 'strategy_xxx:stype' -> strategy='xxx', stype='stype'
+    """
+    src = (order_source or "").strip()
+    if ":" not in src:
+        return
+    strategy, _, stype = src.partition(":")
+    strategy = strategy.replace("strategy_", "").strip()
+    stype = stype.strip()
+    if not strategy or not stype:
+        return
+    update_state(conn, strategy, sym, stype,
+                 state="DONE", pid=None, order_id=None,
+                 done_time=time.time(), last_reason="cancel")
+```
+
+#### 9.4.4 兜底清理脚本
+
+`scripts/diag/fix_swan_zombie_pending.py`：处理代码上线前已经存在的脏数据。
+
+```python
+# 两步查询避开 collation 冲突 (strategy_state.order_id 是 unicode_ci,
+# futures_orders.order_id 是 general_ci, 不能 JOIN)
+# 1. SELECT FROM strategy_state WHERE strategy='whale'
+#      AND stype IN ('swan','rev4d','longhold-w','longhold-m','w-bottom','m-top')
+#      AND state='PENDING'
+# 2. SELECT FROM futures_orders WHERE order_id IN (...)  -- Python 端 join
+# 3. 筛 status IN ('CANCELLED','REJECTED','MISSING') 的 → UPDATE state='DONE'
+```
+
+### 9.5 配置动态加载（2026-05-01）
+
+```python
+# 4 个进程主循环 (live/whale/bigmid/f3) 每 60s 调 _load_*_config()
+def main_loop():
+    while True:
+        _load_config()  # 读 system_settings 最新值, 覆盖模块级常量
+        # ... 主 tick 逻辑
+        time.sleep(60)
+```
+
+修改 system_settings 任意字段后 60s 内自动生效。例外：Gemini Client 实例 + 硬编码列表（GEMINI_TOP30）需要重启。
+
+### 9.6 红黑天鹅榜前端
+
+#### 9.6.1 桌面页 /swan_board
+
+替换原币本位合约空壳页。两栏布局（红 / 黑），STRONG/MODERATE/WEAK 三档边框样式（实线 / 虚线 / 点线），confidence 进度条 + catalyst/data_signal/risk_note 全展示。低置信信号折叠区。
+
+#### 9.6.2 移动端 /m/swan
+
+单列卡片 + 红/黑 pill tab 切换（默认按候选多的一侧），4 tab 底部导航（设置 / U本位 / 天鹅 / 实盘）。`min-w-[64px]` 改 `flex-1` 适配 320px 窄屏。复用所有 `/api/gemini-swan/*` 接口。
+
+#### 9.6.3 后台调度
+
+`app/main.py` lifespan 起 threading.Thread，避免 ~3 分钟 Gemini 调用阻塞主调度器。`gemini_swan_enabled=0` 时 worker 早返回。
