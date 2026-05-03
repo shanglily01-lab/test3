@@ -621,6 +621,22 @@ async def lifespan(app: FastAPI):
                 logger.error(f"❌ 市场预测分析失败: {e}")
         schedule.every(4).hours.do(run_market_prediction)
 
+        # Gemini 红黑天鹅榜 - 每 2 小时跑 3 轮聚合, 落 gemini_swan_runs / verdicts
+        # 用 daemon 线程触发 (Gemini 调用 ~3 分钟, 不能阻塞 schedule_runner)
+        # system_settings.gemini_swan_enabled=0 时 worker 早返回, 60s 动态生效
+        def run_swan_in_thread():
+            def _run():
+                try:
+                    from app.services.gemini_swan_worker import run_swan_round
+                    rid = run_swan_round(triggered_by="scheduler")
+                    if rid:
+                        logger.info(f"Gemini 红黑天鹅榜完成 run_id={rid}")
+                except Exception as e:
+                    logger.error(f"Gemini 红黑天鹅榜任务失败: {e}", exc_info=True)
+            threading.Thread(target=_run, daemon=True, name="GeminiSwan").start()
+        schedule.every(2).hours.do(run_swan_in_thread)
+        logger.info("✅ Gemini 红黑天鹅榜已启动（每 2 小时，后台线程，60s 动态开关）")
+
 
         # ── 独立子进程周期任务（与 FastAPI 主进程完全隔离）──────────────────────────
         # 每个存储过程调用都在独立 OS 子进程中运行；

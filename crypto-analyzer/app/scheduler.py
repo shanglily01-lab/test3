@@ -1185,25 +1185,8 @@ class UnifiedDataScheduler:
         #     )
         #     logger.info("  ✓ 模拟合约总权益更新 - 每 30 秒")
 
-        # Gemini 红黑天鹅榜 - 每 2 小时跑 3 轮聚合, 落 gemini_swan_runs/verdicts
-        # 用独立线程 (Gemini 调用 ~3 分钟, 不能阻塞主调度器)
-        # system_settings.gemini_swan_enabled=0 时 worker 早返回, 60s 动态生效
-        try:
-            def run_swan_in_thread():
-                def _run():
-                    try:
-                        from app.services.gemini_swan_worker import run_swan_round
-                        rid = run_swan_round(triggered_by="scheduler")
-                        if rid:
-                            logger.info(f"Gemini 红黑天鹅榜完成 run_id={rid}")
-                    except Exception as e:
-                        logger.error(f"Gemini 红黑天鹅榜任务失败: {e}", exc_info=True)
-                threading.Thread(target=_run, daemon=True, name="GeminiSwan").start()
-
-            schedule.every(2).hours.do(run_swan_in_thread)
-            logger.info("  ✓ Gemini 红黑天鹅榜 - 每 2 小时 (后台线程, 60s 动态开关)")
-        except Exception as e:
-            logger.warning(f"  ⚠️ Gemini 红黑天鹅榜任务注册失败: {e}")
+        # Gemini 红黑天鹅榜任务挂在 app/main.py 的 lifespan 里 (用户实际启动的进程),
+        # 不再注册到此独立 scheduler.py (此进程未启动). 见 main.py 中 schedule.every(2).hours.
 
         logger.info("所有定时任务设置完成")
 
