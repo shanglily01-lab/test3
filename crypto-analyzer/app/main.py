@@ -1373,6 +1373,14 @@ async def mobile_futures_page():
     raise HTTPException(status_code=404, detail="mobile_futures.html not found")
 
 
+@app.get("/m/swan")
+async def mobile_swan_page():
+    """手机端红黑天鹅榜 (Gemini 2h 决策板, 复用 /api/gemini-swan/* 接口)"""
+    p = project_root / "templates" / "mobile_swan.html"
+    if p.exists(): return FileResponse(str(p))
+    raise HTTPException(status_code=404, detail="mobile_swan.html not found")
+
+
 @app.get("/m/live")
 async def mobile_live_page(request: Request):
     """手机端实盘合约页面（2026-04-24：免密码，无 session 时自动签发 admin）"""

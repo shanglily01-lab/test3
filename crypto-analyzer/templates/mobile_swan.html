@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>超级大脑 - 红黑天鹅榜</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+tailwind.config = {
+    darkMode: "class",
+    theme: { extend: { colors: {
+        "primary": "#49f4c8", "primary-container": "#00d4aa",
+        "on-surface": "#ebeef5", "on-surface-variant": "#a8abb2",
+        "outline-variant": "#44484e", "tertiary": "#ff6e80",
+        "error": "#ff716c", "background": "#070b10",
+        "surface": "#070b10", "surface-container-low": "#0f1419",
+        "surface-container": "#0f1520", "surface-container-high": "#1a2027",
+        "surface-container-highest": "#20262e"
+    }, fontFamily: { "headline": ["Space Grotesk"], "body": ["Manrope"] } } }
+}
+</script>
+<style>
+.material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; }
+.mono { font-family:'JetBrains Mono',monospace; }
+body { background:#070b10; color:#ebeef5; font-family:'Manrope',sans-serif;
+    -webkit-font-smoothing:antialiased; min-height:100dvh; min-height:100vh;
+    overscroll-behavior-y:contain; overflow-x:hidden; }
+.bottom-nav { padding-bottom:max(env(safe-area-inset-bottom),8px); }
+main { padding-bottom:calc(76px + max(env(safe-area-inset-bottom),8px)); }
+button,a { -webkit-tap-highlight-color:transparent; }
+.no-scrollbar::-webkit-scrollbar { display:none; }
+.no-scrollbar { -ms-overflow-style:none;scrollbar-width:none; }
+
+/* level border style */
+.level-strong { border-color:rgba(73,244,200,.45);
+    box-shadow:0 0 0 1px rgba(73,244,200,.18) inset; }
+.level-moderate { border-color:rgba(168,171,178,.35);border-style:dashed; }
+.level-weak { border-color:rgba(168,171,178,.18);border-style:dotted;opacity:.85; }
+
+/* category tint */
+.cat-red { background:linear-gradient(180deg,rgba(255,110,128,.08),rgba(255,110,128,.02)); }
+.cat-black { background:linear-gradient(180deg,rgba(40,44,52,.5),rgba(15,20,25,.3)); }
+
+/* confidence bar */
+.conf-bar { height:4px;border-radius:999px;position:relative;
+    background:rgba(255,255,255,.06);overflow:hidden; }
+.conf-bar > i { position:absolute;left:0;top:0;height:100%;border-radius:999px; }
+
+/* tab pill */
+.tab-pill { display:flex;align-items:center;justify-content:center;gap:6px;
+    flex:1;height:40px;border-radius:12px;font-size:13px;font-weight:600;
+    transition:all .15s;border:1px solid transparent; }
+.tab-pill.active-red { background:rgba(255,110,128,.12);
+    color:#ff6e80;border-color:rgba(255,110,128,.35); }
+.tab-pill.active-black { background:rgba(168,171,178,.12);
+    color:#ebeef5;border-color:rgba(168,171,178,.35); }
+.tab-pill.idle { color:#a8abb2;background:#0f1520;
+    border-color:rgba(68,72,78,.3); }
+
+/* toast */
+#toast { position:fixed;top:max(72px,env(safe-area-inset-top));left:50%;
+    transform:translateX(-50%);z-index:500;background:#1a2235;color:#ebeef5;
+    padding:10px 16px;border-radius:20px;font-size:13px;font-weight:600;
+    opacity:0;transition:opacity .2s;border:1px solid #44484e;
+    pointer-events:none;max-width:min(92vw,360px);text-align:center;
+    line-height:1.35; }
+#toast.show { opacity:1; }
+#toast.err { border-color:rgba(255,113,108,.3);color:#ff716c; }
+
+/* skeleton */
+.skeleton { background:linear-gradient(90deg,#1a2235 25%,#20283a 50%,#1a2235 75%);
+    background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:8px; }
+@keyframes shimmer { 0%{background-position:200% 0}100%{background-position:-200% 0} }
+
+.spin { animation:spin 1s linear infinite; }
+@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+
+/* trigger chip */
+.trigger-chip { display:inline-block;font-size:10px;padding:2px 7px;
+    border-radius:999px;background:rgba(15,21,32,.85);
+    color:#a8abb2;border:1px solid rgba(68,72,78,.3); }
+</style>
+</head>
+<body class="antialiased overflow-x-hidden">
+
+<div id="toast"></div>
+
+<!-- top bar -->
+<header class="fixed top-0 w-full z-50 bg-[#0a0f14] border-b border-[#44484e]/30 shadow-[0_4px_20px_rgba(0,0,0,.3)]"
+        style="padding-top:env(safe-area-inset-top);">
+    <div class="flex items-center justify-between px-4 h-14 w-full">
+        <div class="flex items-center gap-2.5 min-w-0">
+            <span class="material-symbols-outlined text-[#49f4c8] text-xl">radar</span>
+            <h1 class="font-['Space_Grotesk'] text-base font-bold tracking-tight truncate">
+                红黑天鹅榜
+            </h1>
+            <span id="hdrAgo" class="text-[10px] mono text-[#a8abb2]/70 truncate"></span>
+        </div>
+        <div class="flex items-center gap-1">
+            <button id="btnTrigger"
+                class="h-9 px-2.5 flex items-center gap-1 rounded-lg bg-[#49f4c8]/12 border border-[#49f4c8]/30 text-[#49f4c8] text-xs font-semibold active:scale-95 transition"
+                aria-label="立即重跑">
+                <span id="btnTriggerIcon" class="material-symbols-outlined text-[18px]">play_arrow</span>
+                <span id="btnTriggerText" class="hidden xs:inline">重跑</span>
+            </button>
+            <button class="w-10 h-10 flex items-center justify-center active:scale-95 transition"
+                onclick="loadLatest()" aria-label="刷新">
+                <span class="material-symbols-outlined text-[#a8abb2]">refresh</span>
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="mt-14 px-4 pt-3 space-y-3">
+
+    <!-- summary banner -->
+    <section id="summaryCard" class="hidden bg-[#0f1520] border border-[#44484e]/30 rounded-2xl p-4">
+        <div class="flex items-start gap-2.5">
+            <span class="material-symbols-outlined text-[#49f4c8] text-[20px] mt-0.5">psychology</span>
+            <div class="flex-1 min-w-0">
+                <div class="text-[10px] uppercase tracking-[.15em] text-[#a8abb2] mb-1">
+                    Gemini 总评 · <span id="hdrAsof" class="mono normal-case tracking-normal">--</span>
+                </div>
+                <p id="summaryText" class="text-[13px] leading-relaxed text-[#ebeef5]">--</p>
+                <div id="summaryCounts" class="mt-2 flex flex-wrap gap-1.5"></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="emptyCard" class="hidden bg-[#0f1520] border border-dashed border-[#44484e]/40 rounded-2xl p-6 text-center">
+        <span class="material-symbols-outlined text-3xl text-[#a8abb2]">hourglass_empty</span>
+        <p class="mt-2 text-[13px] text-[#a8abb2] leading-relaxed">
+            暂无数据。后台每 2 小时跑一次<br/>
+            点上方「重跑」可手动触发
+        </p>
+    </section>
+
+    <!-- skeleton (initial load) -->
+    <section id="skeletonBox" class="space-y-2.5">
+        <div class="skeleton h-20 w-full"></div>
+        <div class="skeleton h-20 w-full"></div>
+        <div class="skeleton h-20 w-full"></div>
+    </section>
+
+    <!-- red/black tab switcher -->
+    <section id="tabBar" class="hidden flex gap-2">
+        <button id="tabRed" class="tab-pill active-red" onclick="switchTab('red')">
+            <span class="text-base">🔥</span>
+            <span>红天鹅</span>
+            <span id="redCount" class="text-[11px] mono opacity-70">0</span>
+        </button>
+        <button id="tabBlack" class="tab-pill idle" onclick="switchTab('black')">
+            <span class="text-base">🌑</span>
+            <span>黑天鹅</span>
+            <span id="blackCount" class="text-[11px] mono opacity-70">0</span>
+        </button>
+    </section>
+
+    <!-- card list -->
+    <section id="cardList" class="space-y-2.5"></section>
+
+    <!-- weak collapsible -->
+    <details id="weakSection" class="hidden bg-[#0f1520]/60 border border-[#44484e]/30 rounded-xl">
+        <summary class="cursor-pointer px-4 py-3 text-[12px] text-[#a8abb2] flex items-center gap-2">
+            <span class="material-symbols-outlined text-base">expand_more</span>
+            低置信信号 (<span id="weakCount">0</span>) · 仅单轮出现
+        </summary>
+        <div id="weakList" class="px-3 pb-3 pt-1 space-y-2"></div>
+    </details>
+
+</main>
+
+<!-- bottom nav (4 tab) -->
+<nav class="bottom-nav fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 h-[68px] bg-[#0f1419]/90 backdrop-blur-xl border-t border-[#44484e]/20 shadow-[0_-4px_20px_rgba(0,0,0,.3)]">
+    <a class="flex flex-col items-center justify-center text-[#a8abb2] hover:text-[#49f4c8] transition flex-1 h-full" href="/m/settings">
+        <span class="material-symbols-outlined text-[22px] mb-0.5">settings</span>
+        <span class="text-[10px] font-semibold uppercase tracking-wide">设置</span>
+    </a>
+    <a class="flex flex-col items-center justify-center text-[#a8abb2] hover:text-[#49f4c8] transition flex-1 h-full" href="/m/futures">
+        <span class="material-symbols-outlined text-[22px] mb-0.5">candlestick_chart</span>
+        <span class="text-[10px] font-semibold uppercase tracking-wide">U本位</span>
+    </a>
+    <a class="flex flex-col items-center justify-center text-[#49f4c8] flex-1 h-full" href="/m/swan">
+        <span class="material-symbols-outlined text-[22px] mb-0.5" style="font-variation-settings:'FILL' 1;">radar</span>
+        <span class="text-[10px] font-bold uppercase tracking-wide">天鹅</span>
+    </a>
+    <a class="flex flex-col items-center justify-center text-[#a8abb2] hover:text-[#49f4c8] transition flex-1 h-full" href="/m/live">
+        <span class="material-symbols-outlined text-[22px] mb-0.5">sensors</span>
+        <span class="text-[10px] font-semibold uppercase tracking-wide">实盘</span>
+    </a>
+</nav>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentTab = 'red';
+let lastVerdicts = [];
+let triggerPolling = null;
+
+// ----- formatting helpers -----
+const fmtPct = (v) => (v == null ? '--' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%');
+const fmtRate = (v) => (v == null ? '--' : (v * 100).toFixed(4) + '%');
+const fmtVol = (v) => {
+    if (v == null) return '--';
+    v = Number(v);
+    if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
+    return v.toFixed(0);
+};
+function timeAgo(iso) {
+    if (!iso) return '';
+    const t = new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime();
+    const diff = (Date.now() - t) / 1000;
+    if (diff < 60) return Math.floor(diff) + ' 秒前';
+    if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+    return Math.floor(diff / 86400) + ' 天前';
+}
+function triggerLabel(t) {
+    return ({
+        '24h_gainer': '24h 大涨',
+        '24h_loser': '24h 大跌',
+        'funding_pos_extreme': '资金费 极正',
+        'funding_neg_extreme': '资金费 极负',
+    }[t]) || t;
+}
+function levelBadge(level) {
+    const cls = level === 'STRONG' ? 'level-strong text-[#49f4c8]'
+        : level === 'MODERATE' ? 'level-moderate text-[#a8abb2]'
+        : 'level-weak text-[#a8abb2]';
+    return `<span class="text-[9px] mono px-1.5 py-0.5 rounded border ${cls}">${level}</span>`;
+}
+
+// ----- toast -----
+function toast(msg, type) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.remove('err');
+    if (type === 'err') el.classList.add('err');
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+// ----- card render -----
+function renderCard(v, isRed) {
+    const color = isRed ? '#ff6e80' : '#a8abb2';
+    const bgClass = isRed ? 'cat-red' : 'cat-black';
+    const levelClass = v.consistency_level === 'STRONG' ? 'level-strong'
+        : v.consistency_level === 'MODERATE' ? 'level-moderate' : 'level-weak';
+    const ud = v.universe_data || {};
+    const consistency = `${(v.black_count || 0) + (v.red_count || 0)}/${v.rounds_total || 0}`;
+    const conf = Number(v.avg_confidence) || 0;
+    const confPct = Math.max(0, Math.min(1, conf)) * 100;
+
+    const dataLine = [];
+    if (ud.change_24h != null) dataLine.push(`24h ${fmtPct(ud.change_24h)}`);
+    if (ud.current_rate != null) dataLine.push(`资金费 ${fmtRate(ud.current_rate)}`);
+    if (ud.quote_volume_24h != null) dataLine.push(`量 ${fmtVol(ud.quote_volume_24h)}`);
+    if (ud.current_price != null) dataLine.push(`价 ${ud.current_price}`);
+
+    const triggers = (v.triggers || []).map(t =>
+        `<span class="trigger-chip">${triggerLabel(t)}</span>`).join('');
+
+    return `
+    <div class="rounded-xl border ${levelClass} ${bgClass} p-3">
+      <div class="flex items-center justify-between gap-2 mb-1.5">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="font-['Space_Grotesk'] text-[15px] font-semibold truncate">${v.symbol}</span>
+          ${levelBadge(v.consistency_level)}
+          <span class="text-[10px] mono text-[#a8abb2] flex-shrink-0">${consistency}</span>
+        </div>
+        <div class="text-[12px] mono font-semibold flex-shrink-0" style="color:${color};">
+          ★ ${conf.toFixed(2)}
+        </div>
+      </div>
+      <div class="conf-bar mb-2"><i style="width:${confPct}%;background:${color};"></i></div>
+      <div class="text-[11px] mono text-[#a8abb2] mb-1.5">${dataLine.join(' · ') || '--'}</div>
+      ${v.catalyst ? `<p class="text-[12.5px] leading-snug text-[#ebeef5]">${v.catalyst}</p>` : ''}
+      ${v.data_signal ? `<p class="mt-1 text-[11px] text-[#a8abb2]"><span class="opacity-60">信号:</span> ${v.data_signal}</p>` : ''}
+      ${v.risk_note ? `<p class="mt-1 text-[11px] text-[#a8abb2]"><span class="opacity-60">风险:</span> ${v.risk_note}</p>` : ''}
+      ${triggers ? `<div class="mt-2 flex flex-wrap gap-1">${triggers}</div>` : ''}
+    </div>`;
+}
+
+// ----- tab switch -----
+function switchTab(tab) {
+    currentTab = tab;
+    const r = $('tabRed'), b = $('tabBlack');
+    if (tab === 'red') {
+        r.className = 'tab-pill active-red'; b.className = 'tab-pill idle';
+    } else {
+        r.className = 'tab-pill idle'; b.className = 'tab-pill active-black';
+    }
+    renderList();
+}
+
+function renderList() {
+    const isRed = currentTab === 'red';
+    const cat = isRed ? 'red_swan' : 'black_swan';
+    const list = lastVerdicts.filter(v => v.main_category === cat
+        && v.consistency_level !== 'WEAK');
+    const box = $('cardList');
+    if (!list.length) {
+        box.innerHTML = `
+        <div class="rounded-xl border border-dashed border-[#44484e]/40 bg-[#0f1520]/40 p-6 text-center">
+          <p class="text-[12px] text-[#a8abb2] italic">本轮没有稳定的${isRed ? '红' : '黑'}天鹅信号</p>
+        </div>`;
+        return;
+    }
+    box.innerHTML = list.map(v => renderCard(v, isRed)).join('');
+}
+
+// ----- main render -----
+function renderAll(data) {
+    $('skeletonBox').classList.add('hidden');
+    $('tabBar').classList.remove('hidden');
+    $('tabBar').classList.add('flex');
+
+    const run = data.run;
+    const verdicts = data.verdicts || [];
+    const summary = data.summary || {};
+    lastVerdicts = verdicts;
+
+    if (run) {
+        $('hdrAsof').textContent = (run.asof_utc || '').replace('T', ' ').substring(0, 16) + ' UTC';
+        $('hdrAgo').textContent = timeAgo(run.asof_utc);
+    } else {
+        $('hdrAsof').textContent = '--';
+        $('hdrAgo').textContent = '';
+    }
+
+    if (run && run.summary_zh) {
+        $('summaryCard').classList.remove('hidden');
+        $('emptyCard').classList.add('hidden');
+        $('summaryText').textContent = run.summary_zh;
+        const mk = (label, n, cls) => n > 0
+            ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold ${cls}">${label} ${n}</span>` : '';
+        $('summaryCounts').innerHTML = [
+            mk('🔥 红 STRONG', summary.red_strong, 'bg-[#ff6e80]/15 text-[#ff6e80]'),
+            mk('🔥 红 MODERATE', summary.red_moderate, 'bg-[#ff6e80]/8 text-[#ff6e80]/80'),
+            mk('🌑 黑 STRONG', summary.black_strong, 'bg-[#a8abb2]/15 text-[#ebeef5]'),
+            mk('🌑 黑 MODERATE', summary.black_moderate, 'bg-[#a8abb2]/8 text-[#a8abb2]'),
+        ].filter(Boolean).join(' ');
+    } else {
+        $('summaryCard').classList.add('hidden');
+        $('emptyCard').classList.remove('hidden');
+    }
+
+    const reds = verdicts.filter(v => v.main_category === 'red_swan' && v.consistency_level !== 'WEAK');
+    const blacks = verdicts.filter(v => v.main_category === 'black_swan' && v.consistency_level !== 'WEAK');
+    const weaks = verdicts.filter(v => v.consistency_level === 'WEAK');
+    $('redCount').textContent = reds.length;
+    $('blackCount').textContent = blacks.length;
+
+    // auto-pick the side with more signals on first load only
+    if (renderAll._first) {
+        if (blacks.length > reds.length) switchTab('black');
+        else switchTab('red');
+        renderAll._first = false;
+    } else {
+        renderList();
+    }
+
+    if (weaks.length) {
+        $('weakSection').classList.remove('hidden');
+        $('weakCount').textContent = weaks.length;
+        $('weakList').innerHTML = weaks.map(v =>
+            renderCard(v, v.main_category === 'red_swan')).join('');
+    } else {
+        $('weakSection').classList.add('hidden');
+    }
+}
+renderAll._first = true;
+
+// ----- API calls -----
+async function loadLatest() {
+    try {
+        const resp = await fetch('/api/gemini-swan/latest', { cache: 'no-store' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        renderAll(data);
+    } catch (e) {
+        $('skeletonBox').classList.add('hidden');
+        $('emptyCard').classList.remove('hidden');
+        toast('加载失败: ' + e.message, 'err');
+    }
+}
+
+async function triggerNow() {
+    const btn = $('btnTrigger');
+    const icon = $('btnTriggerIcon');
+    const text = $('btnTriggerText');
+    btn.disabled = true;
+    icon.classList.add('spin');
+    icon.textContent = 'autorenew';
+    text.textContent = '...';
+    try {
+        const resp = await fetch('/api/gemini-swan/trigger', { method: 'POST' });
+        const data = await resp.json();
+        if (!data.accepted) {
+            toast(data.message || '已有任务在跑');
+        } else {
+            toast('已触发, 后台跑约 3 分钟');
+        }
+        clearInterval(triggerPolling);
+        triggerPolling = setInterval(checkTriggerStatus, 10000);
+    } catch (e) {
+        toast('触发失败: ' + e.message, 'err');
+        resetTriggerBtn();
+    }
+}
+
+async function checkTriggerStatus() {
+    try {
+        const resp = await fetch('/api/gemini-swan/trigger/status');
+        const s = await resp.json();
+        if (!s.running) {
+            clearInterval(triggerPolling);
+            triggerPolling = null;
+            resetTriggerBtn();
+            toast(s.last_status === 'success' ? '运行完成, 数据已更新' : '运行失败, 详见日志');
+            await loadLatest();
+        }
+    } catch (e) { /* ignore network blips */ }
+}
+
+function resetTriggerBtn() {
+    const btn = $('btnTrigger');
+    const icon = $('btnTriggerIcon');
+    const text = $('btnTriggerText');
+    btn.disabled = false;
+    icon.classList.remove('spin');
+    icon.textContent = 'play_arrow';
+    text.textContent = '重跑';
+}
+
+// ----- init -----
+document.addEventListener('DOMContentLoaded', () => {
+    $('btnTrigger').addEventListener('click', triggerNow);
+    loadLatest();
+    // refresh asof age every 30s, full reload every 60s
+    setInterval(() => {
+        const asof = $('hdrAsof').textContent;
+        if (asof && asof !== '--') {
+            // re-derive ago from cached run
+            // (full reload via interval below replaces lastVerdicts when it lands)
+        }
+    }, 30000);
+    setInterval(loadLatest, 60000);
+    checkTriggerStatus();
+});
+</script>
+</body>
+</html>
