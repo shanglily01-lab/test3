@@ -1667,21 +1667,30 @@ async def live_trading_page(request: Request):
         if user_id is None:
             user_id, role, auto_token = _get_auto_admin_session()
         if user_id is None:
-            return RedirectResponse(url="/m/login?next=/live_trading", status_code=302)
+            # 2026-05-03: DB 偶发问题时不再 redirect /m/login (避免内网单机部署被弹密码)
+            # 用户拍板: EC2 9021 只他自己用, 用 fallback admin (user_id=1, role='admin') 兜底
+            user_id, role = 1, 'admin'
+            logger.warning("live_trading_page: 自动 admin session 失败, 用 fallback admin (user_id=1)")
 
+        # 签发 JWT (auth_service.create_access_token 不查 DB, DB 挂了也能签)
         try:
-            import pymysql as _pymysql, os as _os
             from app.auth.auth_service import get_auth_service as _get_auth_service
-            _conn = _pymysql.connect(
-                host=_os.getenv("DB_HOST", "localhost"), port=int(_os.getenv("DB_PORT", 3306)),
-                user=_os.getenv("DB_USER", "root"), password=_os.getenv("DB_PASSWORD", ""),
-                database=_os.getenv("DB_NAME", "binance-data"), cursorclass=_pymysql.cursors.DictCursor)
-            _cur = _conn.cursor()
-            _cur.execute("SELECT id, username, role FROM users WHERE id=%s", (user_id,))
-            _u = _cur.fetchone(); _cur.close(); _conn.close()
-            if _u:
-                access_token = _get_auth_service().create_access_token(
-                    user_id=_u['id'], username=_u['username'], role=_u['role'])
+            username = 'auto-fallback'  # DB 查不到 username 时用这个
+            try:
+                import pymysql as _pymysql, os as _os
+                _conn = _pymysql.connect(
+                    host=_os.getenv("DB_HOST", "localhost"), port=int(_os.getenv("DB_PORT", 3306)),
+                    user=_os.getenv("DB_USER", "root"), password=_os.getenv("DB_PASSWORD", ""),
+                    database=_os.getenv("DB_NAME", "binance-data"), cursorclass=_pymysql.cursors.DictCursor)
+                _cur = _conn.cursor()
+                _cur.execute("SELECT username FROM users WHERE id=%s", (user_id,))
+                _u = _cur.fetchone(); _cur.close(); _conn.close()
+                if _u and _u.get('username'):
+                    username = _u['username']
+            except Exception as e:
+                logger.warning(f"live_trading_page 查 username 失败, 用 fallback: {e}")
+            access_token = _get_auth_service().create_access_token(
+                user_id=user_id, username=username, role=role)
         except Exception as e:
             logger.error(f"live_trading_page 签发 JWT 失败: {e}")
             access_token = ''
