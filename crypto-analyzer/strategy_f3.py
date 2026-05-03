@@ -434,6 +434,16 @@ def _fill_pending_orders(conn):
                 conn.commit()
                 c2.close()
                 log.info("F3 限价单超时撤单 %-18s oid=%s", sym, o['order_id'])
+                # 同步回收 state, 防御性显式写 (主 tick 的 _check_pending_db 也会兜底,
+                # 这里早一步释放槽位).
+                try:
+                    update_state(
+                        conn, 'f3', sym, 'f3',
+                        state='DONE', pid=None, order_id=None,
+                        done_time=now_s(), last_reason='cancel',
+                    )
+                except Exception as _e:
+                    log.warning("[f3-cancel-sync] %s 同步 DONE 失败: %s", sym, _e)
                 continue
         try:
             cur_p = get_price(sym)

@@ -688,6 +688,17 @@ def _fill_pending_orders(conn):
                               updated_at=NOW() WHERE id=%s""", (o["id"],))
                 conn.commit(); c2.close()
                 log.info("超时撤单 %s %s oid=%s age=%.0fs", sym, side, o["order_id"], age)
+                # 同步回收 state, 防御性显式写一遍 (主 tick 也会走 _settle_cancelled_pending
+                # 兜底, 但写两次幂等无害, 早一步释放槽位).
+                try:
+                    update_state(
+                        conn, "bigmid", sym, "gemini",
+                        state="IDLE", pid=None, order_id=None,
+                        entry_p=0, entry_time=0,
+                        last_reason="order_cancelled",
+                    )
+                except Exception as _e:
+                    log.warning("[bigmid-cancel-sync] %s 同步 IDLE 失败: %s", sym, _e)
                 continue
 
         try:
