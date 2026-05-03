@@ -1619,17 +1619,23 @@ async def futures_trading_page():
         raise HTTPException(status_code=404, detail="Futures trading page not found")
 
 
-@app.get("/coin_futures_trading")
-async def coin_futures_trading_page():
+@app.get("/swan_board")
+async def swan_board_page():
     """
-    红黑天鹅榜 (原币本位合约页, 2026-05-03 替换).
+    红黑天鹅榜 (原币本位合约页, 2026-05-03 替换 + 改名 swan_board).
     Gemini 每 2h 跑 3 轮聚合, 落 gemini_swan_runs/verdicts, 前端读 /api/gemini-swan/latest.
     """
-    coin_futures_path = project_root / "templates" / "coin_futures_trading.html"
-    if coin_futures_path.exists():
-        return FileResponse(str(coin_futures_path))
+    swan_path = project_root / "templates" / "swan_board.html"
+    if swan_path.exists():
+        return FileResponse(str(swan_path))
     else:
         raise HTTPException(status_code=404, detail="Swan board page not found")
+
+
+@app.get("/coin_futures_trading")
+async def coin_futures_trading_redirect():
+    """老 URL 重定向到 /swan_board, 避免外链/历史浏览器收藏 404."""
+    return RedirectResponse(url="/swan_board", status_code=301)
 
 
 @app.get("/live_trading")

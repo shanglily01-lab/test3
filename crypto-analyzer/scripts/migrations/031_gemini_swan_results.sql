@@ -4,7 +4,7 @@
 -- 背景:
 --   2026-05-03 把 diag_gemini_swan_now.py / diag_gemini_swan_consistency.py 生产化:
 --   后台每 2h 跑 3 轮 Gemini, 用 24h 涨跌 + 资金费率极值采样 universe (~40 symbols),
---   聚合 STRONG / MODERATE / WEAK 一致性等级, 落两张表供前端「红黑天鹅榜」(/coin_futures_trading)
+--   聚合 STRONG / MODERATE / WEAK 一致性等级, 落两张表供前端「红黑天鹅榜」(/swan_board)
 --   渲染. 替换原币本位合约交易页面 (该页几乎是空壳).
 --
 -- 表设计:
