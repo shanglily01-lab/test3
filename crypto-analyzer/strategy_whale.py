@@ -180,6 +180,23 @@ REV4D_MAX_OPEN_POSITIONS = 3
 REV4D_LONG_24H_MIN_PCT   = -0.25        # 24h 跌幅超 25% 不 LONG (避免接飞刀)
 REV4D_SHORT_24H_MAX_PCT  = 0.30         # 24h 涨幅超 30% 不 SHORT (避免追顶)
 
+# ── SWAN 子策略常量 (Gemini 红黑天鹅自动下单, 2026-05-03 新增) ──────
+# 数据源: dimesion.gemini_swan_verdicts (gemini_swan_worker 每 2h 跑一次)
+# red_swan -> LONG, black_swan -> SHORT (顺势)
+SWAN_ENABLED            = False         # 总开关 (system_settings.swan_strategy_enabled)
+SWAN_MIN_CONFIDENCE     = 0.70          # avg_confidence 门槛
+SWAN_POSITION_USDT      = 500.0         # 单笔本金 USDT (信息字段, 当前 open_order 用全局 MARGIN)
+SWAN_LEVERAGE_REF       = 5             # 杠杆 (信息字段, 当前 open_order 用全局 LEVERAGE)
+SWAN_MAX_OPEN           = 5             # 同时持仓上限
+SWAN_HOLD_MIN           = 720           # 12h
+SWAN_COOLDOWN_S         = 12 * 3600     # 12h cooldown
+SWAN_LIMIT_OFFSET_PCT   = 0.003         # 限价偏移 0.3% (跟 REV4D 一致)
+SWAN_SL_PCT             = 0.02          # 止损 2%
+SWAN_HARD_TP_PCT        = 0.05          # 止盈 5%
+SWAN_LONG_24H_MAX_PCT   = 0.30          # 24h 涨幅 > 30% 不 LONG (避免追顶)
+SWAN_SHORT_24H_MIN_PCT  = -0.25         # 24h 跌幅 > 25% 不 SHORT (避免接飞刀)
+SWAN_LAST_RUN_ID        = 0             # 进度游标 (system_settings.swan_last_run_id, 60s reload)
+
 
 def _load_whale_config() -> None:
     """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
@@ -189,6 +206,8 @@ def _load_whale_config() -> None:
     global LH_ENABLED, LH_SL_PCT, LH_HARD_TP_PCT, LH_LIMIT_OFFSET_PCT, LH_HOLD_MIN, LH_REBOUND_MIN_PCT
     global REV4D_ENABLED, REV4D_THRESHOLD_PCT, REV4D_SL_PCT, REV4D_HARD_TP_PCT
     global REV4D_HOLD_MIN, REV4D_COOLDOWN_S
+    global SWAN_ENABLED, SWAN_MIN_CONFIDENCE, SWAN_POSITION_USDT, SWAN_LEVERAGE_REF
+    global SWAN_MAX_OPEN, SWAN_HOLD_MIN, SWAN_COOLDOWN_S, SWAN_LAST_RUN_ID
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -211,7 +230,10 @@ def _load_whale_config() -> None:
                     "'longhold_enabled','longhold_sl_pct','longhold_tp_pct',"
                     "'longhold_limit_offset_pct','longhold_hold_hours','longhold_rebound_pct',"
                     "'rev4d_enabled','rev4d_threshold_pct','rev4d_sl_pct','rev4d_tp_pct',"
-                    "'rev4d_hold_hours','rev4d_cooldown_hours')"
+                    "'rev4d_hold_hours','rev4d_cooldown_hours',"
+                    "'swan_strategy_enabled','swan_min_confidence','swan_position_usdt',"
+                    "'swan_leverage','swan_max_open','swan_hold_minutes','swan_cooldown_hours',"
+                    "'swan_last_run_id')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -265,6 +287,29 @@ def _load_whale_config() -> None:
             REV4D_ENABLED, REV4D_THRESHOLD_PCT * 100, REV4D_SL_PCT * 100,
             REV4D_HARD_TP_PCT * 100, REV4D_HOLD_MIN // 60, REV4D_COOLDOWN_S // 3600,
         )
+
+        # swan 子策略参数 (Gemini 红黑天鹅自动下单)
+        _raw_swan = str(rows.get('swan_strategy_enabled', '0')).strip().lower()
+        SWAN_ENABLED        = _raw_swan in ('1', 'true', 'yes', 'on')
+        SWAN_MIN_CONFIDENCE = float(rows.get('swan_min_confidence', SWAN_MIN_CONFIDENCE))
+        SWAN_POSITION_USDT  = float(rows.get('swan_position_usdt',  SWAN_POSITION_USDT))
+        SWAN_LEVERAGE_REF   = int(  rows.get('swan_leverage',       SWAN_LEVERAGE_REF))
+        SWAN_MAX_OPEN       = int(  rows.get('swan_max_open',       SWAN_MAX_OPEN))
+        SWAN_HOLD_MIN       = int(  rows.get('swan_hold_minutes',   SWAN_HOLD_MIN))
+        _swan_cd_h          = int(  rows.get('swan_cooldown_hours', SWAN_COOLDOWN_S // 3600))
+        SWAN_COOLDOWN_S     = _swan_cd_h * 3600
+        try:
+            SWAN_LAST_RUN_ID = int(rows.get('swan_last_run_id', SWAN_LAST_RUN_ID))
+        except (TypeError, ValueError):
+            SWAN_LAST_RUN_ID = 0
+        log.info(
+            "swan 参数: enabled=%s conf>=%.2f pos=%.0fU lev=%dx max_open=%d hold=%dh cooldown=%dh last_run_id=%d",
+            SWAN_ENABLED, SWAN_MIN_CONFIDENCE, SWAN_POSITION_USDT, SWAN_LEVERAGE_REF,
+            SWAN_MAX_OPEN, SWAN_HOLD_MIN // 60, SWAN_COOLDOWN_S // 3600, SWAN_LAST_RUN_ID,
+        )
+        # 注意: SWAN_POSITION_USDT / SWAN_LEVERAGE_REF 当前为信息字段, open_order 仍用全局
+        # MARGIN=500.0 + LEVERAGE=5 (跟用户决定的 500U x 5x 一致). 若以后要 SWAN 用不同
+        # 仓位/杠杆, 需改 open_order 接受 override 参数, 当前不动.
 
         if DISABLE_SL_TP_HOLD:
             log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/移动TP检查跳过 !!!")
@@ -1754,6 +1799,258 @@ def rev4d_tick(conn, sym: str):
     )
 
 
+# ── SWAN 子策略 (Gemini 红黑天鹅, 2026-05-03 新增) ──────────────────
+def _open_dimesion_conn():
+    """连远程 dimesion 库读 swan verdicts.
+
+    host 解析: DIMENSION_DB_HOST env > table_schemas.txt 头部.
+    跟 app/services/gemini_swan_worker.py:_load_remote_db_cfg 同源, 但 strategy_whale
+    不是 FastAPI 模块, 不能直接 import app.services, 复制一份.
+    """
+    import re as _re
+    from pathlib import Path as _Path
+    cfg = {"port": 3306, "user": "admin", "password": "Yintao@110",
+           "database": "dimesion", "charset": "utf8mb4",
+           "cursorclass": pymysql.cursors.DictCursor, "connect_timeout": 5}
+    env_host = os.getenv("DIMENSION_DB_HOST", "").strip()
+    if env_host:
+        cfg["host"] = env_host
+        return pymysql.connect(**cfg)
+    path = _Path(__file__).resolve().parent / "table_schemas.txt"
+    head = path.read_text(encoding="utf-8").splitlines()[:15]
+    for line in head:
+        m = _re.match(r"\s*host\s*[:=]\s*([\d\.]+)", line)
+        if m:
+            cfg["host"] = m.group(1)
+            break
+    if "host" not in cfg:
+        raise RuntimeError("DIMENSION_DB_HOST 未设, 且 table_schemas.txt 头部没解析到 host IP")
+    return pymysql.connect(**cfg)
+
+
+def _swan_active_count(conn) -> int:
+    """SWAN 当前 active 持仓数 (PENDING/SHORT/LONG, 不含 DONE).
+    DONE 是冷却态不占配额, 跟 _rev4d_active_count 一样的逻辑."""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(1) AS n FROM strategy_state "
+            "WHERE strategy='whale' AND stype='swan' "
+            "  AND state IN ('PENDING','SHORT','LONG')"
+        )
+        r = cur.fetchone()
+        cur.close()
+        return int(r['n']) if r else 0
+    except Exception:
+        return 0
+
+
+def _swan_persist_cursor(conn, run_id: int) -> None:
+    """把已处理的最大 run_id 写回本地 system_settings.swan_last_run_id (60s reload 自动同步).
+    注意写的是 binance-data 库的 system_settings, 不是 dimesion. 失败不阻塞."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO system_settings (setting_key, setting_value, description, updated_by) "
+                "VALUES ('swan_last_run_id', %s, "
+                "        'SWAN 已处理的最大 gemini_swan_runs.run_id (代码自动写, 无需手改)', "
+                "        'strategy_whale') "
+                "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)",
+                (str(int(run_id)),),
+            )
+        conn.commit()
+    except Exception as e:
+        log.warning("[SWAN] persist cursor run_id=%d failed: %s", run_id, e)
+
+
+def swan_strategy_tick(conn) -> None:
+    """SWAN 子策略: 读 dimesion.gemini_swan_verdicts STRONG 信号, 顺势开限价单.
+
+    red_swan -> LONG, black_swan -> SHORT.
+    限价偏 0.3%, SL 2% / TP 5% / hold 12h, cooldown 12h.
+    每个主循环 tick (90s) 调一次, 实际 verdict 2h 才更新一次.
+    """
+    if not SWAN_ENABLED:
+        return
+
+    global SWAN_LAST_RUN_ID
+    import json as _json
+
+    # 1. 拉远程 dimesion 的最新 STRONG verdicts
+    try:
+        rconn = _open_dimesion_conn()
+    except Exception as e:
+        log.warning("[SWAN] open dimesion conn failed: %s", e)
+        return
+    try:
+        with rconn.cursor() as rc:
+            rc.execute(
+                "SELECT id, run_id, symbol, main_category, avg_confidence, universe_data "
+                "FROM gemini_swan_verdicts "
+                "WHERE consistency_level='STRONG' "
+                "  AND avg_confidence >= %s "
+                "  AND main_category IN ('red_swan','black_swan') "
+                "  AND run_id > %s "
+                "ORDER BY run_id ASC, id ASC",
+                (SWAN_MIN_CONFIDENCE, SWAN_LAST_RUN_ID),
+            )
+            verdicts = list(rc.fetchall())
+    except Exception as e:
+        log.warning("[SWAN] query verdicts failed: %s", e)
+        try:
+            rconn.close()
+        except Exception:
+            pass
+        return
+    try:
+        rconn.close()
+    except Exception:
+        pass
+
+    if not verdicts:
+        return
+
+    log.info("[SWAN] tick: %d new STRONG verdicts (run_id > %d, conf >= %.2f)",
+             len(verdicts), SWAN_LAST_RUN_ID, SWAN_MIN_CONFIDENCE)
+
+    blacklist = _effective_blacklist()
+    max_run_id = SWAN_LAST_RUN_ID
+
+    for v in verdicts:
+        try:
+            cur_run = int(v.get('run_id') or 0)
+        except (TypeError, ValueError):
+            cur_run = 0
+        if cur_run > max_run_id:
+            max_run_id = cur_run
+
+        sym = (v.get('symbol') or '').upper()
+        if not sym or '/' not in sym:
+            continue
+        cat = (v.get('main_category') or '').lower()
+        if cat == 'red_swan':
+            side = 'LONG'
+        elif cat == 'black_swan':
+            side = 'SHORT'
+        else:
+            continue
+
+        # 守卫 0: 黑名单
+        if sym in blacklist:
+            log.info("[SWAN] skip %s: blacklist", sym)
+            continue
+
+        # 守卫 1: 同账户该 symbol 已有任意 open / pending
+        if _has_any_open(sym):
+            log.info("[SWAN] skip %s: 已有持仓 (account=%d)", sym, ACCOUNT_ID)
+            continue
+
+        # 守卫 2: whale 系其他子策略活跃
+        if _any_whale_active(conn, sym):
+            log.info("[SWAN] skip %s: whale 系其他子策略 active", sym)
+            continue
+
+        # 守卫 3: SWAN 自己的 cooldown (12h, 同 symbol 平仓后)
+        ss = get_or_create(conn, 'whale', sym, 'swan', {
+            'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
+            'peak_pnl_pct': 0.0, 'side': None,
+            'entry_time': 0.0, 'done_time': 0.0,
+        })
+        s_state = ss.get('state') or 'IDLE'
+        if s_state == 'DONE':
+            anchor = ensure_cooldown_anchor_epoch(conn, 'whale', sym, 'swan', ss, now_s())
+            if now_s() - anchor < SWAN_COOLDOWN_S:
+                log.info("[SWAN] skip %s: cooldown 剩 %.1fh",
+                         sym, (SWAN_COOLDOWN_S - (now_s() - anchor)) / 3600)
+                continue
+            update_state(conn, 'whale', sym, 'swan', state='IDLE')
+        elif s_state != 'IDLE':
+            log.info("[SWAN] skip %s: 自身 state=%s", sym, s_state)
+            continue
+
+        # 守卫 4: SWAN 全局持仓上限
+        if _swan_active_count(conn) >= SWAN_MAX_OPEN:
+            log.info("[SWAN] skip %s: SWAN 持仓达上限 %d", sym, SWAN_MAX_OPEN)
+            break  # 上限后续都开不出, 直接 break (但 cursor 还要更新到这个 run_id)
+
+        # 守卫 5: 24h 涨跌幅极端 (从 universe_data JSON 取)
+        ud_raw = v.get('universe_data')
+        ud: dict = {}
+        if ud_raw:
+            try:
+                ud = _json.loads(ud_raw) if isinstance(ud_raw, str) else ud_raw
+                if not isinstance(ud, dict):
+                    ud = {}
+            except Exception:
+                ud = {}
+        ch_24h = ud.get('change_24h')
+        if ch_24h is not None:
+            try:
+                ch_24h = float(ch_24h)
+            except (TypeError, ValueError):
+                ch_24h = None
+        if ch_24h is not None:
+            if side == 'LONG' and ch_24h > SWAN_LONG_24H_MAX_PCT:
+                log.info("[SWAN] skip %s LONG: 24h=%.1f%% 超 %.0f%% (避免追顶)",
+                         sym, ch_24h * 100, SWAN_LONG_24H_MAX_PCT * 100)
+                continue
+            if side == 'SHORT' and ch_24h < SWAN_SHORT_24H_MIN_PCT:
+                log.info("[SWAN] skip %s SHORT: 24h=%.1f%% 跌过 %.0f%% (避免飞刀)",
+                         sym, ch_24h * 100, SWAN_SHORT_24H_MIN_PCT * 100)
+                continue
+
+        # 取现价
+        try:
+            cur_p = get_price(sym)
+        except Exception as e:
+            log.warning("[SWAN] %s get_price failed: %s", sym, e)
+            continue
+
+        # 限价偏移 (LONG 挂买价低于现价, SHORT 挂卖价高于现价)
+        if side == 'LONG':
+            lp = round(cur_p * (1 - SWAN_LIMIT_OFFSET_PCT), 8)
+        else:
+            lp = round(cur_p * (1 + SWAN_LIMIT_OFFSET_PCT), 8)
+
+        # 下单 (复用 open_order, 跟 REV4D 同一条 HTTP API 路径)
+        try:
+            pid, oid, pending = open_order(
+                sym, side, cur_p,
+                tp_pct=SWAN_HARD_TP_PCT, sl_pct=SWAN_SL_PCT,
+                hold_min=SWAN_HOLD_MIN,
+                tag='swan', limit_price=lp,
+            )
+        except Exception as e:
+            log.warning("[SWAN] %s open_order failed: %s", sym, e)
+            continue
+        if not (pid or oid):
+            continue
+
+        try:
+            conf_v = float(v.get('avg_confidence') or 0)
+        except (TypeError, ValueError):
+            conf_v = 0.0
+        log.info(
+            "[SWAN] %s %s @ %.6f lp=%.6f cat=%s conf=%.2f 24h=%s "
+            "(TP=%.0f%% SL=%.0f%% hold=%dh)",
+            sym, side, cur_p, lp, cat, conf_v,
+            f"{ch_24h*100:+.1f}%" if ch_24h is not None else 'N/A',
+            SWAN_HARD_TP_PCT * 100, SWAN_SL_PCT * 100, SWAN_HOLD_MIN // 60,
+        )
+        update_state(
+            conn, 'whale', sym, 'swan',
+            state='PENDING' if pending else side,
+            pid=pid, order_id=oid, side=side,
+            entry_p=lp if pending else cur_p,
+            peak_pnl_pct=0.0, entry_time=now_s(),
+        )
+
+    # 推进进度游标 (写本地 system_settings, 60s reload 自动同步回 SWAN_LAST_RUN_ID)
+    if max_run_id > SWAN_LAST_RUN_ID:
+        _swan_persist_cursor(conn, max_run_id)
+        SWAN_LAST_RUN_ID = max_run_id
+
+
 # ── 仓位管理 ──────────────────────────────────────────────────────────
 def whale_tick(conn, sym: str):
     """每个品种的主逻辑"""
@@ -1982,6 +2279,14 @@ def main():
                 _close_overdue(conn)
             except Exception as e:
                 log.warning("_close_overdue 异常: %s", e)
+
+            # SWAN 子策略 (Gemini 红黑天鹅自动下单, 2026-05-03 新增)
+            # 不需要 universe 迭代, 一次性处理所有新 STRONG verdict.
+            # SWAN_ENABLED=False (system_settings.swan_strategy_enabled) 时立即 return.
+            try:
+                swan_strategy_tick(conn)
+            except Exception as e:
+                log.warning("swan_strategy_tick 异常: %s", e)
 
             universe = get_universe(cur)
             processed = 0
