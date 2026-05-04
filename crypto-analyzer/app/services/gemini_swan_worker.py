@@ -31,6 +31,8 @@ from typing import Optional
 import pymysql
 from loguru import logger
 
+from app.services.securities_filter import is_security
+
 try:
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -107,7 +109,9 @@ def _base_of(symbol: str) -> str:
 
 def _is_excluded(symbol: str) -> bool:
     b = _base_of(symbol)
-    return b in EXCLUDE_BASES or b in STABLECOINS
+    if b in EXCLUDE_BASES or b in STABLECOINS:
+        return True
+    return is_security(symbol)
 
 
 # ------------------ universe 采集 ------------------

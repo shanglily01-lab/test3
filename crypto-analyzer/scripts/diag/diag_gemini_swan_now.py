@@ -50,6 +50,8 @@ except ImportError:
 
 import pymysql
 
+from app.services.securities_filter import is_security
+
 # ------------------ 配置 ------------------
 EXCLUDE_BASES = {"BTC", "ETH", "BNB", "SOL", "XRP"}
 STABLECOINS = {"USDT", "USDC", "DAI", "FDUSD", "BUSD", "TUSD", "USDE", "USD1", "PYUSD"}
@@ -93,7 +95,9 @@ def base_of(symbol: str) -> str:
 
 def is_excluded(symbol: str) -> bool:
     b = base_of(symbol)
-    return b in EXCLUDE_BASES or b in STABLECOINS
+    if b in EXCLUDE_BASES or b in STABLECOINS:
+        return True
+    return is_security(symbol)
 
 
 # ------------------ universe 采集 ------------------

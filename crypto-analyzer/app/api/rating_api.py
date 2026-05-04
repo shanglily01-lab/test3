@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from app.services.symbol_rating_manager import SymbolRatingManager
 from app.services.optimization_config import OptimizationConfig
+from app.services.securities_filter import is_security
 
 
 def safe_float(value, default=0.0):
@@ -247,17 +248,20 @@ async def get_top50():
     try:
         conn = pymysql.connect(**DB_CONFIG, cursorclass=pymysql.cursors.DictCursor)
         cur = conn.cursor()
+        # 多取一些, 出库后剔除证券类再截 50, 防止股票占满榜单
         cur.execute("""
             SELECT symbol, total_realized_pnl, total_trades, winning_trades, losing_trades,
                    win_rate, avg_pnl_per_trade, max_single_profit, max_single_loss,
                    profit_factor, rank_score, last_updated
             FROM top_performing_symbols
             ORDER BY rank_score DESC
-            LIMIT 50
+            LIMIT 100
         """)
         rows = cur.fetchall()
         cur.close()
         conn.close()
+
+        rows = [r for r in rows if not is_security(r['symbol'])][:50]
 
         data = []
         for r in rows:
