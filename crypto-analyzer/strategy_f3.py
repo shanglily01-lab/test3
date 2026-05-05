@@ -99,6 +99,10 @@ _trigger_first_seen: dict = {}
 # 2026-04-27: 总开关-禁用 5m 阴/阳收盘确认守卫(触发即成交). 走 system_settings.disable_5m_confirm.
 DISABLE_5M_CONFIRM   = False
 
+# 2026-05-04: F3 子策略总开关 (system_settings.f3_strategy_enabled, 默认 ON 保持向后兼容)
+# 关掉后 f3_tick 入口提前 return, 已有持仓不受影响, 只拦新入场.
+F3_ENABLED           = True
+
 
 # ═════════════════════════ F3 专属黑白名单 ═════════════════════════
 # 基于 2026-04-24 7 天回测数据 (replay_4_forms + diag_f3_deep):
@@ -168,22 +172,28 @@ def get_db():
 
 
 def _load_f3_config() -> None:
-    """从 system_settings 读取 F3 总开关。进程启动时调用一次。"""
-    global DISABLE_5M_CONFIRM
+    """从 system_settings 读取 F3 子策略开关。主循环每 60s 调一次。"""
+    global DISABLE_5M_CONFIRM, F3_ENABLED
     try:
         conn = get_db()
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT setting_key, setting_value FROM system_settings "
-                    "WHERE setting_key='disable_5m_confirm'"
+                    "WHERE setting_key IN ('disable_5m_confirm','f3_strategy_enabled')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
             conn.close()
         _raw = str(rows.get('disable_5m_confirm', '0')).strip().lower()
         DISABLE_5M_CONFIRM = _raw in ('1', 'true', 'yes', 'on')
-        log.info("strategy_f3 参数已加载: disable_5m_confirm=%s", DISABLE_5M_CONFIRM)
+        # 默认 ON (向后兼容): DB 没这个 key 时, 维持现行 F3 入场行为.
+        _raw_f3 = str(rows.get('f3_strategy_enabled', '1')).strip().lower()
+        F3_ENABLED = _raw_f3 in ('1', 'true', 'yes', 'on')
+        log.info("strategy_f3 参数已加载: f3_strategy_enabled=%s disable_5m_confirm=%s",
+                 F3_ENABLED, DISABLE_5M_CONFIRM)
+        if not F3_ENABLED:
+            log.warning("!!! F3_ENABLED=OFF: f3_tick 入口提前 return, 仅持仓监控/挂单成交继续运行 !!!")
         if DISABLE_5M_CONFIRM:
             log.warning("!!! DISABLE_5M_CONFIRM=ON: 限价单触发即成交, 跳过 5m 阳线确认 !!!")
     except Exception as exc:
@@ -736,6 +746,11 @@ def f3_tick(conn, sym: str):
         return
 
     if s != 'IDLE':
+        return
+
+    # F3 子策略关闭 (system_settings.f3_strategy_enabled=0): 拒绝新入场,
+    # 已有 PENDING / LONG / DONE 状态都已在前面分支处理完, 不影响.
+    if not F3_ENABLED:
         return
 
     # 全局 F3 仓位数限制
