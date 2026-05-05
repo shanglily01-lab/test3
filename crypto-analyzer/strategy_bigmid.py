@@ -414,15 +414,17 @@ def _calc_rsi(closes: list[float], period: int = 14) -> Optional[float]:
 
 
 def _fetch_market_data(cur, sym: str) -> Optional[dict]:
-    """准备喂给 Gemini 的市场数据. 数据不足返回 None."""
-    daily_15d = _fetch_klines(cur, sym, '1d', 15)
-    h1_4d     = _fetch_klines(cur, sym, '1h', 96)   # 4 天 1h
-    m15_8h    = _fetch_klines(cur, sym, '15m', 32)  # 8h 15m
-    h1_8h     = _fetch_klines(cur, sym, '1h', 8)    # 8h 1h
+    """准备喂给 Gemini 的市场数据. 抄底反转版 (2026-05-04 改): 1h 扩到 7 天 + 显式 7d 低点.
 
-    if len(daily_15d) < 14 or len(h1_4d) < 80 or len(m15_8h) < 24 or len(h1_8h) < 6:
-        log.debug("Gemini %s 数据不足: daily=%d h1_4d=%d m15=%d h1_8h=%d",
-                  sym, len(daily_15d), len(h1_4d), len(m15_8h), len(h1_8h))
+    数据不足返回 None.
+    """
+    daily_15d = _fetch_klines(cur, sym, '1d', 15)
+    h1_7d     = _fetch_klines(cur, sym, '1h', 168)  # 7 天 1h (替代原 4 天 + 8h)
+    m15_8h    = _fetch_klines(cur, sym, '15m', 32)  # 8h 15m
+
+    if len(daily_15d) < 14 or len(h1_7d) < 140 or len(m15_8h) < 24:
+        log.debug("Gemini %s 数据不足: daily=%d h1_7d=%d m15=%d",
+                  sym, len(daily_15d), len(h1_7d), len(m15_8h))
         return None
 
     # 取当前价
@@ -438,8 +440,20 @@ def _fetch_market_data(cur, sym: str) -> Optional[dict]:
     change_24h = float(r['change_24h']) if r and r.get('change_24h') is not None else 0.0
     vol_24h = float(r['volume_24h']) if r and r.get('volume_24h') is not None else 0.0
 
-    # RSI
-    rsi_1h = _calc_rsi([float(b['close_price']) for b in h1_4d], 14)
+    # 7 天高低点 + 当前价在 7d 区间的位置 (0=贴 7d 低, 1=贴 7d 高)
+    lows_7d  = [float(b['low_price'])  for b in h1_7d]
+    highs_7d = [float(b['high_price']) for b in h1_7d]
+    low_7d, high_7d = min(lows_7d), max(highs_7d)
+    low_idx  = lows_7d.index(low_7d)
+    low_7d_time = datetime.datetime.fromtimestamp(
+        h1_7d[low_idx]['open_time'] / 1000).strftime('%Y-%m-%d %H:%M')
+    band = high_7d - low_7d
+    pos_in_7d_band = ((cur_p - low_7d) / band) if band > 0 else 0.0
+    dist_from_low_7d_pct = ((cur_p - low_7d) / low_7d * 100) if low_7d > 0 else 0.0
+
+    # RSI (多时间框架确认超卖)
+    rsi_1h    = _calc_rsi([float(b['close_price']) for b in h1_7d], 14)
+    rsi_15m   = _calc_rsi([float(b['close_price']) for b in m15_8h], 14)
     rsi_daily = _calc_rsi([float(b['close_price']) for b in daily_15d], 14) if len(daily_15d) >= 15 else None
 
     def _to_dicts(bars: list, tf: str) -> list:
@@ -457,21 +471,32 @@ def _fetch_market_data(cur, sym: str) -> Optional[dict]:
         return out
 
     return {
-        'symbol':         sym,
-        'current_price':  round(cur_p, 8),
-        'change_24h_pct': round(change_24h, 2),
-        'volume_24h':     round(vol_24h, 2),
-        'rsi_1h':         rsi_1h,
-        'rsi_daily':      rsi_daily,
-        'daily_15d':      _to_dicts(daily_15d, '1d'),
-        'h1_4d':          _to_dicts(h1_4d, '1h'),
-        'm15_8h':         _to_dicts(m15_8h, '15m'),
-        'h1_8h':          _to_dicts(h1_8h, '1h'),
+        'symbol':                sym,
+        'current_price':         round(cur_p, 8),
+        'change_24h_pct':        round(change_24h, 2),
+        'volume_24h':            round(vol_24h, 2),
+        'rsi_1h':                rsi_1h,
+        'rsi_15m':               rsi_15m,
+        'rsi_daily':             rsi_daily,
+        'low_7d':                round(low_7d, 8),
+        'low_7d_time':           low_7d_time,
+        'high_7d':               round(high_7d, 8),
+        'pos_in_7d_band':        round(pos_in_7d_band, 3),
+        'dist_from_low_7d_pct':  round(dist_from_low_7d_pct, 2),
+        'daily_15d':             _to_dicts(daily_15d, '1d'),
+        'h1_7d':                 _to_dicts(h1_7d, '1h'),
+        'm15_8h':                _to_dicts(m15_8h, '15m'),
     }
 
 
 def _build_gemini_prompt(data: dict) -> str:
-    """构造 prompt, 强制 Gemini 输出 JSON."""
+    """构造 prompt: 抄底反转专项 (2026-05-04 改).
+
+    设计目标:
+      - 只考虑 LONG, 不开 SHORT (反转抄底专项)
+      - 显式给出 7d 高低点 + 当前价在区间的位置, 让 Gemini 不用从 168 根 K 线翻找
+      - 倾向: 距 7d 低点近 + 缩量企稳 + 多时间框架 RSI 超卖 + 反转 K 线
+    """
     sym = data['symbol']
 
     def _fmt_klines(klines: list, header: str) -> str:
@@ -481,39 +506,58 @@ def _build_gemini_prompt(data: dict) -> str:
             lines.append(f"{k['t']:<17} {k['o']:>14} {k['h']:>14} {k['l']:>14} {k['c']:>14} {k['v']:>14}")
         return "\n".join(lines)
 
-    return f"""You are a quantitative crypto futures trading analyst. Analyze the following market data for {sym} and recommend a 6-hour trade decision.
+    return f"""You are a quantitative crypto futures trading analyst.
+Your job is to find **bottom-reversal LONG entries** for {sym} on a 12-hour swing trade.
+SHORT positions are NOT allowed in this task.
 
 CURRENT STATE
-  current_price: {data['current_price']}
-  24h change: {data['change_24h_pct']}%
-  24h volume: {data['volume_24h']}
-  RSI(14, 1h): {data['rsi_1h']}
-  RSI(14, daily): {data['rsi_daily']}
+  current_price:           {data['current_price']}
+  24h change:              {data['change_24h_pct']}%
+  24h volume:              {data['volume_24h']}
+  RSI(14, daily):          {data['rsi_daily']}
+  RSI(14, 1h):             {data['rsi_1h']}
+  RSI(14, 15m):            {data['rsi_15m']}
+
+7-DAY RANGE (key reference for bottom-reversal)
+  7d_low:                  {data['low_7d']}   at {data['low_7d_time']}
+  7d_high:                 {data['high_7d']}
+  pos_in_7d_band:          {data['pos_in_7d_band']}  (0.0 = at 7d_low, 1.0 = at 7d_high)
+  distance_above_7d_low:   {data['dist_from_low_7d_pct']}%
 
 {_fmt_klines(data['daily_15d'], "DAILY (15 days, oldest -> newest):")}
 
-{_fmt_klines(data['h1_4d'], "1H KLINES (last 4 days, oldest -> newest):")}
+{_fmt_klines(data['h1_7d'], "1H KLINES (last 7 days, oldest -> newest):")}
 
 {_fmt_klines(data['m15_8h'], "15M KLINES (last 8h, oldest -> newest):")}
 
-{_fmt_klines(data['h1_8h'], "1H KLINES (last 8h, oldest -> newest):")}
+DECISION RULES — return direction="long" ONLY when MOST of the following hold:
+  1. distance_above_7d_low <= 8%  (price is near the 7-day low, not after a big rebound)
+  2. Recent 1h/15m bars show stabilization or reversal:
+       - declining selling volume vs the drop leg
+       - long lower wicks / hammer / engulfing / divergence
+  3. RSI confirms oversold or upturning:
+       - RSI(1h) <= 35 OR RSI(15m) <= 30 OR bullish RSI divergence visible
+  4. Current price is NOT in clear free-fall (no fresh 7d low in the last 1-2 hours
+     with expanding volume)
 
-TASK
-Decide whether to open a SHORT or LONG futures position with these constraints:
-  - Hold time: 6 hours
-  - Take profit: +3% from entry
+If price is mid-range (pos_in_7d_band > 0.5), or still breaking down, or stuck in
+chop without a clear bottom signal, return direction="skip".
+Returning skip is encouraged when in doubt — false negatives cost 0, false positives lose money.
+
+POSITION CONSTRAINTS (do NOT propose changes)
+  - Side: LONG only
+  - Hold: 12 hours
+  - Take profit: +5% from entry
   - Stop loss: -2% from entry
-  - Limit order at current_price * (1 - 0.005) for LONG, or current_price * (1 + 0.005) for SHORT
+  - Limit price: current_price * (1 - 0.002)  (just below current)
 
 Output ONLY a single valid JSON object, no markdown fence, no extra text:
 {{
-  "direction": "long" | "short" | "skip",
-  "expected_pnl_pct": <float, between 0 and 0.05, expected PnL within the 6h hold>,
+  "direction": "long" | "skip",
+  "expected_pnl_pct": <float, 0 to 0.05, expected PnL within the 12h hold>,
   "confidence": <float between 0 and 1>,
-  "reason": "<brief 1-sentence reason in Chinese>"
+  "reason": "<brief 1-sentence reason in Chinese, must mention which signal(s) triggered>"
 }}
-
-If conviction is low or market is unclear, return direction="skip" with expected_pnl_pct=0.
 """
 
 
@@ -541,7 +585,12 @@ def _call_gemini(client, prompt: str) -> Optional[dict]:
             text = text.strip("`").lstrip("json").strip()
         sig = json.loads(text)
         d = str(sig.get("direction", "")).lower()
-        if d not in ("long", "short", "skip"):
+        # 抄底反转专项 (2026-05-04): 不接受 SHORT, 即使 Gemini 违反 prompt 给了 short 也降级 skip
+        if d == "short":
+            log.info("Gemini 返回 short, 抄底反转模式下降级为 skip; reason=%s",
+                     str(sig.get("reason", ""))[:120])
+            d = "skip"
+        if d not in ("long", "skip"):
             log.warning("Gemini 返回非法 direction=%s text=%s", d, text[:200])
             return None
         sig["direction"] = d
@@ -619,8 +668,11 @@ def gemini_round(conn, model):
             skipped += 1
             continue
 
-        # 下单
-        side = 'LONG' if signal['direction'] == 'long' else 'SHORT'
+        # 下单 (抄底反转专项: 走到这里 direction 一定是 'long'; 防御性 assert)
+        if signal['direction'] != 'long':
+            log.warning("Gemini direction=%s 走到下单路径? 跳过 sym=%s", signal['direction'], sym)
+            continue
+        side = 'LONG'
         try:
             price = get_price(sym)
         except Exception:
