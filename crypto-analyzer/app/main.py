@@ -1279,6 +1279,7 @@ def _get_auto_admin_session():
 
     查 users 表取最小 id 的活跃 admin，签一份和 /api/mobile/login 完全兼容的
     mobile_session token；缓存 5 分钟避免每次 DB 查询。"""
+    import pymysql
     import time as _t, hmac as _hmac, os as _os
     now = _t.time()
     if _auto_admin_cache['token'] and (now - _auto_admin_cache['ts']) < _AUTO_ADMIN_TTL_S:

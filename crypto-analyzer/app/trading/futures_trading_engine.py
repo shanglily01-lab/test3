@@ -317,62 +317,27 @@ class FuturesTradingEngine:
         if cm_spot is not None:
             return cm_spot
 
-        # 如果要求使用实时价格，尝试从交易所API获取
+        # 如果要求使用实时价格, 走 data_sync_center 内存字典 (L2 Binance + L3 Hyperliquid).
+        # 2026-05-05 改: 不再直打 fapi.binance.com / api.binance.com,
+        # 避免和 data_sync_center 自身的 10s 全市场轮询叠加触发 IP 限流 -1003.
+        # data_sync_center 已是系统唯一外部行情入口, 本函数只负责"读".
         if use_realtime:
             try:
-                import requests
-                from requests.adapters import HTTPAdapter
-                from urllib3.util.retry import Retry
-                
-                # 标准化交易对格式
-                symbol_clean = symbol.replace('/', '').upper()
-                
-                # 配置重试策略
-                session = requests.Session()
-                retry_strategy = Retry(
-                    total=2,
-                    backoff_factor=0.1,
-                    status_forcelist=[429, 500, 502, 503, 504],
+                from app.services.data_sync_center import get_realtime_price
+                # 内存字典里 key 是 BASE/USDT 形式
+                sym_slash = symbol if '/' in symbol else (
+                    f"{symbol[:-4]}/USDT" if symbol.upper().endswith('USDT') else symbol
                 )
-                adapter = HTTPAdapter(max_retries=retry_strategy)
-                session.mount("https://", adapter)
-                
-                # 优先从Binance合约API获取实时价格
-                try:
-                    response = session.get(
-                        'https://fapi.binance.com/fapi/v1/ticker/price',
-                        params={'symbol': symbol_clean},
-                        timeout=2
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data and 'price' in data:
-                            price = Decimal(str(data['price']))
-                            logger.debug(f"从Binance合约API获取实时价格: {symbol} = {price}")
-                            return price
-                except Exception as e:
-                    logger.debug(f"Binance合约API获取失败: {e}")
-                
-                # 如果Binance失败，尝试从Binance现货API获取
-                try:
-                    response = session.get(
-                        'https://api.binance.com/api/v3/ticker/price',
-                        params={'symbol': symbol_clean},
-                        timeout=2
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data and 'price' in data:
-                            price = Decimal(str(data['price']))
-                            logger.debug(f"从Binance现货API获取实时价格: {symbol} = {price}")
-                            return price
-                except Exception as e:
-                    logger.debug(f"Binance现货API获取失败: {e}")
-                
-                # 如果实时API都失败，回退到数据库缓存
-                logger.warning(f"实时API获取失败，回退到数据库缓存: {symbol}")
+                rt = get_realtime_price(sym_slash)
+                if rt is not None:
+                    price_f, age_s, source = rt
+                    if price_f and price_f > 0:
+                        logger.debug(f"从 data_sync_center 内存字典取价: {symbol} = {price_f} "
+                                     f"({source}, age={age_s:.1f}s)")
+                        return Decimal(str(price_f))
+                logger.debug(f"data_sync_center 内存字典 miss, 回退 DB: {symbol}")
             except Exception as e:
-                logger.warning(f"获取实时价格异常，回退到数据库缓存: {symbol}, {e}")
+                logger.warning(f"读 data_sync_center 内存字典异常, 回退 DB: {symbol}, {e}")
         
         # 从数据库获取缓存价格（默认行为）
         # 每次查询都创建新连接，确保获取最新数据
@@ -1519,26 +1484,23 @@ class FuturesTradingEngine:
         try:
             cursor_update = connection_update.cursor()
 
-            # 批量获取所有持仓的实时价格（一次API调用获取所有价格）
-            price_cache = {}
+            # 批量获取所有持仓的实时价格. 2026-05-05 改: 走 data_sync_center 内存字典,
+            # 不再每次 /api/futures/positions 都直打 fapi.binance.com 全市场 ticker.
+            # data_sync_center 自身每 10s 刷一次全市场内存字典 (weight 2/次), 是唯一外部入口.
+            # 这里只是按需读, 零外部 HTTP, 不会和 L2 轮询叠加触发 -1003.
+            price_cache: Dict[str, Decimal] = {}
             if positions:
                 try:
-                    import requests
-                    response = requests.get(
-                        'https://fapi.binance.com/fapi/v1/ticker/price',
-                        timeout=3
+                    from app.services.data_sync_center import (
+                        _REALTIME_PRICE_MAP as _L2_PRICE_MAP,
                     )
-                    if response.status_code == 200:
-                        all_prices = response.json()
-                        for item in all_prices:
-                            # 将 BTCUSDT 格式转换为 BTC/USDT 格式
-                            symbol = item['symbol']
-                            if symbol.endswith('USDT'):
-                                formatted_symbol = symbol[:-4] + '/USDT'
-                                price_cache[formatted_symbol] = Decimal(str(item['price']))
-                        logger.debug(f"批量获取价格成功，共 {len(price_cache)} 个交易对")
+                    # _REALTIME_PRICE_MAP 是 {sym_slash: (price, ts)}, BTC/USDT 形式
+                    for sym_slash, (price_f, _ts) in _L2_PRICE_MAP.items():
+                        if price_f and price_f > 0:
+                            price_cache[sym_slash] = Decimal(str(price_f))
+                    logger.debug(f"批量取价 (data_sync_center 内存字典) 共 {len(price_cache)} 个交易对")
                 except Exception as e:
-                    logger.warning(f"批量获取价格失败，将回退到数据库: {e}")
+                    logger.warning(f"读 data_sync_center 内存字典失败, 将回退到数据库: {e}")
 
             for pos in positions:
                 # 将 id 映射为 position_id，保持与API一致
