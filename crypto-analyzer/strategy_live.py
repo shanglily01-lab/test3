@@ -597,8 +597,9 @@ def _sync_state_on_cancel(conn, sym: str, order_source) -> None:
     """限价单被 _fill_pending_orders 撤掉后, 按 order_source 同步把对应
     strategy_state 行设 DONE. 否则 PENDING 卡死, 子策略 active_count 永远满槽.
 
-    本函数会跨进程更新 (例如 strategy_live 撤掉了 strategy_whale:swan 挂的单,
-    这里也会写 strategy='whale' stype='swan' 那行). DB 行锁兜底, 安全.
+    源前缀 (strategy_xxx:stype) 解析后写回 strategy_state. 历史上有跨进程
+    清理 strategy_whale/f3 挂单的需求, 5/15 后这两个进程已删, 现实际只处理
+    strategy_live:* 自己的 source.
     """
     src = (order_source or "").strip()
     if ":" not in src:
