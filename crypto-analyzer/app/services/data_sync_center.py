@@ -13,11 +13,13 @@
   ✓ L1 进程缓存 + L2 内存字典共享读
   ✓ 策略进程通过 /api/futures/price 端点读 (不直接 import)
 
+已完成阶段:
+  ✓ 2026-05-15 fast_collector_service + whale_data_collector 已合并 (一个进程,
+    sync 通过 asyncio.to_thread 桥接, 见 fast_collector_service.py 头部)
+
 下一阶段 (Phase 2 / Phase 3):
   ○ Binance WebSocket 替代 REST (零 REST 请求, 币安官方推荐)
-  ○ K 线统一抓取 (替代 fast_collector_service)
-  ○ funding rate / LSR / OI 统一抓取
-  ○ whale_data_collector 并入
+  ○ K 线 + whale 进一步并入 data_sync_center (从独立进程改成 FastAPI 内嵌)
   ○ Redis 共享缓存让多进程零拷贝读
 
 为什么这层先做:
