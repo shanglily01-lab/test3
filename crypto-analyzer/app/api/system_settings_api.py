@@ -59,15 +59,11 @@ class TradingServicesUpdate(BaseModel):
 
 
 class StrategyConfigUpdate(BaseModel):
-    """策略参数更新（趋势跟踪引擎 / 庄家对抗引擎）"""
+    """策略参数更新 (2026-05-15 极简化: 仅 strategy_live, whale_* 已删除)"""
     live_sl_pct:            Optional[float] = None
     live_hard_tp_pct:       Optional[float] = None
     live_limit_offset_pct:  Optional[float] = None
     live_hold_hours:        Optional[int]   = None
-    whale_sl_pct:           Optional[float] = None
-    whale_hard_tp_pct:      Optional[float] = None
-    whale_limit_offset_pct: Optional[float] = None
-    whale_hold_hours:       Optional[int]   = None
 
 
 @router.get("/settings")
@@ -667,10 +663,6 @@ _STRATEGY_KEYS = {
     'live_hard_tp_pct':       ('live_hard_tp_pct',       0.20,  'strategy_live 硬止盈比例'),
     'live_limit_offset_pct':  ('live_limit_offset_pct',  0.03,  'strategy_live 限价单偏移比例'),
     'live_hold_hours':        ('live_hold_hours',         6,     'strategy_live 最大持仓时长(h)'),
-    'whale_sl_pct':           ('whale_sl_pct',           0.10,  'strategy_whale 止损比例'),
-    'whale_hard_tp_pct':      ('whale_hard_tp_pct',      0.20,  'strategy_whale 硬止盈比例'),
-    'whale_limit_offset_pct': ('whale_limit_offset_pct', 0.003, 'strategy_whale 限价单偏移比例'),
-    'whale_hold_hours':       ('whale_hold_hours',        6,     'strategy_whale 最大持仓时长(h)'),
 }
 
 

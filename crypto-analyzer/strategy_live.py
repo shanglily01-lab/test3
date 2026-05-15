@@ -1,23 +1,17 @@
 """
-实盘策略运行器 - 真实下单到 localhost:9021
-A. 追击: 5m K线检测涨幅>=4% -> 真实开多, TP梯度5%-10%, SL 8%转空
-B. 顶部做空: (1) 48h涨>=80% + 6h无新高(须12d+1h数据) 或 (2) 1H climax 见顶(数据可放宽) -> 真实开空
-
-每5分钟轮询:
-  - 检查已有仓位是否平掉 (TP/SL/超时)
-  - 扫描新信号并下单
+strategy_live - 实盘/paper 策略运行器, 真实下单到 localhost:9021
+2026-05-15 极简化重构: 仅保留 topshort 子策略 (顶部反转做空).
+  - 信号: 1H K 线, 48h 涨 >= 80% + N 根无新高 -> 限价开 SHORT
+  - 主循环每 60s 调一次, topshort_tick 每 5 轮调一次
+  - SL/TP/trail/early-sl/breakeven 通用风控保留
+  - account_id=2, source 前缀 strategy_live:*
 """
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import time, os, datetime, logging
-from collections import defaultdict
 import pymysql, requests as req
 from dotenv import load_dotenv
 load_dotenv()
-
-# 过滤漏斗诊断 (2026-04-26): 累计每个跳过分支的命中次数, 主循环周期打印
-_chase_funnel = defaultdict(int)
-_dump_funnel  = defaultdict(int)
 
 from strategy_state_db import (
     ensure_table,
@@ -91,37 +85,19 @@ def get_active_symbols(cur) -> list:
     log.info("品种列表刷新: %d 个活跃品种", len(syms))
     return syms
 
-# 追击参数
-CHASE_PUMP_BARS = 24
-CHASE_PUMP_PCT  = 0.12
-CHASE_SL_PCT             = 0.08
-CHASE_EXHAUST_MAX_DD     = 0.06  # 近期峰值到当前收盘的最大回撤，超过则视为耗竭，跳过进场
-CHASE_LEADER_BAR_MIN_PCT = 0.03  # 窗口内至少一根 5m bar 单 bar 涨幅须 >= 3%，排除慢速爬升
-# CHASE_ALLOW_SLOW 在 line ~236 与 DISABLE_5M_CONFIRM 一起声明, 由 _load_live_config 从 DB 加载
-# 末根 5m 反向放量过滤 (2026-04-26): 入场前最后一根 5m 反向跌幅 >= 此阈值则跳过
-# 6 天 94 笔统计: 该子集 23 笔, 胜率 43%, PF 0.71, 净 -467 USDT (整体 PF 1.26)
-# 砍掉后预期 PF 提升至约 1.45, 不影响 76% 正常 chase-entry 流量
-CHASE_LAST_BAR_REVERSAL_PCT = -0.015
-CHASE_MIN_24H_CHANGE_PCT = -25.0 # 24h 跌幅过大不追多。2026-04-24 加 -10, 04-25 放 -12, 04-26 再放 -25 (chase 闲置太久)
-CHASE_MAX_24H_CHANGE_PCT =  30.0 # 24h 涨幅过大不追顶。2026-04-24 加 +15, 04-26 放 +30 (减少日间过滤误杀)
-DUMP_MIN_24H_CHANGE_PCT  = -25.0 # dump SHORT: 24h 已跌超此阈值则不追跌. 2026-04-24 -15, 04-26 放 -25 同步 chase
-TOP_MIN_24H_CHANGE_PCT     = -15.0 # topshort SHORT: 24h 已跌过此阈值不再开空（已跌不该再做空，2026-04-25）
-BOTLONG_MAX_24H_CHANGE_PCT =  15.0 # bottomlong LONG: 24h 已涨过此阈值不再开多（已涨不是底，2026-04-25）
+# 2026-05-15 极简化重构: 仅保留 topshort + 通用基础设施.
+# 删除的子策略 (chase / dump / topshort-climax / bottomlong-climax) 的常量已一并删除.
 
-# 入场位置守卫 (所有子策略共用, 基于 3h 15m K 线区间百分位)
-ENTRY_POS_LOOKBACK_BARS  = 12     # 3h 回看 (12 根 15m)
-ENTRY_POS_LONG_MAX       = 90.0   # LONG: 入场位 > 90% 视为追高, 拒绝
-ENTRY_POS_SHORT_MIN      = 10.0   # SHORT: 入场位 < 10% 视为踩底, 拒绝
-# 破顶破底硬规则: pos > 100% 或 < 0% 任何方向都拒绝 (写死在 _check_entry_position)
+# 入场位置守卫 (基于 3h 15m K 线区间百分位)
+ENTRY_POS_LOOKBACK_BARS  = 12
+ENTRY_POS_LONG_MAX       = 90.0
+ENTRY_POS_SHORT_MIN      = 10.0
 
 LONG_HOLD_MIN   = 6 * 60
 SHORT_HOLD_MIN  = 6 * 60
-CHASE_MAX_HOLD  = LONG_HOLD_MIN
-# 各子策略平仓/撤单后同标的再开仓最短间隔（秒）
 POST_CLOSE_COOLDOWN_S = 4 * 3600
-CHASE_COOLDOWN = POST_CLOSE_COOLDOWN_S
-SYMBOL_MAX_DAILY_SL = 2        # 同标的当日止损 >= 2 次则暂停该标的当日所有新开仓
-RECENT_SL_COOLDOWN_MIN = 240  # 止损后 4 小时内禁止同标的开新仓，防止连续被扫
+SYMBOL_MAX_DAILY_SL = 2
+RECENT_SL_COOLDOWN_MIN = 240
 
 # 顶部做空参数
 TOP_PUMP_THRESH = 0.80
@@ -131,64 +107,11 @@ TOP_HOLD_H      = 6
 TOP_SL_PCT      = 0.12
 TOP_SIGNAL_AGE  = 6 * 3600
 TOPSHORT_COOLDOWN = POST_CLOSE_COOLDOWN_S
-# 顶空依赖「长期顶部结构」；1h K 最早一根距今不足该天数则不做新开顶空（追跌/追击不受影响）
 TOPSHORT_MIN_HISTORY_DAYS = 12
 TOPSHORT_MIN_HISTORY_MS = TOPSHORT_MIN_HISTORY_DAYS * 24 * 60 * 60 * 1000
-# topshort-climax：1h 根数与最早 K 距今门槛低于「经典顶空 12d」，便于 BSB 等上市/入库较短标的
-TOPSHORT_CLIMAX_MIN_BARS = 28
-TOPSHORT_CLIMAX_MIN_SPAN_MS = int(1.25 * 24 * 60 * 60 * 1000)
+TOP_MIN_24H_CHANGE_PCT = -15.0  # 24h 已跌过此阈值不再开空
 
-# ── 全局开关：climax 系列信号（topshort-climax + bottomlong-climax）──
-# 2026-04-25 禁用：3 天样本统计 PF 0.46/0.58，胜率 33-44%，显著拖累整体 PF。
-# 改回 True 即可恢复，无需其它修改。
-CLIMAX_SIGNALS_ENABLED = False
-
-# 巨量见顶（1H）：(1) 大阳实体 + 巨量 或 (2) 长上影 + 巨量（庄家冲高砸盘，收盘可阴可阳）
-# 单根 K 振幅 (high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 4.5%，可改）；且放量
-# 筋骨：在最近 LEADER_LOOKBACK 根内，大阳须为「阳线里振幅最大」、上影须为「全 K 振幅最大」；
-# 且领袖 K 的索引须 <= n-1-POST_LEADER_WAIT_BARS：即该 K 收盘后再过 N 根 1H，才确认没有更大阳/更大振幅，再允许开空（默认 2 根=2 小时）。
-# 之后价格从高点回落；不等「48h 低点涨幅 + 6h 无新高」
-TOPCLI_LOOKBACK_BARS   = 40
-TOPCLI_LEADER_LOOKBACK = 24
-TOPCLI_POST_LEADER_WAIT_BARS = 2
-TOPCLI_MAX_PENDING         = 1    # 全局最多同时挂几张 climax 限价单
-TOPCLI_VOL_LOOKBACK    = 20
-TOPCLI_VOL_MULT        = 2.0
-TOPCLI_MIN_BODY_VS_O = 0.025
-TOPCLI_MIN_RANGE_FULL_PCT = 0.045
-TOPCLI_MIN_BODY_OF_RANGE = 0.42
-TOPCLI_PULLBACK_FR     = 0.012
-TOPCLI_MAX_DD_FR       = 0.48
-TOPCLI_SIGNAL_AGE_MS   = 22 * 3600 * 1000
-TOPCLI_MAX_OPEN_AGE_MS = 26 * 3600 * 1000
-
-# 底部做多（bottomlong-climax）：大阴线/长下影 + 放量 → 底部做多（topshort-climax 镜像）
-BOTLONG_LOOKBACK_BARS            = 40
-BOTLONG_LEADER_LOOKBACK          = 24
-BOTLONG_POST_LEADER_WAIT_BARS    = 2
-BOTLONG_MAX_PENDING              = 1    # 全局最多同时挂几张 climax 做多限价单
-BOTLONG_VOL_LOOKBACK             = 20
-BOTLONG_VOL_MULT                 = 2.0
-BOTLONG_MIN_BODY_VS_O            = 0.025   # |close-open|/open 阴线实体门槛
-BOTLONG_MIN_RANGE_FULL_PCT       = 0.045   # (high-low)/open 振幅门槛
-BOTLONG_MIN_BODY_OF_RANGE        = 0.42    # 阴线实体/振幅
-BOTLONG_MIN_LOWER_WICK_OF_RANGE  = 0.34   # 下影/振幅（下影模式）
-BOTLONG_MIN_DROP_TO_LOW_VS_O     = 0.020   # (open-low)/open 下影模式最低跌幅
-BOTLONG_PULLBACK_FR              = 0.012   # 反弹确认：现价须距低点 >= 此比例
-BOTLONG_MAX_DD_FR                = 0.48    # 现价反弹上限（距低点过高则放弃）
-BOTLONG_SIGNAL_AGE_MS            = 22 * 3600 * 1000
-BOTLONG_MAX_OPEN_AGE_MS          = 26 * 3600 * 1000
-BOTLONG_SL_PCT                   = 0.12
-BOTLONG_HOLD_H                   = 6
-BOTLONG_COOLDOWN                 = POST_CLOSE_COOLDOWN_S
-
-# 追跌参数
-DUMP_BARS     = 48
-DUMP_PCT      = 0.10
-DUMP_SL_PCT   = 0.08
-DUMP_MAX_HOLD = SHORT_HOLD_MIN
-
-# 移动止盈参数（三个策略共用）
+# 移动止盈参数
 HARD_TP_PCT       = 0.20  # 硬止盈: 盈利达到即平仓
 # 动态移动止盈：按 peak 分档决定回落阈值，越赚让利润跑得越远
 #   peak 3%-5%  → 回落 1% 触发（小赚紧盯）
@@ -215,52 +138,34 @@ ENTRY_GRACE_MIN          = 45
 
 
 def _dynamic_trail_pullback(peak_pct: float) -> float:
-    """返回当前 peak 允许的最大回落；peak 不足最低档返回 inf（不触发 trail）"""
+    """返回当前 peak 允许的最大回落; peak 不足最低档返回 inf (不触发 trail)"""
     for threshold, pullback in TRAIL_TP_TIERS:
         if peak_pct >= threshold:
             return pullback
     return float('inf')
-DUMP_COOLDOWN = POST_CLOSE_COOLDOWN_S
 
-# 从 system_settings 动态加载的参数（运行时覆盖上方常量）
-LIVE_SL_PCT           = 0.10   # 统一止损（覆盖各子策略 *_SL_PCT）
+
+# 从 system_settings 动态加载的参数 (运行时覆盖上方常量)
+LIVE_SL_PCT           = 0.10
 LIVE_HARD_TP_PCT      = HARD_TP_PCT
-LIVE_LIMIT_OFFSET_PCT = 0.03   # 限价单挂单偏移
-LIVE_HOLD_H           = 6      # 最大持仓时长（小时）
-DISABLE_SL_TP_HOLD    = False  # 总开关: 新开仓不设 SL/TP/timeout, 且跳过进程内硬TP/移动TP检查
-# 2026-04-27: 总开关-禁用 5m 阴/阳收盘确认守卫(触发即成交). 走 system_settings.disable_5m_confirm.
+LIVE_LIMIT_OFFSET_PCT = 0.03
+LIVE_HOLD_H           = 6
+DISABLE_SL_TP_HOLD    = False
 DISABLE_5M_CONFIRM    = False
-# 2026-04-27: 开关-允许 chase 接受慢爬入场. 走 system_settings.chase_allow_slow.
-CHASE_ALLOW_SLOW      = False
 
-# 2026-04-30: dump-entry / topshort 入场前 30min 信号等待期 (默认 OFF)
-# 信号触发后不立即下单, 进入 SIG_WAIT 状态等 N 分钟, 期间反向超阈值则信号失效;
-# 等待期满重跑信号检测函数, 仍触发才下限价单. 在震荡市过滤假突破.
-DUMP_SIG_WAIT_ENABLED      = False
+# topshort 信号等待期 (默认 OFF, 30 min)
 TOPSHORT_SIG_WAIT_ENABLED  = False
-DUMP_SIG_WAIT_MIN          = 30      # 等待期长度 (分钟)
 TOPSHORT_SIG_WAIT_MIN      = 30
-DUMP_SIG_ADVERSE_PCT       = 0.02    # 等待期间反向超 2% 信号失效 (SHORT 涨过 sig*(1+x))
 TOPSHORT_SIG_ADVERSE_PCT   = 0.02
-
-# 2026-05-01: chase-entry / dump-entry 入场总开关. 数据显示这两个 source "顺势追突破"
-# 在加密市场频发的假突破环境下结构性反向 (LONG 高位追多 -789U / SHORT 低位杀跌 -288U).
-# 默认 True 兼容; 设 False 时已有持仓继续 monitor SL/TP, 但 IDLE 不再触发新信号入场.
-CHASE_ENTRY_ENABLED = True
-DUMP_ENTRY_ENABLED  = True
 
 
 def _load_live_config() -> None:
-    """从 system_settings 读取策略参数，覆盖模块级常量。进程启动时调用一次。"""
+    """从 system_settings 读取 topshort + 通用守卫参数. 主循环每 60s 调一次, 改 DB 后无需重启.
+    2026-05-15 极简化: chase/dump/climax/bottomlong 相关 setting 已删除 (migration 035)."""
     global LIVE_SL_PCT, LIVE_HARD_TP_PCT, LIVE_LIMIT_OFFSET_PCT, LIVE_HOLD_H
-    global CHASE_SL_PCT, TOP_SL_PCT, BOTLONG_SL_PCT, DUMP_SL_PCT
-    global HARD_TP_PCT, LONG_HOLD_MIN, SHORT_HOLD_MIN
-    global CHASE_MAX_HOLD, DUMP_MAX_HOLD, TOP_HOLD_H, BOTLONG_HOLD_H
-    global DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM, CHASE_ALLOW_SLOW
-    global DUMP_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_ENABLED
-    global DUMP_SIG_WAIT_MIN, TOPSHORT_SIG_WAIT_MIN
-    global DUMP_SIG_ADVERSE_PCT, TOPSHORT_SIG_ADVERSE_PCT
-    global CHASE_ENTRY_ENABLED, DUMP_ENTRY_ENABLED
+    global TOP_SL_PCT, HARD_TP_PCT, LONG_HOLD_MIN, SHORT_HOLD_MIN, TOP_HOLD_H
+    global DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM
+    global TOPSHORT_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_MIN, TOPSHORT_SIG_ADVERSE_PCT
     try:
         import pymysql as _pym
         conn = _pym.connect(
@@ -279,10 +184,8 @@ def _load_live_config() -> None:
                     "SELECT setting_key, setting_value FROM system_settings "
                     "WHERE setting_key IN ('live_sl_pct','live_hard_tp_pct',"
                     "'live_limit_offset_pct','live_hold_hours','disable_sl_tp_hold',"
-                    "'disable_5m_confirm','chase_allow_slow',"
-                    "'dump_signal_wait_enabled','dump_signal_wait_min','dump_signal_adverse_pct',"
-                    "'topshort_signal_wait_enabled','topshort_signal_wait_min','topshort_signal_adverse_pct',"
-                    "'chase_entry_enabled','dump_entry_enabled')"
+                    "'disable_5m_confirm',"
+                    "'topshort_signal_wait_enabled','topshort_signal_wait_min','topshort_signal_adverse_pct')"
                 )
                 rows = {r['setting_key']: r['setting_value'] for r in cur.fetchall()}
         finally:
@@ -291,64 +194,30 @@ def _load_live_config() -> None:
         LIVE_HARD_TP_PCT      = float(rows.get('live_hard_tp_pct',      LIVE_HARD_TP_PCT))
         LIVE_LIMIT_OFFSET_PCT = float(rows.get('live_limit_offset_pct', LIVE_LIMIT_OFFSET_PCT))
         LIVE_HOLD_H           = int(  rows.get('live_hold_hours',        LIVE_HOLD_H))
-        _raw_disable = str(rows.get('disable_sl_tp_hold', '0')).strip().lower()
-        DISABLE_SL_TP_HOLD = _raw_disable in ('1', 'true', 'yes', 'on')
-        _raw_5m = str(rows.get('disable_5m_confirm', '0')).strip().lower()
-        DISABLE_5M_CONFIRM = _raw_5m in ('1', 'true', 'yes', 'on')
-        _raw_slow = str(rows.get('chase_allow_slow', '0')).strip().lower()
-        CHASE_ALLOW_SLOW = _raw_slow in ('1', 'true', 'yes', 'on')
-        CHASE_SL_PCT   = LIVE_SL_PCT
+        DISABLE_SL_TP_HOLD = str(rows.get('disable_sl_tp_hold', '0')).strip().lower() in ('1','true','yes','on')
+        DISABLE_5M_CONFIRM = str(rows.get('disable_5m_confirm', '0')).strip().lower() in ('1','true','yes','on')
         TOP_SL_PCT     = LIVE_SL_PCT
-        BOTLONG_SL_PCT = LIVE_SL_PCT
-        DUMP_SL_PCT    = LIVE_SL_PCT
         HARD_TP_PCT    = LIVE_HARD_TP_PCT
         LONG_HOLD_MIN  = LIVE_HOLD_H * 60
         SHORT_HOLD_MIN = LIVE_HOLD_H * 60
-        CHASE_MAX_HOLD = LONG_HOLD_MIN
-        DUMP_MAX_HOLD  = SHORT_HOLD_MIN
         TOP_HOLD_H     = LIVE_HOLD_H
-        BOTLONG_HOLD_H = LIVE_HOLD_H
         log.info(
-            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh disable_sl_tp_hold=%s disable_5m_confirm=%s chase_allow_slow=%s",
+            "strategy_live 参数已加载: SL=%.0f%% TP=%.0f%% offset=%.1f%% hold=%dh disable_sl_tp_hold=%s disable_5m_confirm=%s",
             LIVE_SL_PCT * 100, LIVE_HARD_TP_PCT * 100, LIVE_LIMIT_OFFSET_PCT * 100, LIVE_HOLD_H,
-            DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM, CHASE_ALLOW_SLOW,
+            DISABLE_SL_TP_HOLD, DISABLE_5M_CONFIRM,
         )
         if DISABLE_SL_TP_HOLD:
             log.warning("!!! DISABLE_SL_TP_HOLD=ON: 新开仓将不设 SL/TP/timeout, 硬TP/移动TP检查跳过 !!!")
         if DISABLE_5M_CONFIRM:
             log.warning("!!! DISABLE_5M_CONFIRM=ON: 限价单触发即成交, 跳过 5m 阴/阳确认 !!!")
-        if CHASE_ALLOW_SLOW:
-            log.warning("!!! CHASE_ALLOW_SLOW=ON: chase 接受慢爬入场, 跳过 leader_gain 3%% 阈值 !!!")
 
-        # dump / topshort 信号等待期参数
-        _raw_d_en = str(rows.get('dump_signal_wait_enabled', '0')).strip().lower()
-        DUMP_SIG_WAIT_ENABLED = _raw_d_en in ('1', 'true', 'yes', 'on')
-        DUMP_SIG_WAIT_MIN = int(rows.get('dump_signal_wait_min', DUMP_SIG_WAIT_MIN))
-        DUMP_SIG_ADVERSE_PCT = float(rows.get('dump_signal_adverse_pct', DUMP_SIG_ADVERSE_PCT))
-        _raw_t_en = str(rows.get('topshort_signal_wait_enabled', '0')).strip().lower()
-        TOPSHORT_SIG_WAIT_ENABLED = _raw_t_en in ('1', 'true', 'yes', 'on')
+        TOPSHORT_SIG_WAIT_ENABLED = str(rows.get('topshort_signal_wait_enabled', '0')).strip().lower() in ('1','true','yes','on')
         TOPSHORT_SIG_WAIT_MIN = int(rows.get('topshort_signal_wait_min', TOPSHORT_SIG_WAIT_MIN))
         TOPSHORT_SIG_ADVERSE_PCT = float(rows.get('topshort_signal_adverse_pct', TOPSHORT_SIG_ADVERSE_PCT))
-        log.info(
-            "live signal wait: dump enabled=%s wait=%dmin adverse=%.1f%%, "
-            "topshort enabled=%s wait=%dmin adverse=%.1f%%",
-            DUMP_SIG_WAIT_ENABLED, DUMP_SIG_WAIT_MIN, DUMP_SIG_ADVERSE_PCT * 100,
-            TOPSHORT_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_MIN, TOPSHORT_SIG_ADVERSE_PCT * 100,
-        )
-
-        # chase / dump 入场总开关
-        _raw_chase = str(rows.get('chase_entry_enabled', '1')).strip().lower()
-        CHASE_ENTRY_ENABLED = _raw_chase in ('1', 'true', 'yes', 'on')
-        _raw_dump  = str(rows.get('dump_entry_enabled',  '1')).strip().lower()
-        DUMP_ENTRY_ENABLED = _raw_dump in ('1', 'true', 'yes', 'on')
-        log.info("live entry switches: chase_entry_enabled=%s dump_entry_enabled=%s",
-                 CHASE_ENTRY_ENABLED, DUMP_ENTRY_ENABLED)
-        if not CHASE_ENTRY_ENABLED:
-            log.warning("!!! CHASE_ENTRY_ENABLED=OFF: chase-entry 不再触发新入场, 已有仓位继续 monitor !!!")
-        if not DUMP_ENTRY_ENABLED:
-            log.warning("!!! DUMP_ENTRY_ENABLED=OFF: dump-entry 不再触发新入场, 已有仓位继续 monitor !!!")
+        log.info("topshort signal wait: enabled=%s wait=%dmin adverse=%.1f%%",
+                 TOPSHORT_SIG_WAIT_ENABLED, TOPSHORT_SIG_WAIT_MIN, TOPSHORT_SIG_ADVERSE_PCT * 100)
     except Exception as exc:
-        log.error("_load_live_config 失败，使用默认值: %s", exc)
+        log.error("_load_live_config 失败, 使用默认值: %s", exc)
 
 
 POLL_SECS       = 60
@@ -585,33 +454,6 @@ def _get_4h_stats(cur, sym):
 
 _topshort_hist_cache: dict[str, tuple[bool, float]] = {}
 _TOPSHORT_HIST_TTL_SEC = 15 * 60
-_topshort_climax_hist_cache: dict[str, tuple[bool, float]] = {}
-
-
-def _topshort_has_min_history_for_climax(cur, sym: str, now_ms: int) -> bool:
-    """topshort-climax 专用：满 12d 仍优先；否则至少 TOPSHORT_CLIMAX_MIN_BARS 根 1h 且最早 K 距今 >= CLIMAX_MIN_SPAN。"""
-    if _topshort_has_min_listed_history(cur, sym, now_ms):
-        return True
-    t = time.time()
-    ent = _topshort_climax_hist_cache.get(sym)
-    if ent is not None and (t - ent[1]) < _TOPSHORT_HIST_TTL_SEC:
-        return ent[0]
-    cur.execute(
-        """
-        SELECT COUNT(*) AS cnt, MIN(open_time) AS tmin FROM kline_data
-        WHERE timeframe='1h' AND symbol=%s
-        """,
-        (sym,),
-    )
-    r = cur.fetchone() or {}
-    cnt = int(r.get("cnt") or 0)
-    tmin = r.get("tmin")
-    if tmin is None or cnt < TOPSHORT_CLIMAX_MIN_BARS:
-        _topshort_climax_hist_cache[sym] = (False, t)
-        return False
-    ok = (now_ms - int(tmin)) >= TOPSHORT_CLIMAX_MIN_SPAN_MS
-    _topshort_climax_hist_cache[sym] = (ok, t)
-    return ok
 
 
 def _topshort_has_min_listed_history(cur, sym: str, now_ms: int) -> bool:
@@ -751,49 +593,6 @@ def _check_entry_position(cur, sym, side, cur_price, tag=''):
 
 
 # ── 挂单检查 (DB 版) ─────────────────────────────────────────────
-def _check_pending_db(conn, sym, stype):
-    """检查限价挂单是否成交/取消。返回 (should_continue, row)。
-    should_continue=False 表示仍在挂单中，本 tick 跳过。"""
-    row = get_or_create(conn, 'live', sym, stype, {})
-    oid = row.get('order_id')
-    if not oid:
-        return True, row
-    if row.get('pid'):
-        update_state(conn, 'live', sym, stype, order_id=None)
-        return True, {**row, 'order_id': None}
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT status, position_id FROM futures_orders WHERE order_id=%s LIMIT 1", (oid,)
-    )
-    order = cur.fetchone()
-    cur.close()
-    if not order:
-        update_state(conn, 'live', sym, stype, order_id=None)
-        return True, {**row, 'order_id': None}
-    st     = (order.get('status') or '').upper()
-    pos_id = order.get('position_id')
-    if st == 'FILLED' and pos_id:
-        t_fill = now_s()
-        update_state(conn, 'live', sym, stype, pid=int(pos_id), order_id=None, entry_time=t_fill)
-        log.info("限价单成交 (%s) -> pid=%d  oid=%s", stype, int(pos_id), oid)
-        return True, {**row, 'pid': int(pos_id), 'order_id': None, 'entry_time': t_fill}
-    if st in ('CANCELLED', 'REJECTED'):
-        t = now_s()
-        update_state(
-            conn,
-            'live',
-            sym,
-            stype,
-            state='DONE',
-            pid=None,
-            order_id=None,
-            done_time=t,
-            last_reason='cancel',
-        )
-        return True, {**row, 'state': 'DONE', 'pid': None, 'order_id': None, 'done_time': t, 'last_reason': 'cancel'}
-    return False, row  # still PENDING
-
-
 def _sync_state_on_cancel(conn, sym: str, order_source) -> None:
     """限价单被 _fill_pending_orders 撤掉后, 按 order_source 同步把对应
     strategy_state 行设 DONE. 否则 PENDING 卡死, 子策略 active_count 永远满槽.
@@ -1085,642 +884,8 @@ def get_db():
         cursorclass=pymysql.cursors.DictCursor
     )
 
-def get_5m_bars(cur, sym, limit=80):
-    cur.execute("""
-        SELECT open_time, open_price, high_price, low_price, close_price
-        FROM kline_data WHERE timeframe='5m' AND symbol=%s
-        ORDER BY open_time DESC LIMIT %s
-    """, (sym, limit))
-    return list(reversed(cur.fetchall()))
-
-def get_1h_bars(cur, sym, limit=80):
-    cur.execute("""
-        SELECT open_time, open_price, high_price, low_price, close_price
-        FROM kline_data WHERE timeframe='1h' AND symbol=%s
-        ORDER BY open_time DESC LIMIT %s
-    """, (sym, limit))
-    return list(reversed(cur.fetchall()))
-
-
-def _topshort_leader_idx_max_range(rows, win_lo: int, win_hi: int, bull_only: bool):
-    """在 [win_lo, win_hi] 内找振幅 (high-low) 最大的索引；bull_only 时仅统计阳线。
-    并列取更靠后的 K（更近）。无合法 K 返回 None。"""
-    best_j = None
-    best_hl = -1.0
-    for j in range(win_lo, win_hi + 1):
-        b = rows[j]
-        try:
-            o = float(b.get("open_price") or 0)
-            h = float(b.get("high_price") or 0)
-            l = float(b.get("low_price") or 0)
-            c = float(b.get("close_price") or 0)
-        except (TypeError, ValueError):
-            continue
-        if o <= 0:
-            continue
-        if bull_only and not (c > o):
-            continue
-        hl = h - l
-        if hl <= 0:
-            continue
-        if hl > best_hl or (abs(hl - best_hl) <= 1e-12 and best_j is not None and j > best_j):
-            best_hl, best_j = hl, j
-    return best_j
-
-
-def _bottomlong_leader_idx_max_range(rows, win_lo: int, win_hi: int, bear_only: bool):
-    """在 [win_lo, win_hi] 内找振幅 (high-low) 最大的索引；bear_only 时仅统计阴线。
-    并列取更靠后的 K（更近）。无合法 K 返回 None。"""
-    best_j = None
-    best_hl = -1.0
-    for j in range(win_lo, win_hi + 1):
-        b = rows[j]
-        try:
-            o = float(b.get("open_price") or 0)
-            h = float(b.get("high_price") or 0)
-            l = float(b.get("low_price") or 0)
-            c = float(b.get("close_price") or 0)
-        except (TypeError, ValueError):
-            continue
-        if o <= 0:
-            continue
-        if bear_only and not (c < o):
-            continue
-        hl = h - l
-        if hl <= 0:
-            continue
-        if hl > best_hl or (abs(hl - best_hl) <= 1e-12 and best_j is not None and j > best_j):
-            best_hl, best_j = hl, j
-    return best_j
-
-
-def evaluate_topshort_climax_signal(rows: list, now_ms: int, price: float):
-    """
-    纯逻辑：给定升序 1h K 与「当前价」、回放时刻 now_ms，判断是否满足 topshort-climax（不含 DB 去重与下单）。
-    返回 (True, detail_dict) 或 (False, detail_dict)，detail 含 leaders、失败原因等。
-    """
-    detail: dict = {}
-    n = len(rows)
-    wait = TOPCLI_POST_LEADER_WAIT_BARS
-    if n < TOPCLI_VOL_LOOKBACK + wait + 3:
-        return False, {"fail": "not_enough_rows", "n": n}
-
-    def _f(b, k):
-        v = b.get(k)
-        try:
-            return float(v) if v is not None else 0.0
-        except (TypeError, ValueError):
-            return 0.0
-
-    last = rows[-1]
-    last_c = _f(last, "close_price")
-
-    win_hi = n - 1 - wait
-    if win_hi < 0:
-        return False, {"fail": "win_hi"}
-    win_lo = max(0, win_hi - (TOPCLI_LEADER_LOOKBACK - 1))
-    if win_hi < win_lo:
-        return False, {"fail": "empty_window"}
-    bull_leader = _topshort_leader_idx_max_range(rows, win_lo, win_hi, bull_only=True)
-    detail["win_lo"], detail["win_hi"] = win_lo, win_hi
-    detail["bull_leader"] = bull_leader
-
-    try_ci = [bull_leader] if bull_leader is not None else []
-
-    for ci in try_ci:
-        b = rows[ci]
-        o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
-        v = _f(b, "volume")
-        if o <= 0 or h <= 0:
-            continue
-        hl = h - l
-        if hl <= 0:
-            continue
-        rng = hl / o
-        body = (c - o) / o
-        upper = h - max(o, c)
-        upper_ratio = upper / hl
-        bull_climax = (
-            bull_leader is not None
-            and ci == bull_leader
-            and c > o
-            and body >= TOPCLI_MIN_BODY_VS_O
-            and rng >= TOPCLI_MIN_RANGE_FULL_PCT
-            and (c - o) / hl >= TOPCLI_MIN_BODY_OF_RANGE
-        )
-        if not bull_climax:
-            continue
-
-        lo_i = max(0, ci - TOPCLI_VOL_LOOKBACK)
-        past = rows[lo_i:ci]
-        # 过滤零量（数据缺口），要求至少 10 根有效基准量，避免 ci=0 时除零
-        vols = [_f(x, "volume") for x in past if _f(x, "volume") > 0]
-        if len(vols) < 10:
-            detail["fail"] = "vol_past_short"
-            detail["ci"] = ci
-            continue
-        avg_v = sum(vols) / len(vols)
-        if avg_v <= 0 or v < TOPCLI_VOL_MULT * avg_v:
-            detail["fail"] = "volume_ratio"
-            detail["ci"] = ci
-            detail["vol_ratio"] = v / avg_v if avg_v else 0
-            continue
-
-        climax_open = int(b["open_time"])
-        bar_close_ms = climax_open + 3600000
-        if now_ms - bar_close_ms > TOPCLI_SIGNAL_AGE_MS:
-            detail["fail"] = "signal_stale"
-            continue
-        if now_ms - climax_open > TOPCLI_MAX_OPEN_AGE_MS:
-            detail["fail"] = "open_too_old"
-            continue
-
-        if last_c >= c:
-            detail["fail"] = "last_c_not_weak_bull"
-            detail["last_c"], detail["climax_c"] = last_c, c
-            continue
-        if last_c >= h * (1.0 - TOPCLI_PULLBACK_FR):
-            detail["fail"] = "last_c_bull_pull"
-            continue
-
-        peak = h
-        if price >= peak * (1.0 - TOPCLI_PULLBACK_FR):
-            detail["fail"] = "price_pullback"
-            detail["price"], detail["need_below"] = price, peak * (1.0 - TOPCLI_PULLBACK_FR)
-            continue
-        dd = (peak - price) / peak if peak else 0.0
-        if dd > TOPCLI_MAX_DD_FR:
-            detail["fail"] = "drawdown_too_deep"
-            continue
-        if price <= l * 0.999:
-            detail["fail"] = "below_climax_low"
-            continue
-
-        mode = "bull"
-        detail.update(
-            {
-                "ok": True,
-                "ci": ci,
-                "mode": mode,
-                "climax_open": climax_open,
-                "peak": peak,
-                "vol_ratio": v / avg_v,
-                "upper_ratio": upper_ratio,
-                "body": body,
-                "avg_v": avg_v,
-            }
-        )
-        return True, detail
-
-    return False, detail if detail.get("fail") else {"fail": "no_pattern"}
-
-
-def evaluate_bottomlong_climax_signal(rows: list, now_ms: int, price: float):
-    """
-    纯逻辑：大阴线/长下影 + 放量 → 底部做多（topshort-climax 镜像）。
-    形态 A：大阴实体 + 放量（庄家大量打压，底部蓄力）；
-    形态 B：长下影 + 放量（打压后强力反弹，庄家吸筹）。
-    返回 (True, detail_dict) 或 (False, detail_dict)。
-    """
-    detail: dict = {}
-    n = len(rows)
-    wait = BOTLONG_POST_LEADER_WAIT_BARS
-    if n < BOTLONG_VOL_LOOKBACK + wait + 3:
-        return False, {"fail": "not_enough_rows", "n": n}
-
-    def _f(b, k):
-        v = b.get(k)
-        try:
-            return float(v) if v is not None else 0.0
-        except (TypeError, ValueError):
-            return 0.0
-
-    last = rows[-1]
-    last_c = _f(last, "close_price")
-
-    win_hi = n - 1 - wait
-    if win_hi < 0:
-        return False, {"fail": "win_hi"}
-    win_lo = max(0, win_hi - (BOTLONG_LEADER_LOOKBACK - 1))
-    if win_hi < win_lo:
-        return False, {"fail": "empty_window"}
-    bear_leader  = _bottomlong_leader_idx_max_range(rows, win_lo, win_hi, bear_only=True)
-    range_leader = _bottomlong_leader_idx_max_range(rows, win_lo, win_hi, bear_only=False)
-    detail["win_lo"], detail["win_hi"] = win_lo, win_hi
-    detail["bear_leader"], detail["range_leader"] = bear_leader, range_leader
-
-    try_ci = []
-    if bear_leader is not None:
-        try_ci.append(bear_leader)
-    if range_leader is not None and range_leader not in try_ci:
-        try_ci.append(range_leader)
-
-    for ci in try_ci:
-        b = rows[ci]
-        o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
-        v = _f(b, "volume")
-        if o <= 0 or h <= 0:
-            continue
-        hl = h - l
-        if hl <= 0:
-            continue
-        rng = hl / o
-        body = (o - c) / o                         # 阴线实体比（阴线时为正）
-        lower_wick = min(o, c) - l                 # 下影长度
-        lower_ratio = lower_wick / hl if hl else 0
-
-        bear_climax = (
-            bear_leader is not None
-            and ci == bear_leader
-            and c < o                              # 阴线
-            and body >= BOTLONG_MIN_BODY_VS_O
-            and rng >= BOTLONG_MIN_RANGE_FULL_PCT
-            and (o - c) / hl >= BOTLONG_MIN_BODY_OF_RANGE
-        )
-        lower_climax = (
-            range_leader is not None
-            and ci == range_leader
-            and rng >= BOTLONG_MIN_RANGE_FULL_PCT
-            and lower_ratio >= BOTLONG_MIN_LOWER_WICK_OF_RANGE
-            and (o - l) / o >= BOTLONG_MIN_DROP_TO_LOW_VS_O
-        )
-        if not bear_climax and not lower_climax:
-            continue
-
-        lo_i = max(0, ci - BOTLONG_VOL_LOOKBACK)
-        past = rows[lo_i:ci]
-        vols = [_f(x, "volume") for x in past if _f(x, "volume") > 0]
-        if len(vols) < 10:
-            detail["fail"] = "vol_past_short"
-            detail["ci"] = ci
-            continue
-        avg_v = sum(vols) / len(vols)
-        if avg_v <= 0 or v < BOTLONG_VOL_MULT * avg_v:
-            detail["fail"] = "volume_ratio"
-            detail["ci"] = ci
-            detail["vol_ratio"] = v / avg_v if avg_v else 0
-            continue
-
-        climax_open = int(b["open_time"])
-        bar_close_ms = climax_open + 3600000
-        if now_ms - bar_close_ms > BOTLONG_SIGNAL_AGE_MS:
-            detail["fail"] = "signal_stale"
-            continue
-        if now_ms - climax_open > BOTLONG_MAX_OPEN_AGE_MS:
-            detail["fail"] = "open_too_old"
-            continue
-
-        if bear_climax:
-            # 最后一根须已收复阴线收盘价：确认反弹
-            if last_c <= c:
-                detail["fail"] = "last_c_not_bounce_bear"
-                detail["last_c"], detail["climax_c"] = last_c, c
-                continue
-            if last_c <= l * (1.0 + BOTLONG_PULLBACK_FR):
-                detail["fail"] = "last_c_bear_pull"
-                continue
-        else:  # lower_climax
-            # 最后一根须已收复下影实体下沿
-            if last_c <= min(o, c):
-                detail["fail"] = "last_c_lower"
-                continue
-            if last_c <= l * (1.0 + BOTLONG_PULLBACK_FR):
-                detail["fail"] = "last_c_lower_pull"
-                continue
-
-        trough = l
-        if price <= trough * (1.0 + BOTLONG_PULLBACK_FR):
-            detail["fail"] = "price_pullback"
-            detail["price"], detail["need_above"] = price, trough * (1.0 + BOTLONG_PULLBACK_FR)
-            continue
-        bounce = (price - trough) / trough if trough else 0.0
-        if bounce > BOTLONG_MAX_DD_FR:
-            detail["fail"] = "bounce_too_far"
-            continue
-        if price >= h * 1.001:
-            detail["fail"] = "above_climax_high"
-            continue
-
-        mode = "bear" if bear_climax else "lower"
-        detail.update({
-            "ok": True,
-            "ci": ci,
-            "mode": mode,
-            "climax_open": climax_open,
-            "trough": trough,
-            "vol_ratio": v / avg_v,
-            "lower_ratio": lower_ratio,
-            "body": body,
-            "avg_v": avg_v,
-        })
-        return True, detail
-
-    return False, detail if detail.get("fail") else {"fail": "no_pattern"}
-
-
-def _topshort_try_climax_volume(cur, conn, sym, now_ms):
-    """
-    1H 巨量后见顶走弱 → 顶空 SHORT。命中则下单并写 state，返回 True。
-    形态 A：阳线 + 大阳实体 + 放量；形态 B：长上影 + 放量（冲高回落，庄家砸盘）。
-    共性：(high-low)/open >= TOPCLI_MIN_RANGE_FULL_PCT（默认 4.5%）；
-    量 >= 前 VOL_LOOKBACK 均量 * VOL_MULT；巨 K 收盘后 SIGNAL_AGE_MS 内；
-    现价从高点回撤 >= PULLBACK；最后一根已完成 1H 体现弱势。
-    大阳/上影候选 K 须在 LEADER_LOOKBACK 窗口内为对应意义的「振幅最大」一根，
-    且须在最新已收盘 1H 之前至少再隔 POST_LEADER_WAIT_BARS 根 1H（默认 2），
-    才确认其后未出现更大阳/更大振幅 K，再允许结合走弱与现价开空。
-    """
-    if not CLIMAX_SIGNALS_ENABLED:
-        return False
-    cur.execute(
-        """
-        SELECT open_time, open_price, high_price, low_price, close_price, volume
-        FROM kline_data
-        WHERE timeframe='1h' AND symbol=%s
-          AND open_time + 3600000 < %s
-        ORDER BY open_time DESC
-        LIMIT %s
-        """,
-        (sym, now_ms, TOPCLI_LOOKBACK_BARS),
-    )
-    rows = list(reversed(cur.fetchall()))
-    try:
-        price = get_price(sym)
-    except Exception:
-        return False
-    ok, det = evaluate_topshort_climax_signal(rows, now_ms, price)
-    if not ok:
-        return False
-
-    def _f(b, k):
-        v = b.get(k)
-        try:
-            return float(v) if v is not None else 0.0
-        except (TypeError, ValueError):
-            return 0.0
-
-    ci = det["ci"]
-    b = rows[ci]
-    o, h, l, c = _f(b, "open_price"), _f(b, "high_price"), _f(b, "low_price"), _f(b, "close_price")
-    v = _f(b, "volume")
-    body = det["body"]
-    climax_open = det["climax_open"]
-    upper_ratio = det["upper_ratio"]
-    peak = det["peak"]
-    dd = (peak - price) / peak if peak else 0.0
-
-    existing = get_or_create(conn, "live", sym, "topshort", {})
-    # 同一根 climax K 仅允许开仓一次（含平仓冷却期后），防止对同一顶部重复做空
-    if existing.get("entry_ts") == climax_open:
-        return False
-
-    # 24h 已跌过多不再开空 (2026-04-25)
-    cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
-    _r = cur.fetchone()
-    if _r and _r.get('change_24h') is not None:
-        _ch24 = float(_r['change_24h'])
-        if _ch24 < TOP_MIN_24H_CHANGE_PCT:
-            log.info("TOPSHORT-CLIMAX 跳过 %-18s: 24h=%.1f%% < %.0f%%, 已跌过多不再做空",
-                     sym, _ch24, TOP_MIN_24H_CHANGE_PCT)
-            return False
-
-    # 入场位置守卫 (2026-04-24)
-    ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='topshort-climax')
-    if not ok_pos:
-        log.info("TOPSHORT-CLIMAX 跳过 %-18s: %s", sym, reason)
-        return False
-
-    h24, l24 = _get_24h_stats(cur, sym)
-    h4,  l4  = _get_4h_stats(cur, sym)
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
-                            high_4h=h4, low_4h=l4)
-    tag = "topshort-climax"
-    pid, oid, pending = open_order(
-        sym,
-        "SHORT",
-        price,
-        HARD_TP_PCT,
-        TOP_SL_PCT,
-        TOP_HOLD_H * 60,
-        tag,
-        lp,
-    )
-    if not pid and not oid:
-        return False
-    mode = "巨量阳"
-    log.info(
-        "TOPSHORT 入场(%s) %-18s @ %.5f (限价%.5f) 顶=%.5f 回撤=%.1f%% 量比~%.1fx 上影占比=%.0f%%  pid=%s oid=%s",
-        mode,
-        sym,
-        price,
-        lp,
-        peak,
-        dd * 100,
-        det["vol_ratio"],
-        upper_ratio * 100,
-        pid,
-        oid,
-    )
-    update_state(
-        conn,
-        "live",
-        sym,
-        "topshort",
-        state="SHORT",
-        pid=pid,
-        order_id=oid,
-        entry_p=lp if pending else price,
-        peak_pnl_pct=0.0,
-        peak=peak,
-        pump_pct=body,
-        entry_ts=climax_open,
-    )
-    return True
-
-
-def fmt(t):
-    return datetime.datetime.fromtimestamp(t / 1000).strftime('%m-%d %H:%M')
-
 def now_s():
     return time.time()
-
-# ── A. 追击策略 ──────────────────────────────────────────────────
-def chase_tick(conn, sym):
-    cs = get_or_create(conn, 'live', sym, 'chase', {
-        'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
-        'peak_pnl_pct': 0.0, 'entry_time': 0, 'done_time': 0,
-    })
-    s = cs.get('state') or 'IDLE'
-
-    if s == 'DONE':
-        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'chase', cs, now_s())
-        if now_s() - anchor > CHASE_COOLDOWN:
-            update_state(conn, 'live', sym, 'chase', state='IDLE')
-            s = 'IDLE'
-        else:
-            return
-
-    ok, cs = _check_pending_db(conn, sym, 'chase')
-    if not ok:
-        return
-    s = cs.get('state') or 'IDLE'
-
-    if s in ('LONG', 'SHORT') and cs.get('pid'):
-        status, pnl, notes = get_pos_status(cs['pid'])
-        if status is None:
-            return
-        if status == 'open':
-            _trail_tp_check(conn, 'live', 'chase', sym, cs['pid'],
-                            s, cs.get('entry_p', 0), cs.get('peak_pnl_pct', 0),
-                            cs.get('entry_time', 0))
-            return
-
-        pnl = pnl or 0
-        if notes and '手动' in str(notes):
-            log.info("CHASE 手动平仓 -> DONE %-18s  pnl=%+.2f  不重开", sym, pnl)
-            update_state(conn, 'live', sym, 'chase', state='DONE', pid=None, done_time=now_s())
-            return
-
-        win = pnl > 0
-        label = "TP" if win else "SL"
-        log.info("CHASE %s %s -> DONE %-18s  pnl=%+.2f  冷却%dh",
-                 s, label, sym, pnl, CHASE_COOLDOWN // 3600)
-        update_state(conn, 'live', sym, 'chase',
-                     state='DONE', pid=None, order_id=None, done_time=now_s())
-        return
-
-    if s != 'IDLE':
-        return
-
-    # 入场总开关: 关掉时不触发新入场, 已有持仓上面分支照常 monitor (2026-05-01)
-    if not CHASE_ENTRY_ENABLED:
-        return
-
-    # 顶空仓位冲突检查：同标的已有 topshort 持仓/挂单时，不追多，避免双向对冲
-    ts_row = get_or_create(conn, 'live', sym, 'topshort', {'state': 'IDLE'})
-    ts_state = (ts_row.get('state') or 'IDLE').upper()
-    if ts_state not in ('IDLE', 'DONE'):
-        _chase_funnel['topshort_active'] += 1
-        log.info("CHASE 跳过 %-18s: 顶空 state=%s，避免双向对冲", sym, ts_state)
-        return
-
-    now_ms = int(now_s() * 1000)
-    BAR_MS = 5 * 60 * 1000
-    cur = conn.cursor()
-
-    # 24h 趋势过滤：日线大跌超阈值时不追涨，避免抓熊市反弹飞刀
-    cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
-    r = cur.fetchone()
-    if r and r['change_24h'] is not None:
-        ch24 = float(r['change_24h'])
-        if ch24 < CHASE_MIN_24H_CHANGE_PCT:
-            _chase_funnel['24h<-25%'] += 1
-            log.info("CHASE 跳过 %-18s: 24h=%.1f%% < %.0f%%，熊市反弹不追",
-                     sym, ch24, CHASE_MIN_24H_CHANGE_PCT)
-            cur.close()
-            return
-        if ch24 > CHASE_MAX_24H_CHANGE_PCT:
-            _chase_funnel['24h>+30%'] += 1
-            log.info("CHASE 跳过 %-18s: 24h=%.1f%% > %.0f%%，已涨过多不追顶",
-                     sym, ch24, CHASE_MAX_24H_CHANGE_PCT)
-            cur.close()
-            return
-
-    bars = get_5m_bars(cur, sym, 80)
-    if len(bars) < CHASE_PUMP_BARS + 2:
-        _chase_funnel['bars_insufficient'] += 1
-        cur.close()
-        return
-
-    completed = [b for b in bars if b['open_time'] + BAR_MS < now_ms]
-    if not completed:
-        _chase_funnel['no_completed_bar'] += 1
-        cur.close()
-        return
-
-    i = len(completed) - 1
-    if i < CHASE_PUMP_BARS:
-        _chase_funnel['completed_short'] += 1
-        cur.close()
-        return
-    c  = [float(b['close_price']) for b in completed]
-    ts = [b['open_time'] for b in completed]
-
-    wo = float(completed[max(0, i - CHASE_PUMP_BARS)]['open_price'])
-    pump = (c[i] - wo) / wo
-    if pump < CHASE_PUMP_PCT:
-        _chase_funnel['pump<12%'] += 1
-        cur.close()
-        return
-
-    # 耗竭过滤：若当前收盘已从窗口内最高点回撤超过阈值，视为顶部反转，不追
-    window_bars = completed[max(0, i - CHASE_PUMP_BARS):]
-    recent_high = max(float(b['high_price']) for b in window_bars)
-    dd_from_peak = (recent_high - c[i]) / recent_high if recent_high > 0 else 0
-    if dd_from_peak > CHASE_EXHAUST_MAX_DD:
-        _chase_funnel['exhaust_dd>6%'] += 1
-        log.info("CHASE 跳过 %-18s: 高点回撤 %.1f%% > %.0f%%，疑似顶部耗竭",
-                 sym, dd_from_peak * 100, CHASE_EXHAUST_MAX_DD * 100)
-        cur.close()
-        return
-
-    # 末根反向放量过滤 (2026-04-26): 最新已收盘 5m 是反向大阴线则不追
-    # 4-26 LAB/USDT (-91U) 与 4-25 DAM/USDT (-42U) 都是"末根 5m 放量回落 -2.65~-3.41%"
-    # 后立即追多, 16min 内被 early-sl 切。统计依据见 CHASE_LAST_BAR_REVERSAL_PCT 注释。
-    last_bar = completed[i]
-    last_bar_o = float(last_bar['open_price'])
-    last_bar_c = float(last_bar['close_price'])
-    if last_bar_o > 0:
-        last_bar_chg = (last_bar_c - last_bar_o) / last_bar_o
-        if last_bar_chg < CHASE_LAST_BAR_REVERSAL_PCT:
-            _chase_funnel['last_bar_reversal'] += 1
-            log.info("CHASE 跳过 %-18s: 末根 5m %+.2f%% <= %.1f%%, 反向放量",
-                     sym, last_bar_chg * 100, CHASE_LAST_BAR_REVERSAL_PCT * 100)
-            cur.close()
-            return
-
-    # 急拉验证：窗口内须有至少一根 5m bar 单 bar 涨幅 >= 阈值，排除慢速爬升
-    # 2026-04-27: CHASE_ALLOW_SLOW=ON 时跳过此检查, 接受慢爬入场
-    leader_gain = max(
-        (float(b['close_price']) - float(b['open_price'])) / float(b['open_price'])
-        for b in window_bars
-    )
-    if not CHASE_ALLOW_SLOW and leader_gain < CHASE_LEADER_BAR_MIN_PCT:
-        _chase_funnel['leader<3%'] += 1
-        log.info("CHASE 跳过 %-18s: 最大单 bar 涨幅 %.1f%% < %.0f%%，慢速爬升不追",
-                 sym, leader_gain * 100, CHASE_LEADER_BAR_MIN_PCT * 100)
-        cur.close()
-        return
-
-    bar_close_ms = ts[i] + BAR_MS
-    bar_age_s = (now_ms - bar_close_ms) / 1000
-    if bar_age_s > 300:
-        _chase_funnel['bar_age>300s'] += 1
-        cur.close()
-        return
-
-    price = get_price(sym)
-    # 入场位置守卫: 追高 / 破顶 / 破底 过滤 (2026-04-24)
-    ok_pos, reason = _check_entry_position(cur, sym, 'LONG', price, tag='chase')
-    if not ok_pos:
-        _chase_funnel['entry_position'] += 1
-        log.info("CHASE 跳过 %-18s: %s", sym, reason)
-        cur.close()
-        return
-    h24, l24 = _get_24h_stats(cur, sym)
-    h4,  l4  = _get_4h_stats(cur, sym)
-    cur.close()
-    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
-                            high_4h=h4, low_4h=l4)
-    pid, oid, pending = open_order(sym, "LONG", price, HARD_TP_PCT, CHASE_SL_PCT,
-                                   CHASE_MAX_HOLD, "chase-entry", lp)
-    if not pid and not oid:
-        return
-    log.info("CHASE 入场 LONG  %-18s @ %.5f (限价%.5f)  泵%.1f%%  pid=%s oid=%s",
-             sym, price, lp, pump*100, pid, oid)
-    update_state(conn, 'live', sym, 'chase',
-                 state='LONG', pid=pid, order_id=oid,
-                 entry_p=lp if pending else price,
-                 peak_pnl_pct=0.0, entry_time=now_s())
 
 # ── B. 顶部做空 ──────────────────────────────────────────────────
 def _check_topshort_standard_signal(cur, conn, sym: str, now_ms: int):
@@ -1955,28 +1120,13 @@ def topshort_tick(conn, active_syms):
     finally:
         cur_sw.close()
 
-    # 扫描新信号
+    # 扫描新信号 (2026-05-15 极简化: climax 路径整段删除, 仅留 standard)
     open_syms = {r['symbol'] for r in list_active(conn, 'live', 'topshort')}
 
     cur = conn.cursor()
-    cur.execute(
-        """SELECT COUNT(*) AS cnt FROM futures_orders
-           WHERE account_id=%s AND status='PENDING' AND order_type='LIMIT'
-             AND order_source LIKE 'topshort-climax%%'""",
-        (ACCOUNT_ID,),
-    )
-    _climax_pending_cnt = (cur.fetchone() or {}).get("cnt", 0)
-
     for sym in active_syms:
         if sym in open_syms:
             continue
-        if _topshort_has_min_history_for_climax(cur, sym, now_ms):
-            if _climax_pending_cnt >= TOPCLI_MAX_PENDING:
-                pass  # 已达上限，本轮跳过
-            elif _topshort_try_climax_volume(cur, conn, sym, now_ms):
-                _climax_pending_cnt += 1
-                open_syms.add(sym)
-                continue
 
         sig = _check_topshort_standard_signal(cur, conn, sym, now_ms)
         if not sig:
@@ -2015,435 +1165,10 @@ def topshort_tick(conn, active_syms):
     cur.close()
 
 
-def _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
-    """
-    1H 巨量后底部走强 → 做多 LONG。命中则下单并写 state，返回 True。
-    形态 A：阴线 + 大阴实体 + 放量；形态 B：长下影 + 放量（打压后反弹）。
-    """
-    if not CLIMAX_SIGNALS_ENABLED:
-        return False
-    cur.execute(
-        """
-        SELECT open_time, open_price, high_price, low_price, close_price, volume
-        FROM kline_data
-        WHERE timeframe='1h' AND symbol=%s
-          AND open_time + 3600000 < %s
-        ORDER BY open_time DESC
-        LIMIT %s
-        """,
-        (sym, now_ms, BOTLONG_LOOKBACK_BARS),
-    )
-    rows = list(reversed(cur.fetchall()))
-    try:
-        price = get_price(sym)
-    except Exception:
-        return False
-    ok, det = evaluate_bottomlong_climax_signal(rows, now_ms, price)
-    if not ok:
-        return False
-
-    def _f(b, k):
-        v = b.get(k)
-        try:
-            return float(v) if v is not None else 0.0
-        except (TypeError, ValueError):
-            return 0.0
-
-    ci = det["ci"]
-    bear_climax = det["mode"] == "bear"
-    b = rows[ci]
-    l = _f(b, "low_price")
-    body = det["body"]
-    climax_open = det["climax_open"]
-    lower_ratio = det["lower_ratio"]
-    trough = det["trough"]
-    bounce = (price - trough) / trough if trough else 0.0
-
-    existing = get_or_create(conn, "live", sym, "bottomlong", {})
-    if existing.get("entry_ts") == climax_open:
-        return False
-
-    # 24h 已涨过多不再开多 (2026-04-25, 修 API3 +49% 还做多的漏洞)
-    cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
-    _r = cur.fetchone()
-    if _r and _r.get('change_24h') is not None:
-        _ch24 = float(_r['change_24h'])
-        if _ch24 > BOTLONG_MAX_24H_CHANGE_PCT:
-            log.info("BOTTOMLONG 跳过 %-18s: 24h=%.1f%% > %.0f%%, 已涨过多不是底",
-                     sym, _ch24, BOTLONG_MAX_24H_CHANGE_PCT)
-            return False
-
-    # 入场位置守卫 (2026-04-24)
-    ok_pos, reason = _check_entry_position(cur, sym, 'LONG', price,
-                                            tag=('bottomlong-climax' if bear_climax
-                                                 else 'bottomlong-climax-wick'))
-    if not ok_pos:
-        log.info("BOTTOMLONG 跳过 %-18s: %s", sym, reason)
-        return False
-
-    h24, l24 = _get_24h_stats(cur, sym)
-    h4,  l4  = _get_4h_stats(cur, sym)
-    lp = _calc_limit_price("LONG", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
-                            high_4h=h4, low_4h=l4)
-    tag = "bottomlong-climax" if bear_climax else "bottomlong-climax-wick"
-    pid, oid, pending = open_order(
-        sym,
-        "LONG",
-        price,
-        HARD_TP_PCT,
-        BOTLONG_SL_PCT,
-        BOTLONG_HOLD_H * 60,
-        tag,
-        lp,
-    )
-    if not pid and not oid:
-        return False
-    mode = "巨量阴" if bear_climax else "下影线"
-    log.info(
-        "BOTLONG 入场(%s) %-18s @ %.5f (限价%.5f) 底=%.5f 反弹=%.1f%% 量比~%.1fx 下影占比=%.0f%%  pid=%s oid=%s",
-        mode,
-        sym,
-        price,
-        lp,
-        trough,
-        bounce * 100,
-        det["vol_ratio"],
-        lower_ratio * 100,
-        pid,
-        oid,
-    )
-    update_state(
-        conn,
-        "live",
-        sym,
-        "bottomlong",
-        state="LONG",
-        pid=pid,
-        order_id=oid,
-        entry_p=lp if pending else price,
-        peak_pnl_pct=0.0,
-        peak=trough,
-        pump_pct=body,
-        entry_ts=climax_open,
-    )
-    return True
-
-
-# ── D. 底部做多（bottomlong-climax）────────────────────────────────
-def bottomlong_tick(conn, active_syms):
-    now_ms = int(now_s() * 1000)
-    nowt = now_s()
-
-    # DONE 冷却到期 → IDLE
-    for row in list_all_stype(conn, 'live', 'bottomlong'):
-        if row.get('state') != 'DONE':
-            continue
-        sym = row['symbol']
-        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'bottomlong', row, nowt)
-        if nowt - anchor > BOTLONG_COOLDOWN:
-            update_state(conn, 'live', sym, 'bottomlong', state='IDLE', pid=None, order_id=None)
-
-    # 检查已有做多仓位
-    active_rows = list_active(conn, 'live', 'bottomlong')
-    for pos in active_rows:
-        sym = pos['symbol']
-        if pos.get('state') == 'DONE':
-            continue
-        if pos.get('order_id') and not pos.get('pid'):
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT status, position_id FROM futures_orders WHERE order_id=%s LIMIT 1",
-                (pos['order_id'],)
-            )
-            row = cur.fetchone()
-            cur.close()
-            if row:
-                st     = (row.get('status') or '').upper()
-                pos_id = row.get('position_id')
-                if st == 'FILLED' and pos_id:
-                    t_fill = now_s()
-                    update_state(conn, 'live', sym, 'bottomlong',
-                                 pid=int(pos_id), order_id=None, entry_time=t_fill)
-                    log.info("BOTLONG 限价单成交 %-18s  pid=%d", sym, int(pos_id))
-                    pos = {**pos, 'pid': int(pos_id), 'order_id': None, 'entry_time': t_fill}
-                elif st in ('CANCELLED', 'REJECTED'):
-                    log.info("BOTLONG 限价单取消 %-18s  oid=%s -> DONE 冷却", sym, pos.get('order_id'))
-                    update_state(
-                        conn, 'live', sym, 'bottomlong',
-                        state='DONE', pid=None, order_id=None,
-                        done_time=nowt, last_reason='cancel',
-                    )
-                    continue
-            if not pos.get('pid'):
-                continue
-        if not pos.get('pid'):
-            log.warning("BOTLONG 异常无 pid %-18s -> DONE 冷却", sym)
-            update_state(
-                conn, 'live', sym, 'bottomlong',
-                state='DONE', pid=None, order_id=None,
-                done_time=nowt, last_reason='orphan',
-            )
-            continue
-        status, pnl, notes = get_pos_status(pos['pid'])
-        if status is None:
-            continue
-        if status == 'open':
-            _trail_tp_check(conn, 'live', 'bottomlong', sym, pos['pid'],
-                            'LONG', pos.get('entry_p', 0), pos.get('peak_pnl_pct', 0),
-                            pos.get('entry_time', 0))
-            continue
-        pnl_pct = (pnl or 0) / MARGIN * 100
-        reason = "手动" if (notes and '手动' in str(notes)) else status
-        lr = 'manual' if (notes and '手动' in str(notes)) else ('TP' if (pnl or 0) > 0 else 'SL')
-        log.info(
-            "BOTLONG 平仓  %-18s  pid=%d  pnl=%+.1f%%  reason=%s  冷却%dh",
-            sym, pos['pid'], pnl_pct, reason, BOTLONG_COOLDOWN // 3600,
-        )
-        update_state(
-            conn, 'live', sym, 'bottomlong',
-            state='DONE', pid=None, order_id=None,
-            done_time=nowt, last_reason=lr,
-        )
-
-    # 扫描新信号
-    open_syms = {r['symbol'] for r in list_active(conn, 'live', 'bottomlong')}
-
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT COUNT(*) AS cnt FROM futures_orders
-           WHERE account_id=%s AND status='PENDING' AND order_type='LIMIT'
-             AND order_source LIKE 'bottomlong-climax%%'""",
-        (ACCOUNT_ID,),
-    )
-    _botlong_pending_cnt = (cur.fetchone() or {}).get("cnt", 0)
-
-    for sym in active_syms:
-        if sym in open_syms:
-            continue
-        if not _topshort_has_min_history_for_climax(cur, sym, now_ms):
-            continue
-        if _botlong_pending_cnt >= BOTLONG_MAX_PENDING:
-            break
-        if _bottomlong_try_climax_volume(cur, conn, sym, now_ms):
-            _botlong_pending_cnt += 1
-            open_syms.add(sym)
-    cur.close()
-
-
-# ── C. 追跌策略 ──────────────────────────────────────────────────
-def _check_dump_signal(conn, sym: str, count_funnel: bool = True):
-    """检测当前是否触发 dump 信号, 触发返回 dict, 否则返回 None.
-    抽自 dump_tick 原 IDLE 分支信号检测代码 (2026-04-30 重构, 为 SIG_WAIT 等待期复用).
-    count_funnel=False 时不累加 _dump_funnel (避免 SIG_WAIT 重判时重复计数).
-    """
-    now_ms = int(now_s() * 1000)
-    BAR_MS = 5 * 60 * 1000
-    cur = conn.cursor()
-    try:
-        bars = get_5m_bars(cur, sym, 80)
-        if len(bars) < DUMP_BARS + 2:
-            if count_funnel: _dump_funnel['bars_insufficient'] += 1
-            return None
-
-        completed = [b for b in bars if b['open_time'] + BAR_MS < now_ms]
-        if not completed:
-            if count_funnel: _dump_funnel['no_completed_bar'] += 1
-            return None
-
-        i = len(completed) - 1
-        if i < DUMP_BARS:
-            if count_funnel: _dump_funnel['completed_short'] += 1
-            return None
-        c  = [float(b['close_price']) for b in completed]
-        ts = [b['open_time'] for b in completed]
-
-        wo   = float(completed[max(0, i - DUMP_BARS)]['open_price'])
-        dump = (wo - c[i]) / wo
-        if dump < DUMP_PCT:
-            if count_funnel: _dump_funnel['dump<10%'] += 1
-            return None
-
-        lo_slice = [float(b['low_price']) for b in completed[max(0, i - DUMP_BARS):]]
-        win_low  = min(lo_slice)
-        bounce   = (c[i] - win_low) / win_low
-        if bounce > 0.08:
-            if count_funnel: _dump_funnel['bounce>8%'] += 1
-            return None
-
-        bar_close_ms = ts[i] + BAR_MS
-        bar_age_s = (now_ms - bar_close_ms) / 1000
-        if bar_age_s > 300:
-            if count_funnel: _dump_funnel['bar_age>300s'] += 1
-            return None
-
-        price = get_price(sym)
-        # 24h 已跌过多不追 (避免接飞刀, 2026-04-24)
-        cur.execute("SELECT change_24h FROM price_stats_24h WHERE symbol=%s", (sym,))
-        _r = cur.fetchone()
-        if _r and _r.get('change_24h') is not None:
-            _ch24 = float(_r['change_24h'])
-            if _ch24 < DUMP_MIN_24H_CHANGE_PCT:
-                if count_funnel:
-                    _dump_funnel['24h<-25%'] += 1
-                    log.info("DUMP  跳过 %-18s: 24h=%.1f%% < %.0f%%，已跌过多不追",
-                             sym, _ch24, DUMP_MIN_24H_CHANGE_PCT)
-                return None
-        # 入场位置守卫: 踩底 / 破顶 / 破底 过滤 (2026-04-24)
-        ok_pos, reason = _check_entry_position(cur, sym, 'SHORT', price, tag='dump')
-        if not ok_pos:
-            if count_funnel:
-                _dump_funnel['entry_position'] += 1
-                log.info("DUMP  跳过 %-18s: %s", sym, reason)
-            return None
-        h24, l24 = _get_24h_stats(cur, sym)
-        h4,  l4  = _get_4h_stats(cur, sym)
-    finally:
-        cur.close()
-    lp = _calc_limit_price("SHORT", price, h24, l24, pct=LIVE_LIMIT_OFFSET_PCT,
-                            high_4h=h4, low_4h=l4)
-    return {'price': price, 'lp': lp, 'dump_pct': dump,
-            'h24': h24, 'l24': l24, 'h4': h4, 'l4': l4}
-
-
-def dump_tick(conn, sym):
-    """追跌: 检测4h跌幅>=DUMP_PCT直接入场做空, 镜像追多逻辑.
-    2026-04-30 增加 30min 信号等待期 (DUMP_SIG_WAIT_ENABLED): 触发后进 SIG_WAIT,
-    30min 后重判信号仍触发才下单, 期间反向 >2% 信号失效.
-    """
-    # chase 已有持仓时跳过, 避免同一标的双向冲突
-    chase_row = get_or_create(conn, 'live', sym, 'chase', {})
-    if chase_row.get('state') in ('LONG', 'SHORT'):
-        return
-
-    ds = get_or_create(conn, 'live', sym, 'dump', {
-        'state': 'IDLE', 'pid': None, 'order_id': None, 'entry_p': 0.0,
-        'peak_pnl_pct': 0.0, 'entry_time': 0, 'done_time': 0,
-    })
-    s = ds.get('state') or 'IDLE'
-
-    if s == 'DONE':
-        anchor = ensure_cooldown_anchor_epoch(conn, 'live', sym, 'dump', ds, now_s())
-        if now_s() - anchor > DUMP_COOLDOWN:
-            update_state(conn, 'live', sym, 'dump', state='IDLE')
-            s = 'IDLE'
-        else:
-            return
-
-    # SIG_WAIT 状态: 等待 N min 重判信号 (2026-04-30 新增)
-    if s == 'SIG_WAIT':
-        sig_p = float(ds.get('entry_p') or 0)
-        sig_t = float(ds.get('entry_time') or 0)
-        if sig_p <= 0 or sig_t <= 0:
-            update_state(conn, 'live', sym, 'dump',
-                         state='IDLE', entry_p=0, entry_time=0)
-            return
-        try:
-            cur_p_now = get_price(sym)
-        except Exception:
-            return
-        # 反向检查: SHORT 信号反向 = 价格涨过 sig_p × (1 + adverse)
-        if cur_p_now >= sig_p * (1 + DUMP_SIG_ADVERSE_PCT):
-            log.info("DUMP  信号反向失效 %-18s sig=%.5f cur=%.5f (+%.2f%%)",
-                     sym, sig_p, cur_p_now, (cur_p_now - sig_p) / sig_p * 100)
-            update_state(conn, 'live', sym, 'dump',
-                         state='IDLE', entry_p=0, entry_time=0,
-                         last_reason='sig_adverse')
-            return
-        elapsed = now_s() - sig_t
-        if elapsed < DUMP_SIG_WAIT_MIN * 60:
-            return  # 继续等
-        # 等待期满, 重判信号
-        sig = _check_dump_signal(conn, sym, count_funnel=False)
-        if not sig:
-            log.info("DUMP  等待期满信号已失效 %-18s, 回 IDLE (等待 %dmin)",
-                     sym, int(elapsed / 60))
-            update_state(conn, 'live', sym, 'dump',
-                         state='IDLE', entry_p=0, entry_time=0,
-                         last_reason='sig_expired')
-            return
-        # 信号仍有效, 下单
-        pid, oid, pending = open_order(sym, "SHORT", sig['price'], HARD_TP_PCT,
-                                       DUMP_SL_PCT, DUMP_MAX_HOLD, "dump-entry",
-                                       sig['lp'])
-        if not pid and not oid:
-            update_state(conn, 'live', sym, 'dump',
-                         state='IDLE', entry_p=0, entry_time=0)
-            return
-        log.info("DUMP  等待期满入场 SHORT %-18s @ %.5f (限价%.5f)  跌%.1f%% 等待 %dmin  pid=%s oid=%s",
-                 sym, sig['price'], sig['lp'], sig['dump_pct']*100,
-                 int(elapsed / 60), pid, oid)
-        update_state(conn, 'live', sym, 'dump',
-                     state='SHORT', pid=pid, order_id=oid,
-                     entry_p=sig['lp'] if pending else sig['price'],
-                     peak_pnl_pct=0.0, entry_time=now_s())
-        return
-
-    ok, ds = _check_pending_db(conn, sym, 'dump')
-    if not ok:
-        return
-    s = ds.get('state') or 'IDLE'
-
-    if s in ('SHORT', 'LONG') and ds.get('pid'):
-        status, pnl, notes = get_pos_status(ds['pid'])
-        if status is None:
-            return
-        if status == 'open':
-            _trail_tp_check(conn, 'live', 'dump', sym, ds['pid'],
-                            s, ds.get('entry_p', 0), ds.get('peak_pnl_pct', 0),
-                            ds.get('entry_time', 0))
-            return
-
-        pnl = pnl or 0
-        if notes and '手动' in str(notes):
-            log.info("DUMP  手动平仓 -> DONE %-18s  pnl=%+.2f  不重开", sym, pnl)
-            update_state(conn, 'live', sym, 'dump', state='DONE', pid=None, done_time=now_s())
-            return
-
-        label = "TP" if pnl > 0 else "SL"
-        log.info("DUMP %s %s -> DONE %-18s  pnl=%+.2f  冷却%dh",
-                 s, label, sym, pnl, DUMP_COOLDOWN // 3600)
-        update_state(conn, 'live', sym, 'dump',
-                     state='DONE', pid=None, order_id=None, done_time=now_s())
-        return
-
-    if s != 'IDLE':
-        return
-
-    # 入场总开关: 关掉时不触发新入场, 已有持仓上面分支照常 monitor (2026-05-01)
-    if not DUMP_ENTRY_ENABLED:
-        return
-
-    # IDLE: 跑信号检测; 触发后根据 DUMP_SIG_WAIT_ENABLED 决定立即下单 or 进 SIG_WAIT
-    sig = _check_dump_signal(conn, sym)
-    if not sig:
-        return
-
-    if not DUMP_SIG_WAIT_ENABLED:
-        # 现有路径: 立即下单
-        pid, oid, pending = open_order(sym, "SHORT", sig['price'], HARD_TP_PCT,
-                                       DUMP_SL_PCT, DUMP_MAX_HOLD, "dump-entry",
-                                       sig['lp'])
-        if not pid and not oid:
-            return
-        log.info("DUMP  入场 SHORT %-18s @ %.5f (限价%.5f)  跌%.1f%%  pid=%s oid=%s",
-                 sym, sig['price'], sig['lp'], sig['dump_pct']*100, pid, oid)
-        update_state(conn, 'live', sym, 'dump',
-                     state='SHORT', pid=pid, order_id=oid,
-                     entry_p=sig['lp'] if pending else sig['price'],
-                     peak_pnl_pct=0.0, entry_time=now_s())
-    else:
-        # 新路径: 进 SIG_WAIT 等待 N min 重判
-        log.info("DUMP  信号观察期开始 %-18s @ %.5f (等 %d min 重判, 反向阈值 %.1f%%)",
-                 sym, sig['price'], DUMP_SIG_WAIT_MIN, DUMP_SIG_ADVERSE_PCT * 100)
-        update_state(conn, 'live', sym, 'dump',
-                     state='SIG_WAIT', entry_p=sig['price'], entry_time=now_s(),
-                     side='SHORT', peak_pnl_pct=0.0)
-
-
-
 # ── 启动同步 ─────────────────────────────────────────────────────
 def _sync_state(conn):
-    """启动时从 API 拉取已有 strategy_live 仓位, 防止重启重复开单"""
+    """启动时从 API 拉取已有 strategy_live:topshort 仓位, 防止重启重复开单.
+    2026-05-15 极简化后仅同步 topshort, 其它 stype 都已删除."""
     try:
         d = _api("GET", "/api/futures/positions?status=open")
         for p in (d.get("data") or []):
@@ -2452,42 +1177,7 @@ def _sync_state(conn):
                 continue
             sym  = p["symbol"]
             side = p["position_side"]
-
-            if "dump-" in src and side == "SHORT":
-                existing = get_or_create(conn, 'live', sym, 'dump', {})
-                if existing.get('state') not in ('SHORT', 'LONG'):
-                    update_state(conn, 'live', sym, 'dump',
-                                 state='SHORT', pid=p["id"],
-                                 entry_p=p["entry_price"],
-                                 peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
-                    log.info("同步已有追跌空仓: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
-            elif "dump-" in src and side == "LONG":
-                existing = get_or_create(conn, 'live', sym, 'dump', {})
-                if existing.get('state') not in ('SHORT', 'LONG'):
-                    update_state(conn, 'live', sym, 'dump',
-                                 state='LONG', pid=p["id"],
-                                 entry_p=p["entry_price"],
-                                 peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
-                    log.info("同步已有追跌翻多仓: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
-            if "chase-" in src or "chase-entry" in src:
-                existing = get_or_create(conn, 'live', sym, 'chase', {})
-                if existing.get('state') not in ('LONG', 'SHORT'):
-                    mapped = "LONG" if side == "LONG" else "SHORT"
-                    update_state(conn, 'live', sym, 'chase',
-                                 state=mapped, pid=p["id"],
-                                 entry_p=p["entry_price"],
-                                 peak_pnl_pct=0.0, entry_time=now_s(), done_time=0)
-                    log.info("同步已有追击仓位: %s %s pid=%d @ %.5f",
-                             sym, mapped, p["id"], p["entry_price"])
-            elif "bottomlong" in src and side == "LONG":
-                existing = get_or_create(conn, 'live', sym, 'bottomlong', {})
-                if existing.get('state') not in ('LONG',):
-                    update_state(conn, 'live', sym, 'bottomlong',
-                                 state='LONG', pid=p["id"],
-                                 entry_p=p["entry_price"],
-                                 peak=p["entry_price"], pump_pct=0, entry_ts=0)
-                    log.info("同步已有底多仓位: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
-            elif "topshort" in src and side == "SHORT":
+            if "topshort" in src and side == "SHORT":
                 existing = get_or_create(conn, 'live', sym, 'topshort', {})
                 if existing.get('state') not in ('SHORT',):
                     update_state(conn, 'live', sym, 'topshort',
@@ -2495,46 +1185,32 @@ def _sync_state(conn):
                                  entry_p=p["entry_price"],
                                  peak=p["entry_price"], pump_pct=0, entry_ts=0)
                     log.info("同步已有顶空仓位: %s pid=%d @ %.5f", sym, p["id"], p["entry_price"])
-            else:
-                if side == "SHORT":
-                    existing = get_or_create(conn, 'live', sym, 'topshort', {})
-                    if existing.get('state') not in ('SHORT',):
-                        update_state(conn, 'live', sym, 'topshort',
-                                     state='SHORT', pid=p["id"],
-                                     entry_p=p["entry_price"],
-                                     peak=p["entry_price"], pump_pct=0, entry_ts=0)
-                        log.info("同步未知空仓(兜底): %s pid=%d src=%s", sym, p["id"], src)
     except Exception as e:
         log.warning("同步持仓失败: %s", e)
+
 
 # ── 主循环 ───────────────────────────────────────────────────────
 def main():
     _load_live_config()
     log.info("=" * 56)
-    log.info("Strategy Live Runner  实盘下单模式")
-    log.info(
-        "A: 追多(2h涨>=12%%, 持仓4h)  B: 顶空(80%%泵+6h无新高, >=%d天1h数据)  C: 追跌(4h跌>=10%%, 持仓12h)",
-        TOPSHORT_MIN_HISTORY_DAYS,
-    )
+    log.info("Strategy Live Runner  实盘模拟  (极简化, 仅 topshort)")
+    log.info("仅运行 topshort: 48h 涨>=80%% + N 根 1h 无新高 -> 限价开 SHORT")
     log.info("账户=%d  杠杆=%dx  每笔保证金=%.0f USDT", ACCOUNT_ID, LEVERAGE, MARGIN)
     log.info("=" * 56)
 
-    # 建表 + 同步已有持仓
     init_conn = get_db()
     ensure_table(init_conn)
     _sync_state(init_conn)
     init_conn.close()
 
     poll_count = 0
-    _last_cfg_reload = 0  # 主循环每 60s 重读 system_settings, 改 DB 后无需重启
-
+    _last_cfg_reload = 0
     while True:
         try:
             conn = get_db()
             cur  = conn.cursor()
             poll_count += 1
 
-            # 动态重载配置 (每 60s 一次)
             try:
                 if time.time() - _last_cfg_reload >= 60:
                     _load_live_config()
@@ -2554,54 +1230,21 @@ def main():
 
             active_syms = get_active_symbols(cur)
 
-            for sym in active_syms:
-                try:
-                    chase_tick(conn, sym)
-                except Exception as e:
-                    log.warning("chase_tick %s error: %s", sym, e)
-                try:
-                    dump_tick(conn, sym)
-                except Exception as e:
-                    log.warning("dump_tick %s error: %s", sym, e)
-
             if poll_count % TOPSHORT_EVERY == 1:
                 try:
                     topshort_tick(conn, active_syms)
                 except Exception as e:
                     log.warning("topshort_tick error: %s", e)
-                try:
-                    bottomlong_tick(conn, active_syms)
-                except Exception as e:
-                    log.warning("bottomlong_tick error: %s", e)
 
-            # 汇总当前持仓
-            chase_active   = list_active(conn, 'live', 'chase')
-            dump_active    = list_active(conn, 'live', 'dump')
-            top_active     = list_active(conn, 'live', 'topshort')
-            botlong_active = list_active(conn, 'live', 'bottomlong')
-            if chase_active or dump_active or top_active or botlong_active:
-                summary = []
-                for r in chase_active:
-                    summary.append("chase:%s %s pid=%s" % (r['symbol'], r['state'], r.get('pid')))
-                for r in dump_active:
-                    summary.append("dump:%s %s pid=%s" % (r['symbol'], r['state'], r.get('pid')))
-                for r in top_active:
-                    summary.append("top:%s SHORT pid=%s" % (r['symbol'], r.get('pid')))
-                for r in botlong_active:
-                    summary.append("botlong:%s LONG pid=%s" % (r['symbol'], r.get('pid')))
-                log.info("持仓: %s", " | ".join(summary))
-            else:
+            top_active = list_active(conn, 'live', 'topshort')
+            if top_active:
+                summary = " | ".join(
+                    "top:%s %s pid=%s" % (r['symbol'], r.get('state'), r.get('pid'))
+                    for r in top_active[:8]
+                )
+                log.info("持仓[%d]: %s", len(top_active), summary)
+            elif poll_count % 10 == 1:
                 log.info("当前无持仓, 等待信号...")
-
-            # 过滤漏斗 (2026-04-26): 每 5 轮 (~5min) 打印 chase/dump 各分支累计跳过次数
-            # 用于分析"过滤层是否过多". 计数从进程启动累计, 不重置
-            if poll_count % 5 == 0:
-                if _chase_funnel:
-                    items = sorted(_chase_funnel.items(), key=lambda x: x[1], reverse=True)
-                    log.info("CHASE 漏斗: %s", " | ".join(f"{k}={v}" for k, v in items))
-                if _dump_funnel:
-                    items = sorted(_dump_funnel.items(), key=lambda x: x[1], reverse=True)
-                    log.info("DUMP  漏斗: %s", " | ".join(f"{k}={v}" for k, v in items))
 
             cur.close()
             conn.close()
@@ -2611,6 +1254,7 @@ def main():
             log.error("主循环错误: %s\n%s", e, traceback.format_exc())
 
         time.sleep(POLL_SECS)
+
 
 if __name__ == '__main__':
     main()

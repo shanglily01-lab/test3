@@ -174,34 +174,6 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
-    <!-- 庄家对抗引擎参数 -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">庄家对抗引擎</h2>
-        <div class="settings-card rounded-2xl overflow-hidden px-4 py-3 space-y-3">
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">止损 %</label>
-                    <div class="relative"><input id="m_whaleSlInput" type="number" min="1" max="30" step="0.5" value="10" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-primary/50 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">止盈 %</label>
-                    <div class="relative"><input id="m_whaleTpInput" type="number" min="1" max="100" step="0.5" value="20" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-primary/50 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">限价偏移 %</label>
-                    <div class="relative"><input id="m_whaleLimitInput" type="number" min="0.01" max="5" step="0.1" value="0.3" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-primary/50 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">持仓时长</label>
-                    <select id="m_whaleHoldSelect" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none focus:ring-2 focus:ring-primary/50 h-10 px-3 mono-data touch-manipulation">
-                        <option value="3">3H</option><option value="4">4H</option><option value="5">5H</option>
-                        <option value="6" selected>6H</option><option value="7">7H</option><option value="8">8H</option>
-                        <option value="9">9H</option><option value="10">10H</option><option value="12">12H</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </section>
 
     <!-- 守卫开关（2026-04-27） -->
     <section>
@@ -215,135 +187,11 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
                 </div>
                 <label class="custom-toggle"><input id="m_disable5mConfirmToggle" type="checkbox" onchange="autoSave('guardSwitches')"/><span class="slider"></span></label>
             </div>
-            <div class="setting-row flex items-start justify-between px-4 py-3">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-secondary">CHASE 允许慢爬</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">chase-entry 不再要求"窗口内一根 5m bar 涨幅 ≥3%"，慢爬币也允许追多。注意 chase 的 TP/SL 针对急涨设计，慢爬易 timeout。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_chaseAllowSlowToggle" type="checkbox" onchange="autoSave('guardSwitches')"/><span class="slider"></span></label>
-            </div>
-        </div>
     </section>
 
-    <!-- 入场总开关: chase-entry / dump-entry (2026-05-01 数据驱动止血) -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">入场总开关 (chase / dump)</h2>
-        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">近 7 天 chase 高位追多 -789U / dump 低位杀跌 -288U, "顺势追突破"在加密假突破市结构性反向。关掉后已有持仓继续 monitor SL/TP, IDLE 不再触发新入场。60s 内动态生效。</p>
-        <div class="settings-card rounded-2xl overflow-hidden">
-            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-error">CHASE-ENTRY 入场</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">追涨突破信号入场, 关掉则不触发新 LONG。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_chaseEntryEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
-            </div>
-            <div class="setting-row flex items-start justify-between px-4 py-3">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-error">DUMP-ENTRY 入场</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">追跌突破信号入场, 关掉则不触发新 SHORT。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_dumpEntryEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
-            </div>
-        </div>
-    </section>
 
-    <!-- 长持子策略 longhold (W底/M顶 2 周窗口, 默认 OFF) -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">长持子策略 longhold</h2>
-        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_whale 子策略：1h × 14 天扫 W 底做多 / M 顶做空, 持仓 1 周, 限价 ±3%。改完重启 strategy_whale 进程。</p>
-        <div class="settings-card rounded-2xl overflow-hidden">
-            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-emerald-400">总开关 (longhold_enabled)</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">默认 OFF。打开后 strategy_whale 每 tick 扫 longhold-w / longhold-m 信号。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_longholdEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
-            </div>
-            <div class="grid grid-cols-2 gap-3 px-4 py-3 border-b border-outline-variant/10">
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">止损 %</label>
-                    <div class="relative"><input id="m_longholdSlInput" type="number" min="1" max="20" step="0.5" value="4" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">止盈 %</label>
-                    <div class="relative"><input id="m_longholdTpInput" type="number" min="1" max="50" step="0.5" value="20" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">限价偏移 %</label>
-                    <div class="relative"><input id="m_longholdLimitInput" type="number" min="0.5" max="10" step="0.5" value="3" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">持仓 (小时)</label>
-                    <input id="m_longholdHoldHoursInput" type="number" min="24" max="336" step="6" value="168" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-emerald-500/40 mono-data"/>
-                </div>
-                <div class="col-span-2">
-                    <label class="block text-[10px] text-on-surface-variant mb-1">反弹/回撤阈值 %</label>
-                    <div class="relative"><input id="m_longholdReboundInput" type="number" min="3" max="20" step="0.5" value="8" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-emerald-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-            </div>
-        </div>
-    </section>
 
-    <!-- REV4D 4天4H 极值反转子策略 (默认 OFF) -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">REV4D 4天4H 极值反转</h2>
-        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_whale 子策略：cur ≤ 4d_low × (1+threshold) → LONG; cur ≥ 4d_high × (1-threshold) → SHORT。24h 跌&gt;25% 不 LONG, 涨&gt;30% 不 SHORT。60s 动态生效。</p>
-        <div class="settings-card rounded-2xl overflow-hidden">
-            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-sky-400">总开关 (rev4d_enabled)</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">默认 OFF。开启后每 tick 扫 4 天 4H 极值, 满足触发即下限价单。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_rev4dEnabledToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
-            </div>
-            <div class="grid grid-cols-2 gap-3 px-4 py-3 border-b border-outline-variant/10">
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">距极值阈值 %</label>
-                    <div class="relative"><input id="m_rev4dThresholdInput" type="number" min="0.1" max="5" step="0.1" value="0.5" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-sky-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">止损 %</label>
-                    <div class="relative"><input id="m_rev4dSlInput" type="number" min="0.5" max="10" step="0.5" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-sky-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">止盈 %</label>
-                    <div class="relative"><input id="m_rev4dTpInput" type="number" min="1" max="20" step="0.5" value="5" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-sky-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">持仓 (小时)</label>
-                    <input id="m_rev4dHoldHoursInput" type="number" min="6" max="96" step="6" value="24" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-sky-500/40 mono-data"/>
-                </div>
-                <div class="col-span-2">
-                    <label class="block text-[10px] text-on-surface-variant mb-1">冷却 (小时)</label>
-                    <input id="m_rev4dCooldownHoursInput" type="number" min="6" max="168" step="6" value="48" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-sky-500/40 mono-data"/>
-                </div>
-            </div>
-        </div>
-    </section>
 
-    <!-- 信号 30min 等待期 (dump-entry / topshort, 默认 OFF) -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">信号 30min 等待期</h2>
-        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">strategy_live 入场守卫：信号触发后等 N 分钟重判, 期间反向 ≥阈值 信号失效。震荡市过滤假突破。改完重启 strategy_live 进程。</p>
-        <div class="settings-card rounded-2xl overflow-hidden mb-3">
-            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-purple-400">DUMP-ENTRY 入场等待</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">SHORT 急跌信号触发后等 N 分钟重判。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_dumpSigWaitToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
-            </div>
-            <div class="grid grid-cols-2 gap-3 px-4 py-3">
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">等待 (分钟)</label>
-                    <input id="m_dumpSigWaitMinInput" type="number" min="5" max="180" step="5" value="30" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-purple-500/40 mono-data"/>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">反向阈值 %</label>
-                    <div class="relative"><input id="m_dumpSigAdverseInput" type="number" min="0.5" max="10" step="0.1" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-purple-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-            </div>
-        </div>
         <div class="settings-card rounded-2xl overflow-hidden">
             <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
                 <div class="flex flex-col pr-3 min-w-0">
@@ -602,26 +450,13 @@ function setPill(id, on) {
 async function loadAll() {
     try {
         const fetchSetting = (key, fb) => fetch(`${SYS}/settings/${key}`).then(r => r.json()).catch(() => ({ data: { value: fb || '0' } }));
-        const [svcR, cfgR, disable5mR, chaseSlowR,
-               lhEn, lhSl, lhTp, lhLim, lhHold, lhReb,
-               dumpEn, dumpMin, dumpAdv,
+        // 2026-05-15 极简化: 仅 strategy_live (topshort) + strategy_bigmid (gemini)
+        const [svcR, cfgR, disable5mR,
                topEn, topMin, topAdv,
-               gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd,
-               chaseEntryEn, dumpEntryEn,
-               r4dEn, r4dTh, r4dSl, r4dTp, r4dHold, r4dCd] = await Promise.all([
+               gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
             fetch(`${SYS}/trading-services`).then(r => r.json()),
             fetch(`${SYS}/strategy-config`).then(r => r.json()).catch(() => ({ data: {} })),
             fetchSetting('disable_5m_confirm'),
-            fetchSetting('chase_allow_slow'),
-            fetchSetting('longhold_enabled',          '0'),
-            fetchSetting('longhold_sl_pct',           '0.04'),
-            fetchSetting('longhold_tp_pct',           '0.20'),
-            fetchSetting('longhold_limit_offset_pct', '0.03'),
-            fetchSetting('longhold_hold_hours',       '168'),
-            fetchSetting('longhold_rebound_pct',      '0.08'),
-            fetchSetting('dump_signal_wait_enabled',  '0'),
-            fetchSetting('dump_signal_wait_min',      '30'),
-            fetchSetting('dump_signal_adverse_pct',   '0.02'),
             fetchSetting('topshort_signal_wait_enabled','0'),
             fetchSetting('topshort_signal_wait_min',  '30'),
             fetchSetting('topshort_signal_adverse_pct','0.02'),
@@ -632,23 +467,13 @@ async function loadAll() {
             fetchSetting('gemini_hold_hours',           '6'),
             fetchSetting('gemini_min_pnl_pct',          '0.01'),
             fetchSetting('gemini_max_open_positions',   '5'),
-            fetchSetting('gemini_symbol_cooldown_hours','24'),
-            fetchSetting('chase_entry_enabled', '1'),
-            fetchSetting('dump_entry_enabled',  '1'),
-            // REV4D (2026-05-02)
-            fetchSetting('rev4d_enabled',        '0'),
-            fetchSetting('rev4d_threshold_pct',  '0.005'),
-            fetchSetting('rev4d_sl_pct',         '0.02'),
-            fetchSetting('rev4d_tp_pct',         '0.05'),
-            fetchSetting('rev4d_hold_hours',     '24'),
-            fetchSetting('rev4d_cooldown_hours', '48')
+            fetchSetting('gemini_symbol_cooldown_hours','24')
         ]);
         if (svcR.success) {
             const d = svcR.data;
             document.getElementById('liveToggle').checked = d.live_trading_enabled;
             setPill('liveStatus', d.live_trading_enabled);
             setPill('liveEngineStatus', d.usdt_futures_enabled !== false);
-            setPill('whaleEngineStatus', d.usdt_futures_enabled !== false);
         }
         const cfg = cfgR.data || {};
         const setV = (id, v, fallback) => { const el = document.getElementById(id); if (el) el.value = v != null ? v : fallback; };
@@ -656,38 +481,20 @@ async function loadAll() {
         setV('m_liveTpInput',    cfg.live_hard_tp_pct      != null ? (parseFloat(cfg.live_hard_tp_pct)      * 100).toFixed(1) : '20', '20');
         setV('m_liveLimitInput', cfg.live_limit_offset_pct != null ? (parseFloat(cfg.live_limit_offset_pct) * 100).toFixed(1) : '3.0', '3.0');
         setV('m_liveHoldSelect', cfg.live_hold_hours  != null ? String(cfg.live_hold_hours)  : '6', '6');
-        setV('m_whaleSlInput',    cfg.whale_sl_pct           != null ? (parseFloat(cfg.whale_sl_pct)           * 100).toFixed(1) : '10', '10');
-        setV('m_whaleTpInput',    cfg.whale_hard_tp_pct      != null ? (parseFloat(cfg.whale_hard_tp_pct)      * 100).toFixed(1) : '20', '20');
-        setV('m_whaleLimitInput', cfg.whale_limit_offset_pct != null ? (parseFloat(cfg.whale_limit_offset_pct) * 100).toFixed(1) : '0.3', '0.3');
-        setV('m_whaleHoldSelect', cfg.whale_hold_hours != null ? String(cfg.whale_hold_hours) : '6', '6');
-        // 守卫开关
         const isOn = (s) => {
             const v = s && s.data ? s.data.value : (s && s.value);
             return v != null && ['1','true','yes','on'].indexOf(String(v).trim().toLowerCase()) !== -1;
         };
         const e1 = document.getElementById('m_disable5mConfirmToggle');
         if (e1) e1.checked = isOn(disable5mR);
-        const e2 = document.getElementById('m_chaseAllowSlowToggle');
-        if (e2) e2.checked = isOn(chaseSlowR);
 
-        // ── 扩展 settings: longhold / signal-wait / gemini ──
+        // ── topshort signal-wait + gemini ──
         const kvVal  = (rsp, fb) => (rsp && rsp.data && rsp.data.value != null) ? String(rsp.data.value) : fb;
         const setNum = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
         const setChk = (id, on)  => { const el = document.getElementById(id); if (el) el.checked = !!on; };
         const pct100 = (rsp, fb) => (parseFloat(kvVal(rsp, fb)) * 100).toFixed(1);
 
-        // longhold
-        setChk('m_longholdEnabledToggle',  isOn(lhEn));
-        setNum('m_longholdSlInput',        pct100(lhSl,  '0.04'));
-        setNum('m_longholdTpInput',        pct100(lhTp,  '0.20'));
-        setNum('m_longholdLimitInput',     pct100(lhLim, '0.03'));
-        setNum('m_longholdHoldHoursInput', kvVal(lhHold, '168'));
-        setNum('m_longholdReboundInput',   pct100(lhReb, '0.08'));
-
-        // signal wait
-        setChk('m_dumpSigWaitToggle',      isOn(dumpEn));
-        setNum('m_dumpSigWaitMinInput',    kvVal(dumpMin, '30'));
-        setNum('m_dumpSigAdverseInput',    pct100(dumpAdv, '0.02'));
+        // topshort signal wait
         setChk('m_topshortSigWaitToggle',  isOn(topEn));
         setNum('m_topshortSigWaitMinInput',kvVal(topMin, '30'));
         setNum('m_topshortSigAdverseInput',pct100(topAdv, '0.02'));
@@ -701,18 +508,6 @@ async function loadAll() {
         setNum('m_geminiMinPnlInput',      pct100(gMinPnl,'0.01'));
         setNum('m_geminiMaxOpenInput',     kvVal(gMaxOpen,'5'));
         setNum('m_geminiCooldownInput',    kvVal(gCd,     '24'));
-
-        // chase / dump 入场总开关 (2026-05-01)
-        setChk('m_chaseEntryEnabledToggle', isOn(chaseEntryEn));
-        setChk('m_dumpEntryEnabledToggle',  isOn(dumpEntryEn));
-
-        // REV4D (2026-05-02)
-        setChk('m_rev4dEnabledToggle',     isOn(r4dEn));
-        setNum('m_rev4dThresholdInput',    pct100(r4dTh,   '0.005'));
-        setNum('m_rev4dSlInput',           pct100(r4dSl,   '0.02'));
-        setNum('m_rev4dTpInput',           pct100(r4dTp,   '0.05'));
-        setNum('m_rev4dHoldHoursInput',    kvVal(r4dHold,  '24'));
-        setNum('m_rev4dCooldownHoursInput',kvVal(r4dCd,    '48'));
     } catch(e) { toast('加载失败: ' + e.message, 'err'); }
 }
 
@@ -744,10 +539,6 @@ async function save(type) {
             live_hard_tp_pct:       getNumPct('m_liveTpInput'),
             live_limit_offset_pct:  getNumPct('m_liveLimitInput'),
             live_hold_hours:        getInt('m_liveHoldSelect'),
-            whale_sl_pct:           getNumPct('m_whaleSlInput'),
-            whale_hard_tp_pct:      getNumPct('m_whaleTpInput'),
-            whale_limit_offset_pct: getNumPct('m_whaleLimitInput'),
-            whale_hold_hours:       getInt('m_whaleHoldSelect'),
         };
         const r = await fetch(`${SYS}/strategy-config`, {
             method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
@@ -760,38 +551,23 @@ async function save(type) {
             body: JSON.stringify({ setting_key: key, setting_value: val ? '1' : '0', description: desc })
         }).then(r => r.json());
         const v5m   = !!document.getElementById('m_disable5mConfirmToggle')?.checked;
-        const vSlow = !!document.getElementById('m_chaseAllowSlowToggle')?.checked;
         try {
-            const [r1, r2] = await Promise.all([
-                putSetting('disable_5m_confirm', v5m,   '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效'),
-                putSetting('chase_allow_slow',   vSlow, 'CHASE 接受慢爬入场,跳过 leader_gain 3% 阈值,重启策略进程生效'),
-            ]);
-            if ((r1.success !== false) && (r2.success !== false)) toast('守卫开关已保存，重启后生效');
+            const r1 = await putSetting('disable_5m_confirm', v5m, '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效');
+            if (r1.success !== false) toast('守卫开关已保存，重启后生效');
             else toast('保存失败', 'err');
         } catch (e) { toast('保存失败: ' + e.message, 'err'); }
     } else if (type === 'extendedSettings') {
-        // longhold / signal-wait / gemini 一并保存
+        // 2026-05-15 极简化: 仅 topshort signal-wait + gemini
         const putKv = (key, val, desc) => fetch(`${SYS}/settings/${key}`, {
             method:'PUT', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ setting_key: key, setting_value: String(val), description: desc })
         }).then(r => r.json());
         const chk    = (id) => !!document.getElementById(id)?.checked;
-        const numIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb));
         const intIn  = (id, fb) => String(parseInt(document.getElementById(id)?.value || fb, 10));
         const pctIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb) / 100);
         try {
             await Promise.all([
-                // longhold
-                putKv('longhold_enabled',          chk('m_longholdEnabledToggle') ? '1' : '0', '长持子策略 longhold 总开关'),
-                putKv('longhold_sl_pct',           pctIn('m_longholdSlInput',     '4'),   '长持止损'),
-                putKv('longhold_tp_pct',           pctIn('m_longholdTpInput',     '20'),  '长持止盈'),
-                putKv('longhold_limit_offset_pct', pctIn('m_longholdLimitInput',  '3'),   '长持限价偏移'),
-                putKv('longhold_hold_hours',       intIn('m_longholdHoldHoursInput','168'),'长持持仓上限(小时)'),
-                putKv('longhold_rebound_pct',      pctIn('m_longholdReboundInput','8'),   '长持反弹/回撤阈值'),
-                // signal wait
-                putKv('dump_signal_wait_enabled',  chk('m_dumpSigWaitToggle') ? '1' : '0', 'dump-entry 30min 信号等待期总开关'),
-                putKv('dump_signal_wait_min',      intIn('m_dumpSigWaitMinInput',     '30'), 'dump-entry 等待时长(分钟)'),
-                putKv('dump_signal_adverse_pct',   pctIn('m_dumpSigAdverseInput',     '2'),  'dump-entry 反向阈值'),
+                // topshort signal wait
                 putKv('topshort_signal_wait_enabled', chk('m_topshortSigWaitToggle') ? '1' : '0', 'topshort 30min 信号等待期总开关'),
                 putKv('topshort_signal_wait_min',  intIn('m_topshortSigWaitMinInput', '30'), 'topshort 等待时长(分钟)'),
                 putKv('topshort_signal_adverse_pct',pctIn('m_topshortSigAdverseInput','2'),  'topshort 反向阈值'),
@@ -803,20 +579,7 @@ async function save(type) {
                 putKv('gemini_hold_hours',           intIn('m_geminiHoldHoursInput', '6'), 'Gemini 持仓上限(小时)'),
                 putKv('gemini_min_pnl_pct',          pctIn('m_geminiMinPnlInput', '1'),    'Gemini 预期 PnL 阈值'),
                 putKv('gemini_max_open_positions',   intIn('m_geminiMaxOpenInput','5'),    'Gemini 全局持仓上限'),
-                putKv('gemini_symbol_cooldown_hours',intIn('m_geminiCooldownInput','24'),  'Gemini 同 symbol 冷却(小时)'),
-                // chase / dump 入场总开关 (2026-05-01)
-                putKv('chase_entry_enabled', chk('m_chaseEntryEnabledToggle') ? '1' : '0',
-                      'strategy_live chase-entry 入场总开关. 0=不触发新入场.'),
-                putKv('dump_entry_enabled',  chk('m_dumpEntryEnabledToggle')  ? '1' : '0',
-                      'strategy_live dump-entry 入场总开关. 0=不触发新入场.'),
-                // REV4D (2026-05-02)
-                putKv('rev4d_enabled',        chk('m_rev4dEnabledToggle') ? '1' : '0',
-                      'strategy_whale REV4D 4天4H 极值反转总开关.'),
-                putKv('rev4d_threshold_pct',  pctIn('m_rev4dThresholdInput',     '0.5'),  'REV4D 距极值阈值'),
-                putKv('rev4d_sl_pct',         pctIn('m_rev4dSlInput',            '2'),    'REV4D 止损'),
-                putKv('rev4d_tp_pct',         pctIn('m_rev4dTpInput',            '5'),    'REV4D 止盈'),
-                putKv('rev4d_hold_hours',     intIn('m_rev4dHoldHoursInput',     '24'),   'REV4D 持仓上限 (小时)'),
-                putKv('rev4d_cooldown_hours', intIn('m_rev4dCooldownHoursInput', '48'),   'REV4D 同 symbol 冷却 (小时)')
+                putKv('gemini_symbol_cooldown_hours',intIn('m_geminiCooldownInput','24'),  'Gemini 同 symbol 冷却(小时)')
             ]);
             toast('扩展策略参数已保存, 重启对应进程后生效');
         } catch (e) { toast('保存失败: ' + e.message, 'err'); }
