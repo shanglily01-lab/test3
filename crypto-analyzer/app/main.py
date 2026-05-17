@@ -637,6 +637,46 @@ async def lifespan(app: FastAPI):
         schedule.every(2).hours.do(run_swan_in_thread)
         logger.info("✅ Gemini 红黑天鹅榜已启动（每 2 小时，后台线程，60s 动态开关）")
 
+        # 黑盒红黑天鹅探索 (paper-only, 阶梯第 1 步: 只采集 + 落本地 binance-data + hit rate 评估, 不下单)
+        # 每 8 小时一次 daemon 线程; .env BLACKBOX_SWAN_ENABLED=0 时 worker 早返回不调 Gemini
+        # 跟生产 dimesion 隔离, 数据存本地 binance-data 库 blackbox_swan_* 三张表
+        def run_blackbox_swan_in_thread():
+            def _run():
+                try:
+                    from app.services.blackbox_swan_worker import run_blackbox_swan_round
+                    rid = run_blackbox_swan_round(triggered_by="scheduler")
+                    if rid:
+                        logger.info(f"blackbox swan: run_id={rid}")
+                except Exception as e:
+                    logger.error(f"blackbox swan 任务失败: {e}", exc_info=True)
+            threading.Thread(target=_run, daemon=True, name="BlackboxSwan").start()
+        schedule.every(8).hours.do(run_blackbox_swan_in_thread)
+        logger.info("[OK] 黑盒红黑天鹅探索已启动 (每 8 小时, .env BLACKBOX_SWAN_ENABLED=1 才真正跑)")
+
+        # 黑盒 hit rate 回算 (每天 01:30 本地, 7d 前 STRONG verdict 真实涨跌验证)
+        def run_blackbox_hit_rate_in_thread():
+            def _run():
+                try:
+                    from app.services.blackbox_swan_worker import run_hit_rate_check
+                    run_hit_rate_check(triggered_by="scheduler")
+                except Exception as e:
+                    logger.error(f"blackbox hit rate 回算失败: {e}", exc_info=True)
+            threading.Thread(target=_run, daemon=True, name="BlackboxHitRate").start()
+        schedule.every().day.at("01:30").do(run_blackbox_hit_rate_in_thread)
+        logger.info("[OK] 黑盒 hit rate 回算已启动 (每天 01:30, 7d 回算 STRONG verdict)")
+
+        # 黑盒 paper 模拟仓位 SL/TP/hold 平仓 loop (5min, 本地表, 不调远程)
+        def run_blackbox_paper_close_in_thread():
+            def _run():
+                try:
+                    from app.services.blackbox_swan_worker import check_paper_closes
+                    check_paper_closes(triggered_by="scheduler")
+                except Exception as e:
+                    logger.error(f"blackbox paper close 任务失败: {e}", exc_info=True)
+            threading.Thread(target=_run, daemon=True, name="BlackboxPaperClose").start()
+        schedule.every(5).minutes.do(run_blackbox_paper_close_in_thread)
+        logger.info("[OK] 黑盒 paper 平仓 loop 已启动 (每 5 分钟扫描 OPEN 仓位, 本地 SL/TP/hold)")
+
 
         # ── 独立子进程周期任务（与 FastAPI 主进程完全隔离）──────────────────────────
         # 每个存储过程调用都在独立 OS 子进程中运行；

@@ -289,46 +289,6 @@
 </div>
 </div>
 
-<!-- 2.1 趋势跟踪引擎 -->
-<div class="rounded-xl bg-[#070b10]/90 border border-[#49f4c8]/20 p-4 mb-4">
-<p class="cfg-l2-label text-[#49f4c8]/90 mb-3">2.1 趋势跟踪引擎（strategy_live）</p>
-<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-<div>
-<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止损 %</label>
-<div class="relative">
-<input id="liveSlInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-[#49f4c8]/40" type="number" min="1" max="30" step="0.5" value="10"/>
-<span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span>
-</div>
-</div>
-<div>
-<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">止盈 %</label>
-<div class="relative">
-<input id="liveTpInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-[#49f4c8]/40" type="number" min="1" max="100" step="0.5" value="20"/>
-<span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span>
-</div>
-</div>
-<div>
-<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">限价偏移 %</label>
-<div class="relative">
-<input id="liveLimitOffsetInput" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-[#49f4c8]/40" type="number" min="0.1" max="10" step="0.1" value="3.0"/>
-<span class="absolute right-3 top-2.5 text-slate-500 text-xs font-mono">%</span>
-</div>
-</div>
-<div>
-<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">持仓时长</label>
-<div class="relative">
-<select id="liveHoldHoursSelect" class="w-full bg-[#151a20] border border-slate-800 rounded-xl py-3 px-3 pr-10 text-slate-200 text-sm font-mono appearance-none focus:ring-1 focus:ring-[#49f4c8]/40">
-<option value="3">3H</option><option value="4">4H</option><option value="5">5H</option>
-<option value="6" selected="">6H</option><option value="7">7H</option><option value="8">8H</option>
-<option value="9">9H</option><option value="10">10H</option><option value="12">12H</option>
-</select>
-<span class="material-symbols-outlined absolute right-2 top-2.5 text-slate-500 pointer-events-none text-lg">expand_more</span>
-</div>
-</div>
-</div>
-</div>
-
-
 <!-- 2.3 全局限制 -->
 <div>
 <p class="cfg-l2-label">2.3 全局限制</p>
@@ -345,7 +305,7 @@
 <div class="cfg-row">
 <div class="min-w-0">
 <div class="text-sm font-medium text-[#ff716c]">不设止盈/止损/持仓时间</div>
-<p class="text-xs text-slate-400 mt-0.5">开启后 live / whale / bigmid 三个策略 <span class="text-[#ff716c]">新开仓不设 SL / TP / 超时平仓</span>，进程内硬止盈与移动止盈检查也会跳过。<br/>仅影响新开仓，存量仓位保持原 SL/TP/超时。<span class="text-slate-500">修改后需重启策略进程生效。</span></p>
+<p class="text-xs text-slate-400 mt-0.5">开启后 strategy_bigmid <span class="text-[#ff716c]">新开仓不设 SL / TP / 超时平仓</span>，进程内硬止盈与移动止盈检查也会跳过。<br/>仅影响新开仓，存量仓位保持原 SL/TP/超时。<span class="text-slate-500">修改后需重启策略进程生效。</span></p>
 </div>
 <div id="disableSlTpHoldToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
 <div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
@@ -358,7 +318,7 @@
 <div class="cfg-row">
 <div class="min-w-0">
 <div class="text-sm font-medium text-amber-400">跳过 5m 阴/阳收盘确认（限价单）</div>
-<p class="text-xs text-slate-400 mt-0.5">开启后 live / whale / bigmid / f3 限价单<span class="text-amber-400">触发即按 limit_price 成交</span>，不再等下根 5m K 线收盘验阴/阳，不再产生 TRIGGER_OBSERVING / 5M_REJECT 事件。<br/>遇上反弹中追空可能立刻被反向打到 SL；建议 paper 验证 2-3 天再判断。<span class="text-slate-500">修改后需重启策略进程生效。</span></p>
+<p class="text-xs text-slate-400 mt-0.5">开启后 strategy_bigmid 限价单<span class="text-amber-400">触发即按 limit_price 成交</span>，不再等下根 5m K 线收盘验阴/阳，不再产生 TRIGGER_OBSERVING / 5M_REJECT 事件。<br/>遇上反弹中追空可能立刻被反向打到 SL；建议 paper 验证 2-3 天再判断。<span class="text-slate-500">修改后需重启策略进程生效。</span></p>
 </div>
 <div id="disable5mConfirmToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
 <div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
@@ -370,30 +330,6 @@
 
 
 
-
-<!-- 2.4d 信号 30min 等待期 (topshort) - 默认 OFF -->
-<div class="mt-4 rounded-xl bg-[#1a1428]/60 border border-purple-500/40 p-4">
-<div class="text-sm font-medium text-purple-400 mb-1">信号 30min 等待期 (topshort)</div>
-<p class="text-xs text-slate-400 mb-3">strategy_live 入场守卫: 信号触发后等 N 分钟重判, 期间反向 ≥阈值 信号失效。在震荡市过滤假突破。<span class="text-slate-500">改完需重启 strategy_live 进程生效。</span></p>
-<div class="rounded-lg bg-[#070b10]/70 border border-slate-700/40 p-3">
-<div class="cfg-row">
-<div class="text-sm text-slate-200">TOPSHORT 入场等待</div>
-<div id="topshortSigWaitToggle" data-enabled="false" class="w-12 h-6 shrink-0 bg-slate-700/40 rounded-full relative cursor-pointer transition-colors duration-200">
-<div class="toggle-thumb absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full transition-all duration-200"></div>
-</div>
-</div>
-<div class="grid grid-cols-2 gap-3 mt-3">
-<div>
-<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">等待 (分钟)</label>
-<input id="topshortSigWaitMinInput" class="w-full bg-[#151a20] border border-slate-800 rounded-lg py-2.5 px-3 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-purple-500/40" type="number" min="5" max="180" step="5" value="30"/>
-</div>
-<div>
-<label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">反向阈值 %</label>
-<div class="relative"><input id="topshortSigAdverseInput" class="w-full bg-[#151a20] border border-slate-800 rounded-lg py-2.5 pl-3 pr-8 text-slate-100 font-mono text-sm focus:ring-1 focus:ring-purple-500/40" type="number" min="0.5" max="10" step="0.1" value="2"/><span class="absolute right-3 top-2 text-slate-500 text-xs font-mono">%</span></div>
-</div>
-</div>
-</div>
-</div>
 
 <!-- 2.4e Gemini AI 决策策略 (strategy_bigmid 改造版) - 默认 OFF -->
 <div class="mt-4 rounded-xl bg-[#0e1f2a]/60 border border-cyan-500/40 p-4">
@@ -459,7 +395,7 @@
 <div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
 <div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">入场保护期 (ENTRY_GRACE_MIN)</div>
 <div class="text-slate-100 font-mono text-sm"><span class="text-[#49f4c8]">45 分钟</span> <span class="text-slate-600">← 30 → 45（04-24）</span></div>
-<div class="text-slate-500 text-[10px] mt-1">live / whale / bigmid / monitor 均生效；前 45m early-sl 和 breakeven-sl 不触发</div>
+<div class="text-slate-500 text-[10px] mt-1">bigmid / monitor 均生效；前 45m early-sl 和 breakeven-sl 不触发</div>
 </div>
 <div class="bg-[#151a20] border border-slate-800 rounded-lg px-3 py-2.5">
 <div class="text-slate-500 text-[10px] uppercase tracking-wider mb-1">限价触发观察 (TRIGGER_CONFIRM_S)</div>
@@ -670,21 +606,15 @@
 
         async function loadAll() {
             try {
-                // 2026-05-15 极简化: 仅 strategy_live (topshort) + strategy_bigmid (gemini)
+                // 2026-05-18 极简化: 仅 strategy_bigmid (gemini)
                 const fetchKv = (key, fallback) => apiGet('/settings/' + key).catch(function() { return { data: { value: fallback } }; });
-                const [svcData, stratData, maxPosData, disableData, closeSyncData, disable5mData,
-                       topEn, topMin, topAdv,
+                const [svcData, maxPosData, disableData, closeSyncData, disable5mData,
                        gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
                     apiGet('/trading-services'),
-                    apiGet('/strategy-config').catch(function() { return { data: {} }; }),
                     apiGet('/settings/max_positions').catch(function() { return { data: { value: '50' } }; }),
                     apiGet('/settings/disable_sl_tp_hold').catch(function() { return { data: { value: '0' } }; }),
                     apiGet('/settings/close_sync_live_enabled').catch(function() { return { data: { value: '0' } }; }),
                     apiGet('/settings/disable_5m_confirm').catch(function() { return { data: { value: '0' } }; }),
-                    // topshort signal wait
-                    fetchKv('topshort_signal_wait_enabled','0'),
-                    fetchKv('topshort_signal_wait_min',  '30'),
-                    fetchKv('topshort_signal_adverse_pct','0.02'),
                     // gemini
                     fetchKv('gemini_strategy_enabled',     '0'),
                     fetchKv('gemini_sl_pct',               '0.02'),
@@ -697,21 +627,12 @@
                 ]);
 
                 const svc  = svcData.data  || svcData;
-                const cfg  = stratData.data || stratData;
                 const maxPosSetting = maxPosData.data || maxPosData;
                 const disableSetting = disableData.data || disableData;
                 const closeSyncSetting = closeSyncData.data || closeSyncData;
                 const disable5mSetting = disable5mData.data || disable5mData;
 
                 setToggle('liveToggle', svc.live_trading_enabled !== false);
-
-                // 趋势跟踪引擎 (仅 topshort)
-                const setV = function(id, v) { const el = document.getElementById(id); if (el && v != null) el.value = v; };
-                setV('liveSlInput',          cfg.live_sl_pct           != null ? (parseFloat(cfg.live_sl_pct)           * 100).toFixed(1) : '10');
-                setV('liveTpInput',          cfg.live_hard_tp_pct      != null ? (parseFloat(cfg.live_hard_tp_pct)      * 100).toFixed(1) : '20');
-                setV('liveLimitOffsetInput', cfg.live_limit_offset_pct != null ? (parseFloat(cfg.live_limit_offset_pct) * 100).toFixed(1) : '3.0');
-                const liveHold = document.getElementById('liveHoldHoursSelect');
-                if (liveHold && cfg.live_hold_hours != null) liveHold.value = String(cfg.live_hold_hours);
 
                 // 最大持仓数量
                 const mpEl = document.getElementById('maxPositionsInput');
@@ -731,16 +652,11 @@
                 const raw5m = disable5mSetting.value != null ? String(disable5mSetting.value).trim().toLowerCase() : '0';
                 setToggle('disable5mConfirmToggle', ['1', 'true', 'yes', 'on'].indexOf(raw5m) !== -1);
 
-                // ---- topshort signal wait / gemini (通用辅助) ----
+                // ---- gemini (通用辅助) ----
                 const kvVal  = (rsp, fb) => (rsp && rsp.data && rsp.data.value != null) ? String(rsp.data.value) : fb;
                 const kvBool = (rsp) => ['1','true','yes','on'].indexOf(kvVal(rsp, '0').trim().toLowerCase()) !== -1;
                 const setNum = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
                 const pctTo  = (rsp, fb) => (parseFloat(kvVal(rsp, fb)) * 100).toFixed(1);
-
-                // topshort signal wait
-                setToggle('topshortSigWaitToggle', kvBool(topEn));
-                setNum('topshortSigWaitMinInput',  kvVal(topMin, '30'));
-                setNum('topshortSigAdverseInput',  pctTo(topAdv, '0.02'));
 
                 // gemini
                 setToggle('geminiEnabledToggle',   kvBool(gEn));
@@ -803,21 +719,6 @@
             }
         });
 
-        // topshort 信号等待 - 即时保存
-        bindToggle('topshortSigWaitToggle', async function (enabled) {
-            try {
-                await apiPut('/settings/topshort_signal_wait_enabled', {
-                    setting_key: 'topshort_signal_wait_enabled',
-                    setting_value: enabled ? '1' : '0',
-                    description: 'strategy_live topshort 入场前 30min 信号等待期, 改完重启 strategy_live 进程'
-                });
-                showToast((enabled ? '已开启 topshort 信号等待' : '已关闭 topshort 信号等待') + '（重启 strategy_live 后生效）', false);
-            } catch (err) {
-                showToast('保存失败: ' + err.message, true);
-                return false;
-            }
-        });
-
         // Gemini AI 策略 - 即时保存
         bindToggle('geminiEnabledToggle', async function (enabled) {
             try {
@@ -854,10 +755,6 @@
         const saveBtn = document.getElementById('saveBtn');
         const saveBtnText = document.getElementById('saveBtnText');
 
-        function getPct(id, fallback) {
-            return parseFloat(document.getElementById(id)?.value || fallback) / 100;
-        }
-
         if (saveBtn) {
             saveBtn.addEventListener('click', async function () {
                 saveBtnText.textContent = '保存中...';
@@ -876,19 +773,10 @@
 
                     await Promise.all([
                         apiPut('/trading-services', { live_trading_enabled: getToggle('liveToggle') }),
-                        apiPut('/strategy-config', {
-                            live_sl_pct:            getPct('liveSlInput',          '10'),
-                            live_hard_tp_pct:       getPct('liveTpInput',          '20'),
-                            live_limit_offset_pct:  getPct('liveLimitOffsetInput', '3.0'),
-                            live_hold_hours:        parseInt(document.getElementById('liveHoldHoursSelect')?.value || '6', 10)
-                        }),
                         apiPut('/settings/max_positions', { setting_key: 'max_positions', setting_value: String(mpVal), description: '最大持仓数量' }),
                         apiPut('/settings/disable_sl_tp_hold', { setting_key: 'disable_sl_tp_hold', setting_value: disableVal, description: '不设止盈/止损/持仓时间(裸奔模式),仅影响新开仓,重启策略进程生效' }),
                         apiPut('/settings/close_sync_live_enabled', { setting_key: 'close_sync_live_enabled', setting_value: closeSyncVal, description: '模拟盘平仓时是否自动平 Binance 对应仓位' }),
                         apiPut('/settings/disable_5m_confirm', { setting_key: 'disable_5m_confirm', setting_value: disable5mVal, description: '跳过 5m 阴/阳收盘确认,限价单触发即成交,重启策略进程生效' }),
-                        // topshort signal wait (toggle 已即时保存, 这里只同步数值)
-                        putKv('topshort_signal_wait_min',  intIn('topshortSigWaitMinInput', '30'), 'topshort 信号等待时长 (分钟)'),
-                        putKv('topshort_signal_adverse_pct',pctIn('topshortSigAdverseInput','2'),  'topshort 等待期反向阈值'),
                         // gemini (toggle 已即时保存, 这里只同步数值)
                         putKv('gemini_sl_pct',             pctIn('geminiSlInput',     '2'),   'Gemini 策略止损比例'),
                         putKv('gemini_tp_pct',             pctIn('geminiTpInput',     '3'),   'Gemini 策略硬止盈比例'),

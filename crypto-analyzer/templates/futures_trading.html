@@ -1003,7 +1003,7 @@ function renderLimitOrders() {
         var tp     = parseFloat(o.take_profit_price || 0);
         var qty    = parseFloat(o.quantity || 0);
         var margin = parseFloat(o.margin || 0);
-        var src    = (o.order_source || '').replace('strategy_live:', '').replace('strategy_whale:', '');
+        var src    = (o.order_source || '').replace('strategy_bigmid:', '');
         var created = o.created_at ? o.created_at.replace('T', ' ').substring(0, 16) : '--';
 
         var distHtml = '<span class="text-on-surface-variant">--</span>';

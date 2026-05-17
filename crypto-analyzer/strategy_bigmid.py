@@ -42,7 +42,7 @@ from strategy_state_db import (
 
 # ── 基础配置 ────────────────────────────────────────────────────
 API_BASE   = "http://localhost:9021"
-ACCOUNT_ID = 2                # 共用 strategy_live 账户
+ACCOUNT_ID = 2                # 实盘账户
 LEVERAGE   = 5
 MARGIN     = 500.0            # 每笔保证金 (USDT)
 
@@ -85,7 +85,7 @@ GEMINI_PER_SYMBOL_DELAY_S = 4         # 速率限制兜底, 单个 symbol 之间
 # ── 总开关 (system_settings.gemini_strategy_enabled, 默认 OFF) ─
 GEMINI_ENABLED = False
 
-# ── 全局总开关 (沿用 strategy_live 同款) ────────────────────────
+# ── 全局总开关 ─────────────────────────────────────────────────
 DISABLE_SL_TP_HOLD = False
 DISABLE_5M_CONFIRM = False
 

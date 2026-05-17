@@ -145,40 +145,10 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
         </div>
     </section>
 
-    <!-- 趋势跟踪引擎参数 -->
-    <section>
-        <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">趋势跟踪引擎</h2>
-        <div class="settings-card rounded-2xl overflow-hidden px-4 py-3 space-y-3">
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">止损 %</label>
-                    <div class="relative"><input id="m_liveSlInput" type="number" min="1" max="30" step="0.5" value="10" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-primary/50 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">止盈 %</label>
-                    <div class="relative"><input id="m_liveTpInput" type="number" min="1" max="100" step="0.5" value="20" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-primary/50 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">限价偏移 %</label>
-                    <div class="relative"><input id="m_liveLimitInput" type="number" min="0.1" max="10" step="0.1" value="3.0" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-primary/50 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-                <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-on-surface-variant mb-1">持仓时长</label>
-                    <select id="m_liveHoldSelect" onchange="autoSave('strategyConfig')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none focus:ring-2 focus:ring-primary/50 h-10 px-3 mono-data touch-manipulation">
-                        <option value="3">3H</option><option value="4">4H</option><option value="5">5H</option>
-                        <option value="6" selected>6H</option><option value="7">7H</option><option value="8">8H</option>
-                        <option value="9">9H</option><option value="10">10H</option><option value="12">12H</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </section>
-
-
     <!-- 守卫开关（2026-04-27） -->
     <section>
         <h2 class="px-1 mb-3 text-xs font-bold uppercase tracking-widest text-on-surface-variant font-headline">守卫开关</h2>
-        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">改完需重启策略进程才生效（whale / live / bigmid / f3）。</p>
+        <p class="px-1 mb-2 text-[10px] text-on-surface-variant/70">改完需重启 strategy_bigmid 进程才生效。</p>
         <div class="settings-card rounded-2xl overflow-hidden">
             <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
                 <div class="flex flex-col pr-3 min-w-0">
@@ -191,27 +161,6 @@ button,a,label,select { -webkit-tap-highlight-color:transparent; }
 
 
 
-
-        <div class="settings-card rounded-2xl overflow-hidden">
-            <div class="setting-row flex items-start justify-between px-4 py-3 border-b border-outline-variant/10">
-                <div class="flex flex-col pr-3 min-w-0">
-                    <span class="text-sm font-medium text-purple-400">TOPSHORT 入场等待</span>
-                    <span class="text-[10px] text-on-surface-variant mt-0.5 leading-snug">SHORT 顶部信号触发后等 N 分钟重判。</span>
-                </div>
-                <label class="custom-toggle"><input id="m_topshortSigWaitToggle" type="checkbox" onchange="autoSave('extendedSettings')"/><span class="slider"></span></label>
-            </div>
-            <div class="grid grid-cols-2 gap-3 px-4 py-3">
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">等待 (分钟)</label>
-                    <input id="m_topshortSigWaitMinInput" type="number" min="5" max="180" step="5" value="30" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 px-3 focus:ring-2 focus:ring-purple-500/40 mono-data"/>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-on-surface-variant mb-1">反向阈值 %</label>
-                    <div class="relative"><input id="m_topshortSigAdverseInput" type="number" min="0.5" max="10" step="0.1" value="2" onchange="autoSave('extendedSettings')" class="w-full bg-surface-container-highest text-on-surface text-sm rounded-xl border-none py-2.5 pl-3 pr-7 focus:ring-2 focus:ring-purple-500/40 mono-data"/><span class="absolute right-2 top-2 text-on-surface-variant text-xs">%</span></div>
-                </div>
-            </div>
-        </div>
-    </section>
 
     <!-- Gemini AI 决策策略 (strategy_bigmid 改造版, 默认 OFF) -->
     <section>
@@ -450,16 +399,11 @@ function setPill(id, on) {
 async function loadAll() {
     try {
         const fetchSetting = (key, fb) => fetch(`${SYS}/settings/${key}`).then(r => r.json()).catch(() => ({ data: { value: fb || '0' } }));
-        // 2026-05-15 极简化: 仅 strategy_live (topshort) + strategy_bigmid (gemini)
-        const [svcR, cfgR, disable5mR,
-               topEn, topMin, topAdv,
+        // 2026-05-18 极简化: 仅 strategy_bigmid (gemini)
+        const [svcR, disable5mR,
                gEn, gSl, gTp, gLim, gHold, gMinPnl, gMaxOpen, gCd] = await Promise.all([
             fetch(`${SYS}/trading-services`).then(r => r.json()),
-            fetch(`${SYS}/strategy-config`).then(r => r.json()).catch(() => ({ data: {} })),
             fetchSetting('disable_5m_confirm'),
-            fetchSetting('topshort_signal_wait_enabled','0'),
-            fetchSetting('topshort_signal_wait_min',  '30'),
-            fetchSetting('topshort_signal_adverse_pct','0.02'),
             fetchSetting('gemini_strategy_enabled',     '0'),
             fetchSetting('gemini_sl_pct',               '0.02'),
             fetchSetting('gemini_tp_pct',               '0.03'),
@@ -475,12 +419,6 @@ async function loadAll() {
             setPill('liveStatus', d.live_trading_enabled);
             setPill('liveEngineStatus', d.usdt_futures_enabled !== false);
         }
-        const cfg = cfgR.data || {};
-        const setV = (id, v, fallback) => { const el = document.getElementById(id); if (el) el.value = v != null ? v : fallback; };
-        setV('m_liveSlInput',    cfg.live_sl_pct           != null ? (parseFloat(cfg.live_sl_pct)           * 100).toFixed(1) : '10', '10');
-        setV('m_liveTpInput',    cfg.live_hard_tp_pct      != null ? (parseFloat(cfg.live_hard_tp_pct)      * 100).toFixed(1) : '20', '20');
-        setV('m_liveLimitInput', cfg.live_limit_offset_pct != null ? (parseFloat(cfg.live_limit_offset_pct) * 100).toFixed(1) : '3.0', '3.0');
-        setV('m_liveHoldSelect', cfg.live_hold_hours  != null ? String(cfg.live_hold_hours)  : '6', '6');
         const isOn = (s) => {
             const v = s && s.data ? s.data.value : (s && s.value);
             return v != null && ['1','true','yes','on'].indexOf(String(v).trim().toLowerCase()) !== -1;
@@ -488,16 +426,11 @@ async function loadAll() {
         const e1 = document.getElementById('m_disable5mConfirmToggle');
         if (e1) e1.checked = isOn(disable5mR);
 
-        // ── topshort signal-wait + gemini ──
+        // ── gemini ──
         const kvVal  = (rsp, fb) => (rsp && rsp.data && rsp.data.value != null) ? String(rsp.data.value) : fb;
         const setNum = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
         const setChk = (id, on)  => { const el = document.getElementById(id); if (el) el.checked = !!on; };
         const pct100 = (rsp, fb) => (parseFloat(kvVal(rsp, fb)) * 100).toFixed(1);
-
-        // topshort signal wait
-        setChk('m_topshortSigWaitToggle',  isOn(topEn));
-        setNum('m_topshortSigWaitMinInput',kvVal(topMin, '30'));
-        setNum('m_topshortSigAdverseInput',pct100(topAdv, '0.02'));
 
         // gemini
         setChk('m_geminiEnabledToggle',    isOn(gEn));
@@ -522,9 +455,6 @@ function autoSave(type) {
     _saving[type] = setTimeout(() => save(type), 500);
 }
 
-function getNumPct(id) { return parseFloat(document.getElementById(id)?.value || '0') / 100; }
-function getInt(id) { return parseInt(document.getElementById(id)?.value || '6', 10); }
-
 async function save(type) {
     if (type === 'services') {
         const body = { live_trading_enabled: document.getElementById('liveToggle').checked };
@@ -532,18 +462,6 @@ async function save(type) {
             method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
         }).then(r => r.json());
         if (r.success) { toast('服务设置已保存'); loadAll(); }
-        else toast('保存失败', 'err');
-    } else if (type === 'strategyConfig') {
-        const body = {
-            live_sl_pct:            getNumPct('m_liveSlInput'),
-            live_hard_tp_pct:       getNumPct('m_liveTpInput'),
-            live_limit_offset_pct:  getNumPct('m_liveLimitInput'),
-            live_hold_hours:        getInt('m_liveHoldSelect'),
-        };
-        const r = await fetch(`${SYS}/strategy-config`, {
-            method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
-        }).then(r => r.json());
-        if (r.success) toast('策略参数已保存，重启后生效');
         else toast('保存失败', 'err');
     } else if (type === 'guardSwitches') {
         const putSetting = (key, val, desc) => fetch(`${SYS}/settings/${key}`, {
@@ -557,7 +475,7 @@ async function save(type) {
             else toast('保存失败', 'err');
         } catch (e) { toast('保存失败: ' + e.message, 'err'); }
     } else if (type === 'extendedSettings') {
-        // 2026-05-15 极简化: 仅 topshort signal-wait + gemini
+        // 2026-05-18 极简化: 仅 gemini
         const putKv = (key, val, desc) => fetch(`${SYS}/settings/${key}`, {
             method:'PUT', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ setting_key: key, setting_value: String(val), description: desc })
@@ -567,10 +485,6 @@ async function save(type) {
         const pctIn  = (id, fb) => String(parseFloat(document.getElementById(id)?.value || fb) / 100);
         try {
             await Promise.all([
-                // topshort signal wait
-                putKv('topshort_signal_wait_enabled', chk('m_topshortSigWaitToggle') ? '1' : '0', 'topshort 30min 信号等待期总开关'),
-                putKv('topshort_signal_wait_min',  intIn('m_topshortSigWaitMinInput', '30'), 'topshort 等待时长(分钟)'),
-                putKv('topshort_signal_adverse_pct',pctIn('m_topshortSigAdverseInput','2'),  'topshort 反向阈值'),
                 // gemini
                 putKv('gemini_strategy_enabled',     chk('m_geminiEnabledToggle') ? '1' : '0', 'Gemini AI 决策策略总开关'),
                 putKv('gemini_sl_pct',               pctIn('m_geminiSlInput',     '2'),    'Gemini 止损'),

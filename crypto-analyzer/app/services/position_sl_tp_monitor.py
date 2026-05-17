@@ -34,7 +34,7 @@ def _db_cfg() -> Dict[str, Any]:
     }
 
 
-# 动态出场规则（与 strategy_live/whale/bigmid MID 同）
+# 动态出场规则（与 strategy_bigmid 同）
 # monitor 扫描频率高（默认 1s）可以更及时抓到小币快速穿越
 TRAIL_TP_TIERS = [
     (0.10, 0.03),  # peak ≥ 10% → 回落 3% 平
